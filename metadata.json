@@ -1,0 +1,8 @@
+{
+  "name": "CREDENCIA",
+  "description": "Sistema completo de credenciamento, controle de check-in, crachás e chapelaria para eventos.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

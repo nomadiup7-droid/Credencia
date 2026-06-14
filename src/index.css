@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --credencia-green: #12e000;
+  --credencia-green-hover: #0fc800;
+  --credencia-green-dark: #078000;
+  --credencia-surface: #f7f7f2;
+}
+
+::selection {
+  background: var(--credencia-green);
+  color: #0f172a;
+}
+
+body {
+  background: var(--credencia-surface);
+}
+
+body:not(.theme-dark) [class*="bg-[#f8fafc]"] {
+  background-color: var(--credencia-surface) !important;
+}
+
+body:not(.theme-dark) [class*="bg-blue-600"],
+body:not(.theme-dark) [class*="bg-blue-500"],
+body:not(.theme-dark) [class*="bg-[#1D4ED8]"] {
+  background-color: var(--credencia-green) !important;
+  color: #0f172a !important;
+}
+
+body:not(.theme-dark) [class*="hover:bg-blue-500"]:hover,
+body:not(.theme-dark) [class*="hover:bg-blue-600"]:hover,
+body:not(.theme-dark) [class*="hover:bg-blue-700"]:hover,
+body:not(.theme-dark) [class*="hover:bg-[#173FAE]"]:hover {
+  background-color: var(--credencia-green-hover) !important;
+  color: #0f172a !important;
+}
+
+body:not(.theme-dark) [class*="text-blue-600"],
+body:not(.theme-dark) [class*="text-blue-500"],
+body:not(.theme-dark) [class*="text-blue-400"],
+body:not(.theme-dark) [class*="text-[#1D4ED8]"] {
+  color: var(--credencia-green-dark) !important;
+}
+
+body:not(.theme-dark) [class*="border-blue-500"],
+body:not(.theme-dark) [class*="border-blue-400"],
+body:not(.theme-dark) [class*="border-[#1D4ED8]"] {
+  border-color: var(--credencia-green) !important;
+}
+
+body:not(.theme-dark) [class*="ring-blue-500"],
+body:not(.theme-dark) [class*="ring-blue-100"],
+body:not(.theme-dark) [class*="ring-[#1D4ED8]"] {
+  --tw-ring-color: rgb(18 224 0 / 0.24) !important;
+}
+
+body:not(.theme-dark) [class*="focus:border-blue-500"]:focus,
+body:not(.theme-dark) [class*="focus:border-blue-400"]:focus,
+body:not(.theme-dark) [class*="focus:border-[#1D4ED8]"]:focus {
+  border-color: var(--credencia-green) !important;
+}
+
+body:not(.theme-dark) [class*="focus:ring-blue-500"]:focus,
+body:not(.theme-dark) [class*="focus:ring-blue-100"]:focus,
+body:not(.theme-dark) [class*="focus:ring-[#1D4ED8]"]:focus {
+  --tw-ring-color: rgb(18 224 0 / 0.24) !important;
+}
+
+.theme-dark {
+  background: #0b1120;
+  color: #e5e7eb;
+}
+
+.theme-dark header,
+.theme-dark [class*="bg-white"],
+.theme-dark [class*="bg-slate-50"],
+.theme-dark [class*="bg-slate-100"],
+.theme-dark [class*="bg-[#f8fafc]"] {
+  background-color: #111827 !important;
+  color: #e5e7eb !important;
+}
+
+.theme-dark [class*="border-slate-100"],
+.theme-dark [class*="border-slate-150"],
+.theme-dark [class*="border-slate-200"],
+.theme-dark [class*="border-slate-300"],
+.theme-dark [class*="border-blue-100"],
+.theme-dark [class*="border-blue-200"] {
+  border-color: #334155 !important;
+}
+
+.theme-dark [class*="text-slate-950"],
+.theme-dark [class*="text-slate-900"],
+.theme-dark [class*="text-slate-800"],
+.theme-dark [class*="text-slate-700"],
+.theme-dark [class*="text-[#0F172A]"] {
+  color: #f8fafc !important;
+}
+
+.theme-dark [class*="text-slate-600"],
+.theme-dark [class*="text-slate-500"],
+.theme-dark [class*="text-slate-400"] {
+  color: #cbd5e1 !important;
+}
+
+.theme-dark input,
+.theme-dark select,
+.theme-dark textarea {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #475569 !important;
+}
+
+.theme-dark input::placeholder,
+.theme-dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.theme-dark table,
+.theme-dark tbody,
+.theme-dark tr {
+  color: #e5e7eb;
+}
+
+.theme-dark .shadow-sm,
+.theme-dark .shadow-md,
+.theme-dark .shadow-lg,
+.theme-dark .shadow-xl {
+  box-shadow: none !important;
+}
+
+/* Print settings for badge printing */
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}

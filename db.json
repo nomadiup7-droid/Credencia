@@ -1,0 +1,104 @@
+{
+    "organizations":  [
+                          {
+                              "id":  "org1",
+                              "name":  "Credencia",
+                              "createdAt":  "2026-06-13T21:53:24.8468291Z"
+                          }
+                      ],
+    "users":  [
+                  {
+                      "id":  "admin_ewertton",
+                      "name":  "Ewertton Herculano",
+                      "email":  "ewertton@credencia.com",
+                      "role":  "ADMIN",
+                      "pin":  "1111",
+                      "passwordHash":  "123456",
+                      "organizationId":  "org1",
+                      "createdAt":  "2026-06-13T21:53:24.8572831Z"
+                  },
+                  {
+                      "id":  "admin_fernando",
+                      "name":  "Fernando Mendes",
+                      "email":  "fernando@credencia.com",
+                      "role":  "ADMIN",
+                      "pin":  "2222",
+                      "passwordHash":  "123456",
+                      "organizationId":  "org1",
+                      "createdAt":  "2026-06-13T21:53:24.8572831Z"
+                  }
+              ],
+    "events":  [
+
+               ],
+    "participants":  [
+
+                     ],
+    "cloakroom":  [
+
+                  ],
+    "checkins":  [
+
+                 ],
+    "logs":  [
+
+             ],
+    "participantFields":  [
+                              {
+                                  "id":  "f_name",
+                                  "name":  "Nome Completo",
+                                  "type":  "text",
+                                  "required":  true,
+                                  "active":  true,
+                                  "order":  1
+                              },
+                              {
+                                  "id":  "f_email",
+                                  "name":  "E-mail de Contato",
+                                  "type":  "email",
+                                  "required":  true,
+                                  "active":  true,
+                                  "order":  2
+                              },
+                              {
+                                  "id":  "f_cpf",
+                                  "name":  "CPF",
+                                  "type":  "text",
+                                  "required":  true,
+                                  "active":  true,
+                                  "order":  3
+                              },
+                              {
+                                  "id":  "f_category",
+                                  "name":  "Categoria Operacional",
+                                  "type":  "select",
+                                  "required":  true,
+                                  "active":  true,
+                                  "options":  [
+                                                  "Participante",
+                                                  "Palestrante",
+                                                  "VIP",
+                                                  "Expositor",
+                                                  "Staff"
+                                              ],
+                                  "order":  4
+                              },
+                              {
+                                  "id":  "f_company",
+                                  "name":  "Empresa",
+                                  "type":  "text",
+                                  "required":  false,
+                                  "active":  true,
+                                  "order":  5
+                              }
+                          ],
+    "areas":  [
+
+              ],
+    "areaAccessLogs":  [
+
+                       ],
+    "accessProfiles":  [
+
+                       ]
+}
