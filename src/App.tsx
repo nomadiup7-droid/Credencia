@@ -68,6 +68,46 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
+type ActiveTab =
+  | 'dashboard'
+  | 'eventos-ativos'
+  | 'evento-dashboard'
+  | 'eventos'
+  | 'participantes'
+  | 'checkin'
+  | 'checkin-modular'
+  | 'scanner'
+  | 'areas'
+  | 'chapelaria'
+  | 'relatorios'
+  | 'impressao'
+  | 'etiquetas'
+  | 'usuarios'
+  | 'campos';
+
+const ACTIVE_TAB_STORAGE_KEY = 'credencia_active_tab';
+const ACTIVE_TABS: ActiveTab[] = [
+  'dashboard',
+  'eventos-ativos',
+  'evento-dashboard',
+  'eventos',
+  'participantes',
+  'checkin',
+  'checkin-modular',
+  'scanner',
+  'areas',
+  'chapelaria',
+  'relatorios',
+  'impressao',
+  'etiquetas',
+  'usuarios',
+  'campos'
+];
+
+const isActiveTab = (value: string | null): value is ActiveTab => {
+  return !!value && ACTIVE_TABS.includes(value as ActiveTab);
+};
+
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -81,9 +121,11 @@ export default function App() {
   });
 
   const userRole = String(currentUser?.role || '').toUpperCase();
-  const isUserAdmin = userRole === 'ADMIN' || userRole === 'SUPERVISOR' || currentUser?.role === 'admin';
-  const isUserCheckin = userRole === 'CHECKIN';
-  const isUserCheckinCadastro = userRole === 'CHECKIN_CADASTRO';
+  const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin';
+  const isOperatorLevel1 = userRole === 'SUPERVISOR';
+  const isOperatorLevel2 = userRole === 'CHECKIN_CADASTRO';
+  const canManageParticipants = isUserAdmin || isOperatorLevel1 || isOperatorLevel2;
+  const canViewReports = isUserAdmin || isOperatorLevel1;
   const isFernandoAdmin = String(currentUser?.email || '').toLowerCase() === 'fernando@credencia.com';
 
   // Login Form States
@@ -111,13 +153,16 @@ export default function App() {
   // Active Event
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>(() => localStorage.getItem('credencia_selected_event_id') || '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'eventos-ativos' | 'evento-dashboard' | 'eventos' | 'participantes' | 'checkin' | 'checkin-modular' | 'scanner' | 'areas' | 'chapelaria' | 'relatorios' | 'impressao' | 'etiquetas' | 'usuarios' | 'campos'>(() => {
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    if (isActiveTab(savedTab)) return savedTab;
+
     const saved = localStorage.getItem('credencia_user');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         const savedRole = String(parsed?.role || '').toUpperCase();
-        if (savedRole !== 'ADMIN' && savedRole !== 'SUPERVISOR') {
+        if (savedRole !== 'ADMIN' && parsed?.role !== 'admin') {
           return 'checkin';
         }
       } catch (e) {}
@@ -303,6 +348,7 @@ export default function App() {
     localStorage.removeItem('credencia_token');
     localStorage.removeItem('credencia_user');
     localStorage.removeItem('credencia_selected_event_id');
+    localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
     setToken(null);
     setCurrentUser(null);
     setSelectedEventId('');
@@ -454,12 +500,23 @@ export default function App() {
     }
   }, [activeTab, isUserAdmin, token]);
 
-  // Restructure and restrict non-admin users solely to check-in and scanner tabs
   useEffect(() => {
-    if (currentUser && !isUserAdmin && activeTab !== 'checkin' && activeTab !== 'scanner') {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
+
+  // Keep the current tab when it is allowed; only redirect when permissions require it.
+  useEffect(() => {
+    if (!currentUser) return;
+    if (isUserAdmin) return;
+
+    const allowedTabs: ActiveTab[] = ['checkin'];
+    if (canManageParticipants) allowedTabs.push('participantes');
+    if (canViewReports) allowedTabs.push('relatorios');
+
+    if (!allowedTabs.includes(activeTab)) {
       setActiveTab('checkin');
     }
-  }, [currentUser, isUserAdmin, activeTab]);
+  }, [currentUser, isUserAdmin, canManageParticipants, canViewReports, activeTab]);
 
   // --- Fetch Operations ---
   const loadEvents = async () => {
@@ -486,7 +543,7 @@ export default function App() {
       setAvailableAreas(areasData || []);
       setAccessProfiles(profilesData || []);
 
-      if (isUserAdmin) {
+      if (isUserAdmin || canViewReports) {
         // Parallelize fetches for speedy Operacao load times for admins
         const [plist, clist, statData] = await Promise.all([
           apiCall(`/api/events/${eventId}/participants`),
@@ -1405,48 +1462,44 @@ export default function App() {
   const roleText = (() => {
     const role = String(currentUser?.role || '').toUpperCase();
     if (role === 'ADMIN' || currentUser?.role === 'admin') return 'Administrador';
-    if (role === 'SUPERVISOR') return 'Supervisor';
-    if (role === 'CHECKIN_CADASTRO') return 'Check-in e cadastro';
-    if (role === 'CHECKIN' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador';
-    return 'Atendente';
+    if (role === 'SUPERVISOR') return 'Operador Nível 1';
+    if (role === 'CHECKIN_CADASTRO') return 'Operador Nível 2';
+    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador Nível 3';
+    return 'Operador';
   })();
 
   const eventHasAccessControl = currentEvent?.enableAccessControl !== false;
   const eventHasCloakroom = currentEvent?.enableCloakroom === true;
   const eventHasScanner = currentEvent?.enableScanner !== false;
 
-  const adminNavItems = [
-    { id: 'dashboard', label: 'Painel geral', icon: BarChart3 },
-    { id: 'eventos', label: 'Eventos', icon: Calendar },
-    { id: 'usuarios', label: 'Operadores', icon: Users },
-    { id: 'participantes', label: 'Participantes', icon: Users },
-    { id: 'checkin', label: 'Check-in', icon: QrCode },
-    { id: 'areas', label: 'Salas e acessos', icon: ShieldCheck },
-  ] as const;
-
-  const eventNavItems = currentEvent ? [
-    { id: 'evento-dashboard', label: 'Painel do evento', icon: BarChart3 },
-    { id: 'participantes', label: 'Participantes', icon: Users },
-    { id: 'checkin', label: 'Check-in', icon: QrCode },
-    ...(eventHasScanner ? [{ id: 'scanner', label: 'Scanner', icon: Camera }] : []),
-    ...(eventHasAccessControl ? [{ id: 'areas', label: 'Salas e acessos', icon: ShieldCheck }] : []),
-    ...(eventHasCloakroom ? [{ id: 'chapelaria', label: 'Chapelaria', icon: FolderLock }] : []),
-  ] : [];
-
-  const secondaryNavItems = [
-    ...(isUserAdmin ? [{ id: 'eventos-ativos', label: 'Evento ativo', icon: Calendar }] : []),
-    ...(isUserAdmin ? [{ id: 'scanner', label: 'Scanner', icon: Camera }] : []),
-    ...(isUserAdmin ? [{ id: 'chapelaria', label: 'Chapelaria', icon: FolderLock }] : []),
-    ...(isUserAdmin ? [{ id: 'relatorios', label: 'Relatorios', icon: Download }] : []),
-    ...(isUserAdmin ? [{ id: 'impressao', label: 'Impressao', icon: Printer }] : []),
+  const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
+    ...(isUserAdmin ? [{ id: 'dashboard' as const, label: 'Painel Geral', icon: BarChart3 }] : []),
+    ...(isUserAdmin ? [{ id: 'eventos' as const, label: 'Eventos', icon: Calendar }] : []),
+    ...(isUserAdmin ? [{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
+    ...(canManageParticipants || isUserAdmin ? [{ id: 'participantes' as const, label: 'Participantes', icon: Users }] : []),
+    ...(isUserAdmin ? [{ id: 'campos' as const, label: 'Campos de Cadastro', icon: FileText }] : []),
+    { id: 'checkin' as const, label: 'Check-in', icon: QrCode },
+    ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
+    ...(isUserAdmin ? [{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
+    ...(isUserAdmin ? [{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
+    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
+    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
   ];
 
-  const navItems = [
-    ...(isUserAdmin ? adminNavItems : []),
-    ...eventNavItems,
-  ];
+  const secondaryNavItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [];
 
   const isMoreActive = secondaryNavItems.some(item => item.id === activeTab);
+  const visibleNavIds = navItems.map(item => item.id);
+  const visibleNavKey = visibleNavIds.join('|');
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const internalTabs: ActiveTab[] = ['evento-dashboard', 'eventos-ativos', 'etiquetas', 'checkin-modular'];
+    if (internalTabs.includes(activeTab)) return;
+    if (!visibleNavIds.includes(activeTab)) {
+      setActiveTab(isUserAdmin ? 'dashboard' : 'checkin');
+    }
+  }, [currentUser, activeTab, isUserAdmin, visibleNavKey]);
 
   return (
     <div className={`min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ? 'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
@@ -2531,19 +2584,11 @@ export default function App() {
             {activeTab === 'impressao' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Impressao</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Campos e etiquetas</h2>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Impressão de Etiquetas</p>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração de etiquetas e crachás</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Configure os campos de cadastro e o modelo de impressao das credenciais do evento.
+                    Configure o modelo de impressão, fontes, campos exibidos e layout das credenciais do evento.
                   </p>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6">
-                  <FieldsConfig
-                    apiCall={apiCall}
-                    addToast={addToast}
-                    currentUser={currentUser}
-                  />
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6">
@@ -2571,13 +2616,23 @@ export default function App() {
             )}
 
             {/* --- TAB 11: CONFIGURAÇÃO DOS CAMPOS DE CADASTRO --- */}
-            {false && activeTab === 'campos' && (
-              <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 animate-fade-in animate-none">
-                <FieldsConfig 
-                  apiCall={apiCall}
-                  addToast={addToast}
-                  currentUser={currentUser}
-                />
+            {activeTab === 'campos' && (
+              <div className="space-y-6 animate-fade-in">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Campos de Cadastro</p>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração dos campos de cadastro</h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Defina os campos exibidos nos cadastros e formulários rápidos dos participantes.
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6">
+                  <FieldsConfig 
+                    apiCall={apiCall}
+                    addToast={addToast}
+                    currentUser={currentUser}
+                  />
+                </div>
               </div>
             )}
 
@@ -2639,9 +2694,9 @@ export default function App() {
                                   'bg-blue-100 text-blue-800'
                                 }`}>
                                   {String(u.role).toUpperCase() === 'ADMIN' ? 'Administrador' :
-                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Supervisor' :
-                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Check-in + Cadastro' :
-                                   String(u.role).toUpperCase() === 'CHECKIN' ? 'Check-in apenas' :
+                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Operador Nível 1' :
+                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Operador Nível 2' :
+                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ? 'Operador Nível 3' :
                                    String(u.role)}
                                 </span>
                               </td>
@@ -3268,9 +3323,10 @@ export default function App() {
                   onChange={e => setUserForm(prev => ({ ...prev, role: e.target.value as UserRole }))}
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
                 >
-                  <option value="CHECKIN">CHECKIN - Operador (Somente Check-in)</option>
-                  <option value="CHECKIN_CADASTRO">CHECKIN_CADASTRO - Operador (Check-in + Cadastro)</option>
-                  <option value="ADMIN">ADMIN - Administrador (Controle Total)</option>
+                  <option value="ADMIN">Administrador - Acesso total</option>
+                  <option value="SUPERVISOR">Operador Nível 1 - Check-in, cadastro e relatórios</option>
+                  <option value="CHECKIN_CADASTRO">Operador Nível 2 - Check-in e cadastro</option>
+                  <option value="CHECKIN">Operador Nível 3 - Apenas check-in</option>
                 </select>
               </div>
 
