@@ -293,7 +293,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
 
                   {/* QR Code */}
                   <div className="flex items-center justify-center pb-5 shrink-0">
-                    <QRCodeGen value={participant.ticketCode} size={110} />
+                    <QRCodeGen value={participant.ticketCode} size={110} frameless />
                   </div>
 
                   <div className={`${colors.bg} py-3 text-center text-white font-bold tracking-widest uppercase text-sm font-display shrink-0`}>
@@ -413,7 +413,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
                 {labelConfig.showQrCode && (
                   <div className="shrink-0 flex items-center justify-center m-1 select-none"
                        style={{ order: labelConfig.qrPosition === 'left' ? -1 : 0 }}>
-                    <QRCodeGen value={participant.ticketCode} size={labelConfig.qrSize * 2.2} />
+                    <QRCodeGen value={participant.ticketCode} size={labelConfig.qrSize * 2.2} frameless />
                   </div>
                 )}
               </div>
@@ -448,7 +448,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
               </div>
 
               <div className="flex items-center justify-center pb-4 animate-fade-in font-sans">
-                <QRCodeGen value={participant.ticketCode} size={110} showValueText={false} />
+                <QRCodeGen value={participant.ticketCode} size={110} showValueText={false} frameless />
               </div>
 
               <div className="w-full bg-zinc-900 py-3 text-center text-white font-bold tracking-widest uppercase text-sm font-display rounded-b-lg">
@@ -579,7 +579,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
                 marginLeft: '4mm',
                 order: labelConfig.qrPosition === 'left' ? -1 : 0
               }}>
-                <QRCodeGen value={participant.ticketCode} size={labelConfig.qrSize * 3.7} showValueText={false} />
+                <QRCodeGen value={participant.ticketCode} size={labelConfig.qrSize * 3.7} showValueText={false} frameless />
               </div>
             )}
           </div>

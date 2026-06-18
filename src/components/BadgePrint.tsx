@@ -376,13 +376,13 @@ export default function BadgePrint({
             {/* Bottom section (with QR Code) */}
             {config.showQrCode && (
               <div 
-                className="shrink-0 flex items-center justify-center p-0.5 bg-white border border-slate-100 rounded shadow-xs"
+                className="shrink-0 flex items-center justify-center"
                 style={{
                   order: qrOrder,
                   margin: '6px'
                 }}
               >
-                <UserQRCode value={participant.id} size={config.qrSize * 2.2} />
+                <UserQRCode value={participant.id} size={config.qrSize * 2.2} frameless />
               </div>
             )}
           </div>

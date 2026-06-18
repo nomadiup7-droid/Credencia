@@ -4,15 +4,16 @@ interface QRCodeProps {
   value: string;
   size?: number;
   showValueText?: boolean;
+  frameless?: boolean;
 }
 
-export default function QRCodeGen({ value, size = 150, showValueText = true }: QRCodeProps) {
+export default function QRCodeGen({ value, size = 150, showValueText = true, frameless = false }: QRCodeProps) {
   // Generate a reliable, universally scannable QR Code using the trusted qrserver API.
   // This allows the user to actually test with their smartphone camera on the sandbox screen!
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}&margin=10`;
 
   return (
-    <div className="flex flex-col items-center justify-center bg-white p-2 rounded-lg border border-gray-100 shadow-sm">
+    <div className={`flex flex-col items-center justify-center ${frameless ? 'bg-transparent p-0 border-0 shadow-none rounded-none' : 'bg-white p-2 rounded-lg border border-gray-100 shadow-sm'}`}>
       <img
         src={qrUrl}
         alt={`QR Code: ${value}`}

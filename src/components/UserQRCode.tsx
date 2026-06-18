@@ -6,13 +6,15 @@ interface UserQRCodeProps {
   value: string;
   size?: number;
   className?: string;
+  frameless?: boolean;
 }
 
 export default function UserQRCode({
   id,
   value,
   size = 150,
-  className = ''
+  className = '',
+  frameless = false
 }: UserQRCodeProps) {
   const [qrUrl, setQrUrl] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -73,7 +75,7 @@ export default function UserQRCode({
       width={size}
       height={size}
       referrerPolicy="no-referrer"
-      className={`rounded-lg bg-white border border-slate-100 p-1 object-contain ${className}`}
+      className={`${frameless ? 'bg-transparent border-0 p-0 rounded-none' : 'rounded-lg bg-white border border-slate-100 p-1'} object-contain ${className}`}
     />
   );
 }

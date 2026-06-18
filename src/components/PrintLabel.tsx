@@ -125,7 +125,7 @@ export default function PrintLabel({
 
             {/* QR Code section */}
             <div className="shrink-0 flex items-center justify-center pl-2">
-              <UserQRCode value={participant.id} size={110} />
+              <UserQRCode value={participant.id} size={110} frameless />
             </div>
           </div>
         </div>
