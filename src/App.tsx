@@ -159,7 +159,16 @@ export default function App() {
   });
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [userForm, setUserForm] = useState({ id: '', name: '', email: '', password: '', role: 'CHECKIN' as UserRole });
+  const [userForm, setUserForm] = useState({
+    id: '',
+    name: '',
+    email: '',
+    password: '',
+    role: 'CHECKIN' as UserRole,
+    eventId: '',
+    eventRole: 'CHECKIN' as EventUserRole,
+    eventActive: true
+  });
 
   // Active Event
   const [events, setEvents] = useState<Event[]>([]);
@@ -307,7 +316,7 @@ export default function App() {
       return await res.json();
     } catch (e: any) {
       console.error(`API Call failed to [${endpoint}]:`, e);
-      addToast(e.message || 'Erro de comunicação com o servidor', 'error');
+      addToast(e.message || 'Erro de comunicaÃ§Ã£o com o servidor', 'error');
       throw e;
     }
   };
@@ -356,7 +365,7 @@ export default function App() {
       addToast(`Bem-vindo de volta, ${data.user.name}!`, 'success');
     } catch (err: any) {
       // failed PIN attempts are warned
-      addToast(err.message || 'Código PIN incorreto', 'error');
+      addToast(err.message || 'CÃ³digo PIN incorreto', 'error');
       throw err;
     } finally {
       setAuthLoading(false);
@@ -393,7 +402,7 @@ export default function App() {
     setEvents([]);
     setParticipants([]);
     setStats(null);
-    addToast('Sessão encerrada com sucesso', 'info');
+    addToast('SessÃ£o encerrada com sucesso', 'info');
   };
 
   // Signup/Registration Handler
@@ -436,7 +445,7 @@ export default function App() {
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profileForm.name || !profileForm.email) {
-      addToast('Nome e e-mail são obrigatórios para seu perfil.', 'error');
+      addToast('Nome e e-mail sÃ£o obrigatÃ³rios para seu perfil.', 'error');
       return;
     }
 
@@ -474,7 +483,7 @@ export default function App() {
       const data = await apiCall('/api/users');
       setUsersList(data);
     } catch (e) {
-      console.error('Erro ao ler lista de usuários:', e);
+      console.error('Erro ao ler lista de usuÃ¡rios:', e);
     } finally {
       setIsLoadingUsers(false);
     }
@@ -489,14 +498,14 @@ export default function App() {
       const data = await apiCall(`/api/events/${eventId}/users`);
       setEventUsers(data);
     } catch (e) {
-      console.error('Erro ao carregar vínculos de operadores por evento:', e);
+      console.error('Erro ao carregar vÃ­nculos de operadores por evento:', e);
     }
   };
 
   const handleSaveEventUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventUserForm.eventId || !eventUserForm.userId || !eventUserForm.role) {
-      addToast('Selecione evento, usuário e permissão do vínculo.', 'error');
+      addToast('Selecione evento, usuÃ¡rio e permissÃ£o do vÃ­nculo.', 'error');
       return;
     }
 
@@ -513,7 +522,7 @@ export default function App() {
         const exists = prev.some(link => link.id === saved.id);
         return exists ? prev.map(link => link.id === saved.id ? saved : link) : [...prev, saved];
       });
-      addToast('Vínculo entre usuário e evento salvo com sucesso!', 'success');
+      addToast('VÃ­nculo entre usuÃ¡rio e evento salvo com sucesso!', 'success');
     } catch (e) {}
   };
 
@@ -528,11 +537,11 @@ export default function App() {
   };
 
   const handleDeleteEventUser = async (link: EventUser) => {
-    if (!window.confirm('Remover este vínculo entre usuário e evento?')) return;
+    if (!window.confirm('Remover este vÃ­nculo entre usuÃ¡rio e evento?')) return;
     try {
       await apiCall(`/api/events/${link.eventId}/users/${link.id}`, { method: 'DELETE' });
       setEventUsers(prev => prev.filter(item => item.id !== link.id));
-      addToast('Vínculo removido com sucesso.', 'info');
+      addToast('VÃ­nculo removido com sucesso.', 'info');
     } catch (e) {}
   };
 
@@ -540,7 +549,7 @@ export default function App() {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userForm.name || !userForm.email || (!userForm.id && !userForm.password)) {
-      addToast('Nome, E-mail e Senha são campos obrigatórios para novos operadores.', 'error');
+      addToast('Nome, E-mail e Senha sÃ£o campos obrigatÃ³rios para novos operadores.', 'error');
       return;
     }
 
@@ -561,28 +570,57 @@ export default function App() {
 
       if (isEdit) {
         setUsersList(prev => prev.map(u => u.id === saved.id ? saved : u));
-        addToast(`Usuário "${saved.name}" atualizado com sucesso!`, 'success');
+        addToast(`UsuÃ¡rio "${saved.name}" atualizado com sucesso!`, 'success');
       } else {
         setUsersList(prev => [...prev, saved]);
-        addToast(`Usuário "${saved.name}" criado com login e senha prontos!`, 'success');
+        addToast(`UsuÃ¡rio "${saved.name}" criado com login e senha prontos!`, 'success');
+      }
+
+      if (userForm.eventId) {
+        const savedLink = await apiCall(`/api/events/${userForm.eventId}/users`, {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: saved.id,
+            role: userForm.eventRole,
+            active: userForm.eventActive
+          })
+        });
+
+        if (userForm.eventId === eventUserForm.eventId) {
+          setEventUsers(prev => {
+            const exists = prev.some(link => link.id === savedLink.id);
+            return exists ? prev.map(link => link.id === savedLink.id ? savedLink : link) : [...prev, savedLink];
+          });
+        }
+
+        addToast(`VÃƒÂ­nculo de "${saved.name}" com evento criado.`, 'success');
       }
 
       setIsUserModalOpen(false);
-      setUserForm({ id: '', name: '', email: '', password: '', role: 'CHECKIN' });
+      setUserForm({
+        id: '',
+        name: '',
+        email: '',
+        password: '',
+        role: 'CHECKIN',
+        eventId: '',
+        eventRole: 'CHECKIN',
+        eventActive: true
+      });
     } catch (err) {}
   };
 
   // Delete credentials of an operator/admin
   const handleDeleteUser = async (id: string) => {
     if (id === currentUser?.id) {
-      addToast('Você não pode excluir sua própria conta atualmente ativa.', 'error');
+      addToast('VocÃª nÃ£o pode excluir sua prÃ³pria conta atualmente ativa.', 'error');
       return;
     }
-    if (!window.confirm('Excluir este login removerá definitivamente o acesso dele ao sistema. Confirmar exclusão?')) return;
+    if (!window.confirm('Excluir este login removerÃ¡ definitivamente o acesso dele ao sistema. Confirmar exclusÃ£o?')) return;
 
     try {
       await apiCall(`/api/users/${id}`, { method: 'DELETE' });
-      addToast('Usuário revogado do sistema.', 'success');
+      addToast('UsuÃ¡rio revogado do sistema.', 'success');
       setUsersList(prev => prev.filter(u => u.id !== id));
     } catch (e) {}
   };
@@ -737,7 +775,7 @@ export default function App() {
   const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventForm.name || !eventForm.date || !eventForm.location || !eventForm.capacity) {
-      addToast('Todos os campos são obrigatórios', 'error');
+      addToast('Todos os campos sÃ£o obrigatÃ³rios', 'error');
       return;
     }
 
@@ -767,7 +805,7 @@ export default function App() {
   };
 
   const handleDeleteEvent = async (id: string) => {
-    if (!window.confirm('Atenção: A remoção deste evento excluirá em cascata todos os participantes e itens de chapelaria relacionados. Deseja prosseguir?')) return;
+    if (!window.confirm('AtenÃ§Ã£o: A remoÃ§Ã£o deste evento excluirÃ¡ em cascata todos os participantes e itens de chapelaria relacionados. Deseja prosseguir?')) return;
     try {
       await apiCall(`/api/events/${id}`, { method: 'DELETE' });
       addToast('Evento removido do sistema.', 'success');
@@ -782,7 +820,7 @@ export default function App() {
   const handleSaveParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canCreateParticipants && !participantForm.id) {
-      addToast('Usuário sem permissão para cadastrar participantes neste evento.', 'error');
+      addToast('UsuÃ¡rio sem permissÃ£o para cadastrar participantes neste evento.', 'error');
       return;
     }
     if (!selectedEventId) {
@@ -790,7 +828,7 @@ export default function App() {
       return;
     }
     if (!participantForm.name || !participantForm.email) {
-      addToast('Nome e e-mail são obrigatórios!', 'error');
+      addToast('Nome e e-mail sÃ£o obrigatÃ³rios!', 'error');
       return;
     }
 
@@ -860,7 +898,7 @@ export default function App() {
       return;
     }
     if (!scanCode.trim()) {
-      addToast('Insira um CPF ou código do convite.', 'error');
+      addToast('Insira um CPF ou cÃ³digo do convite.', 'error');
       return;
     }
 
@@ -894,12 +932,12 @@ export default function App() {
     } catch (err: any) {
       setScanResult({
         success: false,
-        message: err.message || 'Código do participante não localizado ou já credenciado.'
+        message: err.message || 'CÃ³digo do participante nÃ£o localizado ou jÃ¡ credenciado.'
       });
     }
   };
 
-  // Cadastra e efetua Check-in com Impressão de Etiqueta instantânea na recepção
+  // Cadastra e efetua Check-in com ImpressÃ£o de Etiqueta instantÃ¢nea na recepÃ§Ã£o
   const handleCheckinAddParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEventId) {
@@ -907,7 +945,7 @@ export default function App() {
       return;
     }
     if (!checkinAddForm.name || !checkinAddForm.email || !checkinAddForm.cpf) {
-      addToast('Preencha os campos obrigatórios!', 'error');
+      addToast('Preencha os campos obrigatÃ³rios!', 'error');
       return;
     }
 
@@ -927,21 +965,21 @@ export default function App() {
       setParticipants(prev => [saved, ...prev]);
       addToast('Membro cadastrado e credenciado com sucesso!', 'success');
       
-      // Limpa formulário da recepção
+      // Limpa formulÃ¡rio da recepÃ§Ã£o
       setCheckinAddForm({ name: '', email: '', cpf: '', category: 'Participante', company: '' });
       setShowCheckinAddForm(false);
       
-      // Auto-abre para impressão da etiqueta
+      // Auto-abre para impressÃ£o da etiqueta
       setActiveBadgeParticipant(saved);
       
       // Recarrega dados
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
-      addToast(err.message || 'Erro ao realizar o cadastro de recepção.', 'error');
+      addToast(err.message || 'Erro ao realizar o cadastro de recepÃ§Ã£o.', 'error');
     }
   };
 
-  // Realiza check-in e dispara a impressão de crachá de uma só vez
+  // Realiza check-in e dispara a impressÃ£o de crachÃ¡ de uma sÃ³ vez
   const handleCheckinAndPrint = async (participant: Participant) => {
     try {
       let updatedParticipant = participant;
@@ -977,7 +1015,7 @@ export default function App() {
       return;
     }
     if (!cloakroomForm.participantName || !cloakroomForm.itemDescription) {
-      addToast('Nome do participante e descrição do item são obrigatórios', 'error');
+      addToast('Nome do participante e descriÃ§Ã£o do item sÃ£o obrigatÃ³rios', 'error');
       return;
     }
 
@@ -996,11 +1034,11 @@ export default function App() {
   };
 
   const handleWithdrawCloakroomItem = async (id: string, tagNum: number) => {
-    if (!window.confirm(`Confirmar devolução do item etiqueta #${tagNum}?`)) return;
+    if (!window.confirm(`Confirmar devoluÃ§Ã£o do item etiqueta #${tagNum}?`)) return;
     try {
       const updated = await apiCall(`/api/cloakroom/${id}/collect`, { method: 'POST' });
       setCloakroom(prev => prev.map(item => item.id === id ? updated : item));
-      addToast(`Etiqueta #${tagNum} devolvida e concluída com sucesso!`, 'success');
+      addToast(`Etiqueta #${tagNum} devolvida e concluÃ­da com sucesso!`, 'success');
       if (selectedEventId) {
         loadDataForEvent(selectedEventId);
       }
@@ -1008,7 +1046,7 @@ export default function App() {
   };
 
   const handleDeleteCloakroomItem = async (id: string) => {
-    if (!window.confirm('Remover definitivamente este registro de chapelaria do histórico?')) return;
+    if (!window.confirm('Remover definitivamente este registro de chapelaria do histÃ³rico?')) return;
     try {
       await apiCall(`/api/cloakroom/${id}`, { method: 'DELETE' });
       setCloakroom(prev => prev.filter(item => item.id !== id));
@@ -1046,7 +1084,7 @@ export default function App() {
 
   const processUploadedFile = (file: File) => {
     if (!canCreateParticipants) {
-      addToast('Usuário sem permissão para importar participantes neste evento.', 'error');
+      addToast('UsuÃ¡rio sem permissÃ£o para importar participantes neste evento.', 'error');
       return;
     }
     if (!file || !selectedEventId) return;
@@ -1059,7 +1097,7 @@ export default function App() {
       try {
         const arrayBuffer = event.target?.result as ArrayBuffer;
         if (!arrayBuffer) {
-          addToast('Não foi possível ler o arquivo.', 'error');
+          addToast('NÃ£o foi possÃ­vel ler o arquivo.', 'error');
           setImportFileIsLoading(false);
           return;
         }
@@ -1078,7 +1116,7 @@ export default function App() {
         const rawRows = XLSX.utils.sheet_to_json(worksheet);
 
         if (rawRows.length === 0) {
-          addToast('A planilha enviada está vazia ou sem linhas de dados.', 'error');
+          addToast('A planilha enviada estÃ¡ vazia ou sem linhas de dados.', 'error');
           setImportFileIsLoading(false);
           return;
         }
@@ -1095,10 +1133,10 @@ export default function App() {
           };
 
           const rawNome = findValue(['nome', 'name', 'nome completo', 'nome_completo', 'full name', 'fullname', 'membro']);
-          const rawEmail = findValue(['email', 'e-mail', 'mail', 'endereço de e-mail', 'correio']);
+          const rawEmail = findValue(['email', 'e-mail', 'mail', 'endereÃ§o de e-mail', 'correio']);
           const rawCpf = findValue(['cpf', 'c.p.f.', 'documento', 'identidade', 'cpf/cnpj']);
           const rawCategory = findValue(['categoria', 'category', 'grupo']);
-          const rawCompany = findValue(['empresa', 'company', 'corporação', 'corporacao', 'org', 'organização', 'organizacao', 'trabalho']);
+          const rawCompany = findValue(['empresa', 'company', 'corporaÃ§Ã£o', 'corporacao', 'org', 'organizaÃ§Ã£o', 'organizacao', 'trabalho']);
           const rawProfile = findValue(['perfil', 'tipo', 'type', 'profile', 'accessprofile', 'access_profile']);
           const rawAreas = findValue(['areas', 'acessos', 'area', 'acesso', 'salas', 'sala', 'allowed_areas', 'allowedareas']);
 
@@ -1113,27 +1151,27 @@ export default function App() {
 
           const errors: string[] = [];
 
-          // 1. Validar Nome obritatório
+          // 1. Validar Nome obritatÃ³rio
           if (!nome) {
-            errors.push('Nome é obrigatório');
+            errors.push('Nome Ã© obrigatÃ³rio');
           }
 
-          // 2. Validar CPF e formato válido (apenas se fornecido)
+          // 2. Validar CPF e formato vÃ¡lido (apenas se fornecido)
           if (originalCpf) {
             if (!validateCPF(cleanCpf)) {
-              errors.push('CPF inválido');
+              errors.push('CPF invÃ¡lido');
             } else {
-              // 3. Validar duplicidade dentro do próprio arquivo importado
+              // 3. Validar duplicidade dentro do prÃ³prio arquivo importado
               if (seenCPFsInSheet.has(cleanCpf)) {
                 errors.push(`CPF duplicado na planilha`);
               } else {
                 seenCPFsInSheet.add(cleanCpf);
               }
 
-              // 4. Validar se CPF já está cadastrado no sistema para este evento
+              // 4. Validar se CPF jÃ¡ estÃ¡ cadastrado no sistema para este evento
               const isResident = participants.some(p => p.cpf.replace(/\D/g, '') === cleanCpf);
               if (isResident) {
-                errors.push('CPF já cadastrado neste evento');
+                errors.push('CPF jÃ¡ cadastrado neste evento');
               }
             }
           }
@@ -1144,7 +1182,7 @@ export default function App() {
           if (profile) {
             const matchedProfile = accessProfiles.find(ap => ap.name.toLowerCase() === profile.toLowerCase());
             if (!matchedProfile) {
-              errors.push(`Perfil de acesso "${profile}" não encontrado no sistema`);
+              errors.push(`Perfil de acesso "${profile}" nÃ£o encontrado no sistema`);
             } else {
               const profileAreaIds = Array.isArray(matchedProfile.area_ids) ? matchedProfile.area_ids : [];
               resolvedAreaIds = [...new Set([...resolvedAreaIds, ...profileAreaIds])];
@@ -1164,7 +1202,7 @@ export default function App() {
                 a.name.toLowerCase() === item.toLowerCase()
               );
               if (!matchedArea) {
-                errors.push(`Área "${item}" não cadastrada no evento`);
+                errors.push(`Ãrea "${item}" nÃ£o cadastrada no evento`);
               } else {
                 if (!resolvedAreaIds.includes(matchedArea.id)) {
                   resolvedAreaIds.push(matchedArea.id);
@@ -1197,7 +1235,7 @@ export default function App() {
         setIsImportPreviewModalOpen(true);
       } catch (err) {
         console.error('Error processing sheet:', err);
-        addToast('Erro ao interpretar estrutura ou conteúdo do arquivo carregado.', 'error');
+        addToast('Erro ao interpretar estrutura ou conteÃºdo do arquivo carregado.', 'error');
       } finally {
         setImportFileIsLoading(false);
       }
@@ -1214,12 +1252,12 @@ export default function App() {
 
   const confirmBatchImport = async () => {
     if (importRows.some(row => !row.isValid)) {
-      addToast('Corrija todas as inconsistências e erros antes de importar os dados.', 'error');
+      addToast('Corrija todas as inconsistÃªncias e erros antes de importar os dados.', 'error');
       return;
     }
 
     if (importRows.length === 0) {
-      addToast('Sua planilha não possui registros válidos.', 'error');
+      addToast('Sua planilha nÃ£o possui registros vÃ¡lidos.', 'error');
       return;
     }
 
@@ -1261,7 +1299,7 @@ export default function App() {
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
       console.error('Error conducting batch import:', err);
-      addToast(err.message || 'Erro durante a gravação dos dados da planilha no bando de dados.', 'error');
+      addToast(err.message || 'Erro durante a gravaÃ§Ã£o dos dados da planilha no bando de dados.', 'error');
     } finally {
       setIsImportingInProgress(false);
     }
@@ -1270,7 +1308,7 @@ export default function App() {
   // Generate an instant Template Excel download
   const downloadSampleExcelTemplate = () => {
     const templateData = [
-      { Nome: 'João da Silva', Email: 'joao.silva@email.com', CPF: '12345678901', Empresa: 'Tech Soluções', Categoria: 'Participante' },
+      { Nome: 'JoÃ£o da Silva', Email: 'joao.silva@email.com', CPF: '12345678901', Empresa: 'Tech SoluÃ§Ãµes', Categoria: 'Participante' },
       { Nome: 'Dr. Marcos Souza', Email: 'marcos.s@email.com', CPF: '98765432100', Empresa: 'Universidade Federal', Categoria: 'Palestrante' },
       { Nome: 'Empresa Alpha Ltda', Email: 'contato@alpha.com', CPF: '33344455566', Empresa: 'Alpha Ventures', Categoria: 'Expositor' },
       { Nome: 'Juliana Garcia', Email: 'juliana.g@email.com', CPF: '55566677788', Empresa: 'Inova Digital', Categoria: 'VIP' }
@@ -1282,7 +1320,7 @@ export default function App() {
     
     // Create direct blob buffer download
     XLSX.writeFile(workbook, 'Modelo_Importacao_CREDENCIA.xlsx');
-    addToast('Modelo Excel de importação baixado!', 'success');
+    addToast('Modelo Excel de importaÃ§Ã£o baixado!', 'success');
   };
 
 
@@ -1302,14 +1340,14 @@ export default function App() {
       CPF: p.cpf,
       Empresa: p.company || '',
       Categoria: p.category,
-      'Credenciado?': p.checkedIn ? 'Sim' : 'Não',
-      'Horário do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
-      'Código do Convite': p.ticketCode
+      'Credenciado?': p.checkedIn ? 'Sim' : 'NÃ£o',
+      'HorÃ¡rio do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'NÃ£o realizado',
+      'CÃ³digo do Convite': p.ticketCode
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(outputRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'RelatÃ³rio');
     XLSX.writeFile(workbook, `Filtro_${titleSuffix}_${currentEvent.name.replace(/\s+/g, '_')}.xlsx`);
     addToast('Planilha gerada com sucesso!', 'success');
   };
@@ -1622,9 +1660,9 @@ export default function App() {
   const roleText = (() => {
     const role = String(currentUser?.role || '').toUpperCase();
     if (role === 'ADMIN' || currentUser?.role === 'admin') return 'Administrador';
-    if (role === 'SUPERVISOR') return 'Operador Nível 1';
-    if (role === 'CHECKIN_CADASTRO') return 'Operador Nível 2';
-    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador Nível 3';
+    if (role === 'SUPERVISOR') return 'Operador NÃ­vel 1';
+    if (role === 'CHECKIN_CADASTRO') return 'Operador NÃ­vel 2';
+    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador NÃ­vel 3';
     return 'Operador';
   })();
 
@@ -1635,7 +1673,7 @@ export default function App() {
     ADMIN: 'Administrador do evento',
     CHECKIN_CADASTRO: 'Check-in + Cadastro',
     CHECKIN: 'Check-in',
-    RELATORIO: 'Relatório'
+    RELATORIO: 'RelatÃ³rio'
   };
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
@@ -1648,8 +1686,8 @@ export default function App() {
     ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
     ...(isUserAdmin ? [{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
     ...(isUserAdmin ? [{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
-    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
-    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
+    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'RelatÃ³rios', icon: Download }] : []),
+    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'ImpressÃ£o de Etiquetas', icon: Printer }] : []),
   ];
 
   const secondaryNavItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [];
@@ -1824,9 +1862,9 @@ export default function App() {
                 <div className="mt-8 border-t border-slate-100 pt-6">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800 font-display">Vínculos por Evento</h3>
+                      <h3 className="text-sm font-bold text-slate-800 font-display">VÃ­nculos por Evento</h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Defina quais usuários participam de cada evento e qual permissão terão naquele evento.
+                        Defina quais usuÃ¡rios participam de cada evento e qual permissÃ£o terÃ£o naquele evento.
                       </p>
                     </div>
 
@@ -1851,7 +1889,7 @@ export default function App() {
                         onChange={e => setEventUserForm(prev => ({ ...prev, userId: e.target.value }))}
                         className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                       >
-                        <option value="">Selecione o usuário</option>
+                        <option value="">Selecione o usuÃ¡rio</option>
                         {usersList.map(user => (
                           <option key={user.id} value={user.id}>{user.name}</option>
                         ))}
@@ -1890,23 +1928,23 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Usuário</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Permissão no Evento</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">UsuÃ¡rio</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">PermissÃ£o no Evento</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">AÃ§Ãµes</th>
                         </tr>
                       </thead>
                       <tbody>
                         {eventUserForm.eventId && eventUsers.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
-                              Nenhum usuário vinculado a este evento.
+                              Nenhum usuÃ¡rio vinculado a este evento.
                             </td>
                           </tr>
                         ) : !eventUserForm.eventId ? (
                           <tr>
                             <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
-                              Selecione um evento para visualizar os vínculos.
+                              Selecione um evento para visualizar os vÃ­nculos.
                             </td>
                           </tr>
                         ) : (
@@ -1915,7 +1953,7 @@ export default function App() {
                             return (
                               <tr key={link.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                                 <td className="p-3 text-sm font-semibold text-slate-800">
-                                  {linkedUser?.name || 'Usuário removido'}
+                                  {linkedUser?.name || 'UsuÃ¡rio removido'}
                                 </td>
                                 <td className="p-3 text-xs text-slate-600">
                                   {eventUserRoleLabels[link.role] || link.role}
@@ -1940,7 +1978,7 @@ export default function App() {
                                       type="button"
                                       onClick={() => handleDeleteEventUser(link)}
                                       className="p-1.5 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 border border-rose-200 transition cursor-pointer"
-                                      title="Remover vínculo"
+                                      title="Remover vÃ­nculo"
                                     >
                                       <Trash2 size={14} />
                                     </button>
@@ -1969,7 +2007,7 @@ export default function App() {
             </div>
             <h2 className="text-xl font-bold text-slate-800 font-display mb-2">Primeiro Acesso: Crie seu Primeiro Evento</h2>
             <p className="text-slate-500 max-w-md mb-6">
-              Para liberar o dashboard de monitoramento em tempo real, credenciamento via QR Code e chapelaria, inicie configurando as informações do seu evento.
+              Para liberar o dashboard de monitoramento em tempo real, credenciamento via QR Code e chapelaria, inicie configurando as informaÃ§Ãµes do seu evento.
             </p>
             <button
               onClick={() => {
@@ -2007,7 +2045,7 @@ export default function App() {
               <section className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operaÃ§Ã£o</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operaÃƒÂ§ÃƒÂ£o</p>
                     <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">{currentEvent.name}</h1>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       Painel limpo para acompanhar e operar somente os recursos habilitados neste evento.
@@ -2100,7 +2138,7 @@ export default function App() {
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Eventos ativos</p>
-                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">Escolha o evento da operação</h1>
+                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">Escolha o evento da operaÃ§Ã£o</h1>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       O evento selecionado controla o painel, os participantes, o check-in, o scanner e os acessos.
                     </p>
@@ -2201,7 +2239,7 @@ export default function App() {
             {false && stats && (
               <div className="space-y-6">
                 
-                {/* 4 Cards das Métricas */}
+                {/* 4 Cards das MÃ©tricas */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   
                   <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-100 flex flex-col gap-2 relative overflow-hidden group">
@@ -2223,7 +2261,7 @@ export default function App() {
                       ></div>
                     </div>
                     <span className="text-xs text-slate-400 mt-1">
-                      {stats.totalRegistered > 0 ? Math.round((stats.totalCheckedIn / stats.totalRegistered) * 100) : 0}% concluído
+                      {stats.totalRegistered > 0 ? Math.round((stats.totalCheckedIn / stats.totalRegistered) * 100) : 0}% concluÃ­do
                     </span>
                   </div>
 
@@ -2232,7 +2270,7 @@ export default function App() {
                     <div className="text-3.5xl font-bold text-slate-900 tracking-tight font-display">{stats.totalWaiting}</div>
                     <div className="flex items-center gap-1 text-slate-400 text-xs font-medium">
                       <Clock size={14} className="text-slate-400 shrink-0" />
-                      <span>Disponíveis para check-in imediato</span>
+                      <span>DisponÃ­veis para check-in imediato</span>
                     </div>
                   </div>
 
@@ -2249,15 +2287,15 @@ export default function App() {
 
                 </div>
 
-                {/* Gráfico de Horários e Logs Recentes de Check-in */}
+                {/* GrÃ¡fico de HorÃ¡rios e Logs Recentes de Check-in */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
-                  {/* Fluxo por Horário (SVG / CSS Custom Bar Chart altamente customizado) */}
+                  {/* Fluxo por HorÃ¡rio (SVG / CSS Custom Bar Chart altamente customizado) */}
                   <div className="lg:col-span-8 bg-white rounded-2xl shadow-xs border border-slate-100 flex flex-col h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
                       <div>
                         <h3 className="font-bold text-slate-800 font-display">Fluxo de Entrada de Credenciados</h3>
-                        <p className="text-xs text-slate-500">Número de check-ins registrados por faixa horária ativa</p>
+                        <p className="text-xs text-slate-500">NÃºmero de check-ins registrados por faixa horÃ¡ria ativa</p>
                       </div>
                       <span className="px-3 py-1 bg-white text-blue-600 text-xs font-semibold border border-blue-100 rounded-full">
                         Hoje
@@ -2278,7 +2316,7 @@ export default function App() {
                                 entry.count > 0 ? 'bg-blue-600 hover:bg-blue-500 shadow-xs' : 'bg-slate-100'
                               }`} 
                               style={{ height: `${percentHeight || 4}%` }}
-                              title={`Check-ins às ${entry.hour}: ${entry.count}`}
+                              title={`Check-ins Ã s ${entry.hour}: ${entry.count}`}
                             />
                             <span className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap">
                               {entry.hour}
@@ -2289,12 +2327,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Últimos Check-ins realizados */}
+                  {/* Ãšltimos Check-ins realizados */}
                   <div className="lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-100 flex flex-col h-[400px]">
                     <div className="p-6 border-b border-slate-100 bg-gray-50/50 rounded-t-2xl flex items-center justify-between">
                       <div>
-                        <h3 className="font-bold text-slate-800 font-display">Últimos Check-ins</h3>
-                        <p className="text-xs text-slate-500">Transmissão em tempo real</p>
+                        <h3 className="font-bold text-slate-800 font-display">Ãšltimos Check-ins</h3>
+                        <p className="text-xs text-slate-500">TransmissÃ£o em tempo real</p>
                       </div>
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                     </div>
@@ -2348,7 +2386,7 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 2: INFORMAÇÕES DOS EVENTOS --- */}
+            {/* --- TAB 2: INFORMAÃ‡Ã•ES DOS EVENTOS --- */}
             {activeTab === 'eventos' && (
               <EventsPage
                 events={events}
@@ -2388,14 +2426,14 @@ export default function App() {
                     <div className="p-4 bg-emerald-100 rounded-full text-emerald-600 mb-4 shadow-md">
                       <Upload size={40} className="animate-bounce" />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800">Pronto para Validação!</h3>
+                    <h3 className="text-xl font-bold text-slate-800">Pronto para ValidaÃ§Ã£o!</h3>
                     <p className="text-sm text-slate-500 max-w-sm mt-1">
-                      Solte seu arquivo <strong className="text-emerald-700">.xlsx, .xls ou .csv</strong> aqui para processar o preview e a validação em tempo real.
+                      Solte seu arquivo <strong className="text-emerald-700">.xlsx, .xls ou .csv</strong> aqui para processar o preview e a validaÃ§Ã£o em tempo real.
                     </p>
                   </div>
                 )}
                 
-                {/* Cabeçalho Ativo */}
+                {/* CabeÃ§alho Ativo */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-slate-800 font-display">Lista de Participantes</h2>
@@ -2405,7 +2443,7 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Botão Baixar Modelo */}
+                    {/* BotÃ£o Baixar Modelo */}
                     <button
                       onClick={downloadSampleExcelTemplate}
                       className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-sm transition cursor-pointer font-medium"
@@ -2479,7 +2517,7 @@ export default function App() {
                       onChange={e => setSelectedPresenceFilter(e.target.value as any)}
                       className="text-xs bg-slate-100 border-none rounded-xl px-3 py-2 text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer w-full md:w-auto"
                     >
-                      <option value="all">Presença: Todos</option>
+                      <option value="all">PresenÃ§a: Todos</option>
                       <option value="present">Credenciado / Presente</option>
                       <option value="absent">Aguardando / Ausente</option>
                     </select>
@@ -2497,8 +2535,8 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Identidade / CPF</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Empresa</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Categoria</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status Presença</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">Ações e Credencial</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status PresenÃ§a</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">AÃ§Ãµes e Credencial</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2544,7 +2582,7 @@ export default function App() {
 
                               <td className="p-4">
                                 <p className="text-slate-700 text-xs font-medium max-w-[150px] truncate select-all">
-                                  {p.company || <span className="text-slate-350 italic">Não informada</span>}
+                                  {p.company || <span className="text-slate-350 italic">NÃ£o informada</span>}
                                 </p>
                               </td>
 
@@ -2585,13 +2623,13 @@ export default function App() {
                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                     }`}
                                   >
-                                    {p.checkedIn ? 'Desfazer' : 'Dar Presença'}
+                                    {p.checkedIn ? 'Desfazer' : 'Dar PresenÃ§a'}
                                   </button>
 
                                   <button
                                     onClick={() => setActiveBadgeParticipant(p)}
                                     className="p-1.5 text-slate-600 hover:text-blue-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition"
-                                    title="Gerar e Imprimir Crachá"
+                                    title="Gerar e Imprimir CrachÃ¡"
                                   >
                                     <Printer size={15} />
                                   </button>
@@ -2626,7 +2664,7 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 4: CHECK-IN RÁPIDO / SCANNER SIMULATOR --- */}
+            {/* --- TAB 4: CHECK-IN RÃPIDO / SCANNER SIMULATOR --- */}
             {activeTab === 'checkin' && (
               <CheckinPage
                 events={events}
@@ -2690,7 +2728,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-bold text-slate-800 font-display">Controle Integrado de Chapelaria</h2>
                     <p className="text-sm text-slate-500">
-                      Entrada automatizada de pertences sob etiquetas numéricas sequenciais. Evento ativo: <b>{currentEvent?.name}</b>
+                      Entrada automatizada de pertences sob etiquetas numÃ©ricas sequenciais. Evento ativo: <b>{currentEvent?.name}</b>
                     </p>
                   </div>
                   <button
@@ -2711,12 +2749,12 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Nº Etiqueta</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Especificação do Item</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">NÂº Etiqueta</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">EspecificaÃ§Ã£o do Item</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Dono / Participante</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Registro / Entrada</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">Operações</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">OperaÃ§Ãµes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2725,7 +2763,7 @@ export default function App() {
                             <td colSpan={6} className="p-12 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={32} />
                               <p className="font-semibold text-slate-500">Chapelaria sem volumes no evento.</p>
-                              <p className="text-xs mt-1">Gere novos números sequenciais para pertences de integrantes acima.</p>
+                              <p className="text-xs mt-1">Gere novos nÃºmeros sequenciais para pertences de integrantes acima.</p>
                             </td>
                           </tr>
                         ) : (
@@ -2750,7 +2788,7 @@ export default function App() {
                                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                   item.status === 'guardado' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
                                 }`}>
-                                  {item.status === 'guardado' ? 'Com a Organização' : 'Retirado / Devolvido'}
+                                  {item.status === 'guardado' ? 'Com a OrganizaÃ§Ã£o' : 'Retirado / Devolvido'}
                                 </span>
                               </td>
 
@@ -2775,7 +2813,7 @@ export default function App() {
                                   ) : (
                                     <span className="text-slate-400 font-medium text-xs flex items-center gap-1">
                                       <Check size={14} className="text-emerald-500" />
-                                      <span>Concluído</span>
+                                      <span>ConcluÃ­do</span>
                                     </span>
                                   )}
 
@@ -2802,14 +2840,14 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 6: RELATÓRIOS --- */}
+            {/* --- TAB 6: RELATÃ“RIOS --- */}
             {activeTab === 'relatorios' && (
               <div className="space-y-6 max-w-4xl">
                 
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800 font-display">Exportação de Relatórios de Auditoria</h2>
+                  <h2 className="text-xl font-bold text-slate-800 font-display">ExportaÃ§Ã£o de RelatÃ³rios de Auditoria</h2>
                   <p className="text-sm text-slate-500">
-                    Gere documentos Excel (.xlsx) auditáveis com dados unificados de trânsito dos participantes.
+                    Gere documentos Excel (.xlsx) auditÃ¡veis com dados unificados de trÃ¢nsito dos participantes.
                   </p>
                 </div>
 
@@ -2821,9 +2859,9 @@ export default function App() {
                       <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-700 mb-4">
                         <Users size={20} />
                       </div>
-                      <h3 className="font-bold text-slate-800 text-sm font-display mb-1">Exportação da Lista Geral</h3>
+                      <h3 className="font-bold text-slate-800 text-sm font-display mb-1">ExportaÃ§Ã£o da Lista Geral</h3>
                       <p className="text-xs text-slate-500 leading-relaxed mb-6">
-                        Inclui todos os integrantes cadastrados e pré-inscritos para o evento ativo "{currentEvent?.name}", com status operacional e CPFs formatados.
+                        Inclui todos os integrantes cadastrados e prÃ©-inscritos para o evento ativo "{currentEvent?.name}", com status operacional e CPFs formatados.
                       </p>
                     </div>
                     <button
@@ -2843,7 +2881,7 @@ export default function App() {
                       </div>
                       <h3 className="font-bold text-slate-800 text-sm font-display mb-1">Apenas Pessoas Credenciadas</h3>
                       <p className="text-xs text-slate-500 leading-relaxed mb-6">
-                        Filtro estratégico contendo apenas as pessoas que realizaram o check-in presencial no evento, contendo o horário preciso de credenciamento.
+                        Filtro estratÃ©gico contendo apenas as pessoas que realizaram o check-in presencial no evento, contendo o horÃ¡rio preciso de credenciamento.
                       </p>
                     </div>
                     <button
@@ -2863,24 +2901,24 @@ export default function App() {
                     <span>Auditoria Simplificada do Evento</span>
                   </h4>
                   <div className="text-xs text-slate-300 space-y-2 mt-4">
-                    <p>• Nome do Evento: <b>{currentEvent?.name}</b></p>
-                    <p>• Capacidade Registrada: <b>{currentEvent?.capacity} participantes</b></p>
-                    <p>• Inscritos Confirmados: <b>{participants.length}</b></p>
-                    <p>• Porcentagem de Presença: <b>{participants.length > 0 ? Math.round((participants.filter(p=>p.checkedIn).length / participants.length) * 100) : 0}%</b></p>
+                    <p>â€¢ Nome do Evento: <b>{currentEvent?.name}</b></p>
+                    <p>â€¢ Capacidade Registrada: <b>{currentEvent?.capacity} participantes</b></p>
+                    <p>â€¢ Inscritos Confirmados: <b>{participants.length}</b></p>
+                    <p>â€¢ Porcentagem de PresenÃ§a: <b>{participants.length > 0 ? Math.round((participants.filter(p=>p.checkedIn).length / participants.length) * 100) : 0}%</b></p>
                   </div>
                 </div>
 
               </div>
             )}
 
-            {/* --- TAB 7: CONFIGURAÇÃO DE ETIQUETAS DE CRACHÁ --- */}
+            {/* --- TAB 7: CONFIGURAÃ‡ÃƒO DE ETIQUETAS DE CRACHÃ --- */}
             {activeTab === 'impressao' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Impressão de Etiquetas</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração de etiquetas e crachás</h2>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">ImpressÃ£o de Etiquetas</p>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">ConfiguraÃ§Ã£o de etiquetas e crachÃ¡s</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Configure o modelo de impressão, fontes, campos exibidos e layout das credenciais do evento.
+                    Configure o modelo de impressÃ£o, fontes, campos exibidos e layout das credenciais do evento.
                   </p>
                 </div>
 
@@ -2908,14 +2946,14 @@ export default function App() {
               />
             )}
 
-            {/* --- TAB 11: CONFIGURAÇÃO DOS CAMPOS DE CADASTRO --- */}
+            {/* --- TAB 11: CONFIGURAÃ‡ÃƒO DOS CAMPOS DE CADASTRO --- */}
             {activeTab === 'campos' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Campos de Cadastro</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração dos campos de cadastro</h2>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">ConfiguraÃ§Ã£o dos campos de cadastro</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Defina os campos exibidos nos cadastros e formulários rápidos dos participantes.
+                    Defina os campos exibidos nos cadastros e formulÃ¡rios rÃ¡pidos dos participantes.
                   </p>
                 </div>
 
@@ -2929,17 +2967,26 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 8: GERENCIAMENTO DE USUÁRIOS DO SISTEMA --- */}
+            {/* --- TAB 8: GERENCIAMENTO DE USUÃRIOS DO SISTEMA --- */}
             {activeTab === 'usuarios' && (
               <div className="bg-white rounded-xl shadow-xs border border-slate-205 p-6 animate-fade-in">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800 font-display">Operadores do Sistema</h2>
-                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e níveis de acesso dos operadores e administradores.</p>
+                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e nÃ­veis de acesso dos operadores e administradores.</p>
                   </div>
                   <button
                     onClick={() => {
-                      setUserForm({ id: '', name: '', email: '', password: '', role: 'CHECKIN' });
+                      setUserForm({
+                        id: '',
+                        name: '',
+                        email: '',
+                        password: '',
+                        role: 'CHECKIN',
+                        eventId: selectedEventId || '',
+                        eventRole: 'CHECKIN',
+                        eventActive: true
+                      });
                       setIsUserModalOpen(true);
                     }}
                     className="self-start px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/10 hover:shadow-blue-500/25 active:scale-[0.98] transition flex items-center gap-2 cursor-pointer"
@@ -2961,9 +3008,9 @@ export default function App() {
                         <tr className="bg-slate-50 border-b border-slate-100">
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome Completo</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">E-mail de Login</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Nível de Acesso</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">NÃ­vel de Acesso</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Registro</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">AÃ§Ãµes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2987,9 +3034,9 @@ export default function App() {
                                   'bg-blue-100 text-blue-800'
                                 }`}>
                                   {String(u.role).toUpperCase() === 'ADMIN' ? 'Administrador' :
-                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Operador Nível 1' :
-                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Operador Nível 2' :
-                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ? 'Operador Nível 3' :
+                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Operador NÃ­vel 1' :
+                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Operador NÃ­vel 2' :
+                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ? 'Operador NÃ­vel 3' :
                                    String(u.role)}
                                 </span>
                               </td>
@@ -3000,11 +3047,20 @@ export default function App() {
                                 <div className="flex items-center justify-center gap-2">
                                   <button
                                     onClick={() => {
-                                      setUserForm({ id: u.id, name: u.name, email: u.email, password: '', role: u.role });
+                                      setUserForm({
+                                        id: u.id,
+                                        name: u.name,
+                                        email: u.email,
+                                        password: '',
+                                        role: u.role,
+                                        eventId: '',
+                                        eventRole: 'CHECKIN',
+                                        eventActive: true
+                                      });
                                       setIsUserModalOpen(true);
                                     }}
                                     className="p-1.5 bg-slate-50 hover:bg-slate-150 rounded-lg text-slate-550 border border-slate-200 hover:text-blue-600 transition cursor-pointer"
-                                    title="Editar usuário"
+                                    title="Editar usuÃ¡rio"
                                   >
                                     <Edit size={14} />
                                   </button>
@@ -3012,7 +3068,7 @@ export default function App() {
                                     onClick={() => handleDeleteUser(u.id)}
                                     disabled={u.id === currentUser?.id}
                                     className="p-1.5 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 border border-rose-200 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-                                    title="Excluir código de acesso"
+                                    title="Excluir cÃ³digo de acesso"
                                   >
                                     <Trash2 size={14} />
                                   </button>
@@ -3063,11 +3119,11 @@ export default function App() {
         </div>
       )}
 
-      {/* --- PRINT SHADOW LOG: APENAS VISÍVEL DURANTE O PRINT REAL (Filtro Geral de Presença) --- */}
+      {/* --- PRINT SHADOW LOG: APENAS VISÃVEL DURANTE O PRINT REAL (Filtro Geral de PresenÃ§a) --- */}
       <div className="hidden print:block p-10 bg-white text-black min-h-screen">
         <div className="border-b-2 border-slate-900 pb-4 mb-6">
-          <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
-          <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} • Data de Impressão: {new Date().toLocaleString('pt-BR')}</p>
+          <h1 className="text-2xl font-bold font-display uppercase">RelatÃ³rio Central de Credenciamento</h1>
+          <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} â€¢ Data de ImpressÃ£o: {new Date().toLocaleString('pt-BR')}</p>
         </div>
 
         <table className="w-full text-left text-xs text-slate-950">
@@ -3079,7 +3135,7 @@ export default function App() {
               <th className="py-2">Empresa</th>
               <th className="py-2">Categoria</th>
               <th className="py-2">Status</th>
-              <th className="py-2 text-right">Horário Entrada</th>
+              <th className="py-2 text-right">HorÃ¡rio Entrada</th>
             </tr>
           </thead>
           <tbody>
@@ -3106,12 +3162,12 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-4">
-              {eventForm.id ? 'Editar Informações do Evento' : 'Cadastrar Novo Evento'}
+              {eventForm.id ? 'Editar InformaÃ§Ãµes do Evento' : 'Cadastrar Novo Evento'}
             </h3>
             
             <form onSubmit={handleSaveEvent} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Título do Evento</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">TÃ­tulo do Evento</label>
                 <input
                   type="text"
                   required
@@ -3123,7 +3179,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Data de Realização</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Data de RealizaÃ§Ã£o</label>
                 <input
                   type="date"
                   required
@@ -3134,7 +3190,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Local / Endereço</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Local / EndereÃ§o</label>
                 <input
                   type="text"
                   required
@@ -3158,7 +3214,7 @@ export default function App() {
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase">MÃ³dulos do evento</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase">MÃƒÂ³dulos do evento</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2 cursor-pointer">
                     <input
@@ -3189,8 +3245,7 @@ export default function App() {
                   </label>
                 </div>
               </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+<div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsEventModalOpen(false)}
@@ -3246,7 +3301,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">CPF (Opcional - apenas números)</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">CPF (Opcional - apenas nÃºmeros)</label>
                 <input
                   type="text"
                   maxLength={11}
@@ -3263,7 +3318,7 @@ export default function App() {
                   type="text"
                   value={participantForm.company || ''}
                   onChange={e => setParticipantForm(prev => ({ ...prev, company: e.target.value }))}
-                  placeholder="Ex: Nome da Empresa ou Órgão"
+                  placeholder="Ex: Nome da Empresa ou Ã“rgÃ£o"
                   className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
                 />
               </div>
@@ -3284,11 +3339,11 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Áreas Autorizadas (Controle de Acesso)</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Ãreas Autorizadas (Controle de Acesso)</label>
                 <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
                   {availableAreas.length === 0 ? (
                     <div className="col-span-3 text-xs text-slate-400 py-1.5 text-center">
-                      Nenhuma área configurada para este evento.
+                      Nenhuma Ã¡rea configurada para este evento.
                     </div>
                   ) : (
                     availableAreas.map(arr => {
@@ -3296,7 +3351,7 @@ export default function App() {
                       const selectedAreas = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
                       const checked = selectedAreas.includes(arr.id);
                       return (
-                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ? 'opacity-50' : ''}`} title={!isActive ? 'Área Inativa' : ''}>
+                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ? 'opacity-50' : ''}`} title={!isActive ? 'Ãrea Inativa' : ''}>
                           <input
                             type="checkbox"
                             checked={checked}
@@ -3368,19 +3423,19 @@ export default function App() {
             <form onSubmit={handleSaveCloakroomItem} className="space-y-4">
               
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome do Proprietário / Detentor</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome do ProprietÃ¡rio / Detentor</label>
                 <input
                   type="text"
                   required
                   value={cloakroomForm.participantName}
                   onChange={e => setCloakroomForm(prev => ({ ...prev, participantName: e.target.value }))}
-                  placeholder="Ex: Roberta Mendes ou Número do CPF"
+                  placeholder="Ex: Roberta Mendes ou NÃºmero do CPF"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-88 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Especificações do Pertence</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">EspecificaÃ§Ãµes do Pertence</label>
                 <textarea
                   required
                   value={cloakroomForm.itemDescription}
@@ -3413,7 +3468,7 @@ export default function App() {
       )}
 
 
-      {/* 4. IMPRESSÃO DE CRACHÁ / CREDENCIAL MODAL OVERLAY */}
+      {/* 4. IMPRESSÃƒO DE CRACHÃ / CREDENCIAL MODAL OVERLAY */}
       {activeBadgeParticipant && currentEvent && (
         <PrintCredential
           participant={activeBadgeParticipant}
@@ -3454,9 +3509,9 @@ export default function App() {
               </div>
 
               <div className="space-y-1 text-left bg-slate-50 p-3 rounded-lg text-[11px] text-slate-600">
-                <p>• <b>CPF:</b> <span className="font-mono">{selectedQrParticipant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</span></p>
-                <p>• <b>Ticket:</b> <span className="font-mono">{selectedQrParticipant.ticketCode}</span></p>
-                <p>• <b>ID:</b> <span className="font-mono">{selectedQrParticipant.id}</span></p>
+                <p>â€¢ <b>CPF:</b> <span className="font-mono">{selectedQrParticipant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</span></p>
+                <p>â€¢ <b>Ticket:</b> <span className="font-mono">{selectedQrParticipant.ticketCode}</span></p>
+                <p>â€¢ <b>ID:</b> <span className="font-mono">{selectedQrParticipant.id}</span></p>
               </div>
 
               <div className="pt-2 flex gap-3">
@@ -3468,7 +3523,7 @@ export default function App() {
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
                 >
                   <Printer size={13} />
-                  <span>Imprimir Crachá</span>
+                  <span>Imprimir CrachÃ¡</span>
                 </button>
                 <button
                   onClick={() => setSelectedQrParticipant(null)}
@@ -3482,10 +3537,10 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. MEU PERFIL E ALTERAÇÃO DE SENHA MODAL */}
+      {/* 5. MEU PERFIL E ALTERAÃ‡ÃƒO DE SENHA MODAL */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-2 flex items-center gap-2">
               <Settings className="text-blue-500 animate-spin-slow" size={20} />
               <span>Meu Perfil e Credenciais</span>
@@ -3535,7 +3590,7 @@ export default function App() {
                   type="password"
                   value={profileForm.password}
                   onChange={e => setProfileForm(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -3605,28 +3660,78 @@ export default function App() {
                   required={!userForm.id}
                   value={userForm.password}
                   onChange={e => setUserForm(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nível de Acesso</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">NÃ­vel de Acesso</label>
                 <select
                   value={userForm.role}
                   onChange={e => setUserForm(prev => ({ ...prev, role: e.target.value as UserRole }))}
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
                 >
                   <option value="ADMIN">Administrador - Acesso total</option>
-                  <option value="SUPERVISOR">Operador Nível 1 - Check-in, cadastro e relatórios</option>
-                  <option value="CHECKIN_CADASTRO">Operador Nível 2 - Check-in e cadastro</option>
-                  <option value="CHECKIN">Operador Nível 3 - Apenas check-in</option>
+                  <option value="SUPERVISOR">Operador NÃ­vel 1 - Check-in, cadastro e relatÃ³rios</option>
+                  <option value="CHECKIN_CADASTRO">Operador NÃ­vel 2 - Check-in e cadastro</option>
+                  <option value="CHECKIN">Operador NÃ­vel 3 - Apenas check-in</option>
                 </select>
               </div>
 
+              
+              {!userForm.id && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Vincular ao Evento</label>
+                    <select
+                      value={userForm.eventId}
+                      onChange={e => setUserForm(prev => ({ ...prev, eventId: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value="">Criar sem vínculo agora</option>
+                      {events.map(event => (
+                        <option key={event.id} value={event.id}>{event.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Permissão no Evento</label>
+                    <select
+                      value={userForm.eventRole}
+                      onChange={e => setUserForm(prev => ({ ...prev, eventRole: e.target.value as EventUserRole }))}
+                      disabled={!userForm.eventId}
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      {(Object.keys(eventUserRoleLabels) as EventUserRole[]).map(role => (
+                        <option key={role} value={role}>{eventUserRoleLabels[role]}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={userForm.eventActive}
+                      onChange={e => setUserForm(prev => ({ ...prev, eventActive: e.target.checked }))}
+                      disabled={!userForm.eventId}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                    />
+                    Vínculo ativo neste evento
+                  </label>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+
+
                 <button
+
+
                   type="button"
+
+
                   onClick={() => setIsUserModalOpen(false)}
                   className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 text-sm font-medium transition cursor-pointer"
                 >
@@ -3653,7 +3758,7 @@ export default function App() {
               <div>
                 <h3 className="text-lg font-bold text-slate-800 font-display flex items-center gap-2">
                   <FileText className="text-emerald-600" size={22} />
-                  <span>Importar Participantes (Preview & Validação)</span>
+                  <span>Importar Participantes (Preview & ValidaÃ§Ã£o)</span>
                 </h3>
                 <p className="text-slate-500 text-xs mt-0.5">
                   Arquivo carregado: <strong className="text-slate-700">{importFileName}</strong>
@@ -3681,7 +3786,7 @@ export default function App() {
               
               <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-xs flex items-center justify-between">
                 <div>
-                  <span className="text-xs text-emerald-600/70 font-medium block">Válidas para Importação</span>
+                  <span className="text-xs text-emerald-600/70 font-medium block">VÃ¡lidas para ImportaÃ§Ã£o</span>
                   <span className="text-xl font-bold text-emerald-600">
                     {importRows.filter(r => r.isValid).length}
                   </span>
@@ -3704,14 +3809,14 @@ export default function App() {
                   <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
                     <AlertTriangle className="text-amber-500 shrink-0" size={16} />
                     <span>
-                      <strong>Correção necessária</strong>: Existem erros na planilha. Corrija o arquivo e tente novamente.
+                      <strong>CorreÃ§Ã£o necessÃ¡ria</strong>: Existem erros na planilha. Corrija o arquivo e tente novamente.
                     </span>
                   </div>
                 ) : (
                   <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
                     <Sparkles className="text-emerald-500 shrink-0" size={16} />
                     <span>
-                      <strong>Tudo limpo!</strong> Todos os participantes são válidos e prontos para admissão.
+                      <strong>Tudo limpo!</strong> Todos os participantes sÃ£o vÃ¡lidos e prontos para admissÃ£o.
                     </span>
                   </div>
                 )}
@@ -3729,8 +3834,8 @@ export default function App() {
                         <th className="py-3 px-4">Nome</th>
                         <th className="py-3 px-4">CPF</th>
                         <th className="py-3 px-4">Tipo/Perfil</th>
-                        <th className="py-3 px-4">Áreas</th>
-                        <th className="py-3 px-4">Status & Diagnóstico</th>
+                        <th className="py-3 px-4">Ãreas</th>
+                        <th className="py-3 px-4">Status & DiagnÃ³stico</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -3778,9 +3883,9 @@ export default function App() {
                                     </span>
                                   ))
                                 ) : row.areasText ? (
-                                  <span className="text-rose-500 font-medium">{row.areasText} (Inválida)</span>
+                                  <span className="text-rose-500 font-medium">{row.areasText} (InvÃ¡lida)</span>
                                 ) : (
-                                  <span className="text-slate-400 italic">Padrão</span>
+                                  <span className="text-slate-400 italic">PadrÃ£o</span>
                                 )}
                               </div>
                             </td>
@@ -3789,7 +3894,7 @@ export default function App() {
                               {row.isValid ? (
                                 <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">
                                   <Check className="text-emerald-500" size={14} />
-                                  <span>Válido</span>
+                                  <span>VÃ¡lido</span>
                                 </div>
                               ) : (
                                 <div className="space-y-0.5 text-xs">
@@ -3813,7 +3918,7 @@ export default function App() {
               {/* Instant Re-upload zone inside the modal footer */}
               <div className="mt-4 p-4 border border-slate-200 border-dashed rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50">
                 <div className="text-xs text-slate-500">
-                  Quer substituir a planilha atual? Arraste outro arquivo aqui ou faça o upload manual.
+                  Quer substituir a planilha atual? Arraste outro arquivo aqui ou faÃ§a o upload manual.
                 </div>
                 <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-705 hover:bg-slate-50 hover:text-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition">
                   <Upload size={14} />
@@ -3855,12 +3960,12 @@ export default function App() {
                 {isImportingInProgress ? (
                   <>
                     <RefreshCw className="animate-spin" size={16} />
-                    <span>Processando Importação...</span>
+                    <span>Processando ImportaÃ§Ã£o...</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
-                    <span>Confirmar Importação de {importRows.length} Linhas</span>
+                    <span>Confirmar ImportaÃ§Ã£o de {importRows.length} Linhas</span>
                   </>
                 )}
               </button>
