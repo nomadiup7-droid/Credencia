@@ -294,7 +294,7 @@ export default function LivePreview({
                             field.bold ? 'font-black tracking-tight' : 'font-semibold'
                           }`}
                         >
-                          {selectedParticipant.name}
+                          {selectedParticipant.badgeName || selectedParticipant.name}
                         </h1>
                       );
                     case 'company':

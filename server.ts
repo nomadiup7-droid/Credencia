@@ -689,7 +689,7 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
     return;
   }
 
-  const { name, email, cpf, category, ticketCode, checkedIn, checkedInAt, company } = req.body;
+  const { name, email, cpf, category, ticketCode, checkedIn, checkedInAt, company, badgeName } = req.body;
   const allowedAreaIds = Array.isArray(req.body.allowedAreaIds)
     ? req.body.allowedAreaIds
     : (Array.isArray(req.body.allowedAreas) ? req.body.allowedAreas : []);
@@ -728,6 +728,7 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
     ...req.body,
     eventId,
     name: name || '',
+    badgeName: badgeName || name || '',
     email: email || '',
     cpf: cpf || '',
     category: (category || 'Participante') as ParticipantCategory,
@@ -922,6 +923,30 @@ app.put('/api/participants/:id', authenticateToken, requireAdmin, async (req, re
       action: 'EDIT_PARTICIPANT'
     });
   }
+  res.json(updated);
+});
+
+app.patch('/api/participants/:id/badge-name', authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const current = await db.getParticipantById(req.params.id);
+  if (!current) {
+    res.status(404).json({ error: 'Participante não encontrado' });
+    return;
+  }
+
+  const event = await db.getEventById(current.eventId);
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(403).json({ error: 'Acesso negado para esta organização' });
+    return;
+  }
+
+  const badgeName = String(req.body.badgeName || '').trim();
+  if (!badgeName) {
+    res.status(400).json({ error: 'Informe o nome que será impresso no crachá' });
+    return;
+  }
+
+  const updated = await db.updateParticipant(req.params.id, { badgeName });
   res.json(updated);
 });
 

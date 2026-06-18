@@ -285,7 +285,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
                       <ShieldCheck size={40} />
                     </div>
                     <h1 className="font-display font-bold text-lg text-gray-900 leading-tight w-full truncate">
-                      {participant.name}
+                      {participant.badgeName || participant.name}
                     </h1>
                     <p className="text-xs text-gray-500 font-mono mt-1 select-all">{participant.email}</p>
                     <p className="text-xs text-gray-400 mt-2">CPF: {participant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</p>
@@ -387,7 +387,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
 
                   {labelConfig.showName && (
                     <h1 className={`font-bold font-display leading-tight text-slate-950 block ${fontSizesNameStyles[labelConfig.fontSizeName]} truncate`}>
-                      {participant.name}
+                      {participant.badgeName || participant.name}
                     </h1>
                   )}
 
@@ -441,7 +441,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
                   <ShieldCheck size={32} />
                 </div>
                 <h1 className="font-display font-bold text-xl text-black leading-tight truncate w-full">
-                  {participant.name}
+                  {participant.badgeName || participant.name}
                 </h1>
                 <p className="text-xs text-zinc-800 font-mono">{participant.email}</p>
                 <p className="text-xs text-zinc-700 mt-1">CPF: {participant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</p>
@@ -548,7 +548,7 @@ export default function BadgeLayout({ participant, event, onClose }: BadgeLayout
                   overflow: 'hidden',
                   textOverflow: 'ellipsis'
                 }}>
-                  {participant.name}
+                  {participant.badgeName || participant.name}
                 </h1>
               )}
 

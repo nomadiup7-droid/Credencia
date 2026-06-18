@@ -68,6 +68,7 @@ export interface Participant {
   id: string;
   eventId: string;
   name: string;
+  badgeName?: string;
   email: string;
   cpf: string;
   category: ParticipantCategory;

@@ -300,7 +300,7 @@ export default function LabelPrint({
                             field.bold ? 'font-black tracking-tight' : 'font-semibold'
                           }`}
                         >
-                          {participant.name}
+                          {participant.badgeName || participant.name}
                         </h1>
                       );
                     case 'company':

@@ -110,7 +110,7 @@ export default function PrintLabel({
                   {event.name}
                 </span>
                 <h2 className="text-base font-extrabold text-slate-900 leading-tight block truncate mt-0.5">
-                  {participant.name}
+                  {participant.badgeName || participant.name}
                 </h2>
               </div>
 

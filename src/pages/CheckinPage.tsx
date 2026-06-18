@@ -17,7 +17,8 @@ import {
   Save,
   CheckCircle2,
   Maximize2,
-  CircleDot
+  CircleDot,
+  Pencil
 } from 'lucide-react';
 
 interface CheckinPageProps {
@@ -138,6 +139,9 @@ export default function CheckinPage({
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [badgeNameParticipant, setBadgeNameParticipant] = useState<Participant | null>(null);
+  const [badgeNameValue, setBadgeNameValue] = useState('');
+  const [isSavingBadgeName, setIsSavingBadgeName] = useState(false);
 
   // Focus ref for continuous keyboard readiness
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -242,16 +246,30 @@ export default function CheckinPage({
   // Real-time matched participants
   const filteredParticipants = useMemo(() => {
     const query = normalizeQuery(debouncedSearchTerm);
-    if (query.length < 2) return [];
+    if (query.length < 3) return [];
 
-    const matched = participants.filter(p => {
-      const idMatch = normalizeQuery(p.id).includes(query);
-      const nameMatch = normalizeQuery(p.name).includes(query);
-      const cpfMatch = normalizeQuery(p.cpf).includes(query);
-      const ticketMatch = normalizeQuery(p.ticketCode || '').includes(query);
+    const getSearchScore = (participant: Participant) => {
+      const name = normalizeQuery(participant.name);
+      const badgeName = normalizeQuery(participant.badgeName || '');
+      const firstName = normalizeQuery(participant.name.split(/\s+/)[0] || '');
+      const badgeFirstName = normalizeQuery((participant.badgeName || '').split(/\s+/)[0] || '');
 
-      return idMatch || nameMatch || cpfMatch || ticketMatch;
-    });
+      if (firstName.startsWith(query)) return 0;
+      if (badgeFirstName.startsWith(query)) return 1;
+      if (name.startsWith(query)) return 2;
+      if (badgeName.startsWith(query)) return 3;
+      if (name.includes(query)) return 4;
+      if (badgeName.includes(query)) return 5;
+      return 99;
+    };
+
+    const matched = participants
+      .filter(p => getSearchScore(p) < 99)
+      .sort((a, b) => {
+        const scoreDiff = getSearchScore(a) - getSearchScore(b);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (a.badgeName || a.name).localeCompare(b.badgeName || b.name, 'pt-BR');
+      });
 
     setActiveSearchIndex(0);
     return matched;
@@ -458,6 +476,7 @@ export default function CheckinPage({
       // Setup payload including all custom dynamic values
       const payload = {
         ...dynamicFormValues,
+        badgeName: dynamicFormValues.badgeName || dynamicFormValues.name || '',
         ticketCode: 'TKT-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
         checkedIn: true,
         checkedInAt: new Date().toISOString()
@@ -544,7 +563,7 @@ export default function CheckinPage({
       const selected = filteredParticipants[activeSearchIndex];
       if (selected) {
         selectParticipant(selected);
-      } else if (normalizeQuery(searchTerm).length >= 2) {
+      } else if (normalizeQuery(searchTerm).length >= 3) {
         setFeedback({
           type: 'error',
           title: 'PARTICIPANTE NÃO ENCONTRADO',
@@ -581,10 +600,44 @@ export default function CheckinPage({
     }
   };
 
-  const notFound =
-    normalizeQuery(debouncedSearchTerm).length >= 2 &&
-    false && filteredParticipants.length === 0 &&
-    !isCheckingInId;
+  const openBadgeNameEditor = (participant: Participant) => {
+    setBadgeNameParticipant(participant);
+    setBadgeNameValue(participant.badgeName || participant.name);
+  };
+
+  const handleSaveBadgeName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!badgeNameParticipant) return;
+
+    const cleanBadgeName = badgeNameValue.trim();
+    if (!cleanBadgeName) {
+      addToast('Informe o nome que será impresso no crachá.', 'warning');
+      return;
+    }
+
+    setIsSavingBadgeName(true);
+    try {
+      const updated = await apiCall(`/api/participants/${badgeNameParticipant.id}/badge-name`, {
+        method: 'PATCH',
+        body: JSON.stringify({ badgeName: cleanBadgeName })
+      });
+
+      setParticipants(prev => prev.map(p => p.id === updated.id ? updated : p));
+      setBadgeNameParticipant(null);
+      setBadgeNameValue('');
+      addToast('Nome do crachá atualizado.', 'success');
+      setTimeout(() => searchInputRef.current?.focus(), 120);
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao atualizar nome do crachá.', 'error');
+    } finally {
+      setIsSavingBadgeName(false);
+    }
+  };
+
+  const normalizedSearchTerm = normalizeQuery(searchTerm);
+  const normalizedDebouncedSearchTerm = normalizeQuery(debouncedSearchTerm);
+  const isWaitingForDebouncedSearch = normalizedSearchTerm !== normalizedDebouncedSearchTerm;
+  const notFound = false;
 
   const activeFeedback: FeedbackState | null = feedback || (notFound ? {
     type: 'error',
@@ -811,7 +864,7 @@ export default function CheckinPage({
 
           {/* Dynamic Result Area */}
           <div className="max-w-3xl mx-auto pt-4">
-            {normalizeQuery(searchTerm).length < 2 ? (
+            {normalizedDebouncedSearchTerm.length < 3 || isWaitingForDebouncedSearch ? (
               <div className="hidden text-center p-8 border border-dashed border-slate-300 rounded-lg bg-white select-none">
                 <QrCode size={36} className="text-slate-300 mx-auto mb-2" />
                 <h3 className="text-sm font-extrabold text-slate-700">Aguardando busca</h3>
@@ -863,8 +916,8 @@ export default function CheckinPage({
                         {/* Demographic elements */}
                         <div className="space-y-1">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <h4 className="font-extrabold text-slate-800 text-sm font-display truncate max-w-[280px]">
-                              {p.name}
+                            <h4 className="font-extrabold text-slate-900 text-xl sm:text-2xl font-display truncate max-w-[420px]">
+                              {p.badgeName || p.name}
                             </h4>
                             <span className="hidden text-[9px] bg-slate-150 text-slate-600 font-extrabold px-1.5 py-0.5 rounded select-none uppercase">
                               {p.category}
@@ -875,14 +928,20 @@ export default function CheckinPage({
                               </span>
                             )}
 
-                            {isSelfSelected && (
-                              <span className="ml-auto text-[9px] uppercase tracking-wider font-extrabold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
-                                ENTER Selecionar
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openBadgeNameEditor(p);
+                              }}
+                              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-200"
+                            >
+                              <Pencil size={14} />
+                              Nome no crachá
+                            </button>
                           </div>
 
-                          <div className="flex flex-wrap gap-x-3 text-[11px] text-slate-500 font-medium">
+                          <div className="hidden flex-wrap gap-x-3 text-[11px] text-slate-500 font-medium">
                             <span className="hidden">E-mail: <b className="font-semibold text-slate-700">{p.email}</b></span>
                             <span>CPF: <b className="font-mono text-slate-700">{p.cpf || 'Não possui'}</b></span>
                             <span className="font-mono text-slate-400 select-none">[{p.ticketCode}]</span>
@@ -1087,6 +1146,67 @@ export default function CheckinPage({
                 </button>
                 <button type="submit" disabled={isSavingConfig} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
                   {isSavingConfig ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                  Salvar
+                </button>
+              </div>
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {badgeNameParticipant && (
+          <div className="fixed inset-0 z-[72] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+            <motion.form
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              onSubmit={handleSaveBadgeName}
+              className="w-full max-w-md rounded-xl bg-white shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-950">Nome no crachá</h2>
+                  <p className="text-sm text-slate-500">Altere apenas o nome que será impresso.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBadgeNameParticipant(null)}
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4 p-5">
+                <div className="rounded-lg bg-slate-50 p-3 text-sm font-semibold text-slate-600">
+                  Cadastro: <span className="text-slate-950">{badgeNameParticipant.name}</span>
+                </div>
+                <label className="space-y-1 text-sm font-bold text-slate-700">
+                  Nome que sai no crachá
+                  <input
+                    value={badgeNameValue}
+                    onChange={e => setBadgeNameValue(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-3 text-base font-bold text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    autoFocus
+                  />
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => setBadgeNameParticipant(null)}
+                  className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingBadgeName}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                >
+                  {isSavingBadgeName ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
                   Salvar
                 </button>
               </div>
