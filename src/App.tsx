@@ -178,6 +178,8 @@ export default function App() {
     ''
   ));
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (window.location.pathname === '/checkin') return 'checkin';
+
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
     if (isActiveTab(savedTab)) return savedTab;
 
@@ -1695,6 +1697,7 @@ export default function App() {
   const isMoreActive = secondaryNavItems.some(item => item.id === activeTab);
   const visibleNavIds = navItems.map(item => item.id);
   const visibleNavKey = visibleNavIds.join('|');
+  const isStandaloneCheckin = window.location.pathname === '/checkin';
 
   useEffect(() => {
     if (!currentUser) return;
@@ -1727,7 +1730,7 @@ export default function App() {
         ))}
       </div>
 
-      <header className="bg-white border-b border-slate-200 no-print shrink-0">
+      <header className={`${isStandaloneCheckin ? 'hidden' : 'bg-white border-b border-slate-200 no-print shrink-0'}`}>
         <div className="px-5 lg:px-8 py-4 flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
@@ -2025,7 +2028,7 @@ export default function App() {
             <p className="text-slate-500 font-medium text-sm">Carregando painel em tempo real...</p>
           </div>
         ) : (
-          <div className={`flex-1 overflow-y-auto p-8 ${activeTab === 'checkin' ? 'bg-white' : 'bg-[#f7f7f2]'}`}>
+          <div className={`flex-1 overflow-y-auto ${activeTab === 'checkin' ? (isStandaloneCheckin ? 'p-0 bg-white' : 'p-0 bg-white') : 'p-8 bg-[#f7f7f2]'}`}>
             
             {/* --- TAB 1: DASHBOARD --- */}
             {activeTab === 'dashboard' && (
@@ -2678,7 +2681,9 @@ export default function App() {
                 setParticipants={setParticipants}
                 currentUser={currentUser}
                 canCreateParticipants={canCreateParticipants}
+                canConfigureCheckinScreen={isUserAdmin}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
+                onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ? updated : ev))}
               />
             )}
 

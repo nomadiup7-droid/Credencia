@@ -28,6 +28,20 @@ export interface EventUser {
   active: boolean;
 }
 
+export interface CheckinScreenConfig {
+  showLogo: boolean;
+  logoUrl: string;
+  showEventName: boolean;
+  backgroundColor: string;
+  backgroundImageUrl: string;
+  darkOverlay: boolean;
+  primaryColor: string;
+  successColor: string;
+  errorColor: string;
+  searchPlaceholder: string;
+  resetDelaySeconds: number;
+}
+
 export interface Event {
   id: string;
   name: string;
@@ -43,6 +57,7 @@ export interface Event {
   enableCloakroom?: boolean;
   enableScanner?: boolean;
   layoutConfig?: any;
+  checkinScreenConfig?: CheckinScreenConfig;
   organizationId: string;
   currentUserRole?: EventUserRole | UserRole;
 }

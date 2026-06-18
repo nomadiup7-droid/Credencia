@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Event, Participant, User, ParticipantField, ParticipantCategory } from '../types';
+import { Event, Participant, User, ParticipantField, ParticipantCategory, CheckinScreenConfig } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   UserCheck, 
@@ -8,13 +8,15 @@ import {
   Plus, 
   Printer, 
   X, 
-  Check, 
+  Check,
   AlertTriangle,
   Building,
   RefreshCw,
   UserPlus,
-  ArrowDown,
-  ArrowUp,
+  Settings,
+  Save,
+  CheckCircle2,
+  Maximize2,
   CircleDot
 } from 'lucide-react';
 
@@ -29,8 +31,29 @@ interface CheckinPageProps {
   setParticipants: React.Dispatch<React.SetStateAction<Participant[]>>;
   currentUser: User | null;
   canCreateParticipants: boolean;
+  canConfigureCheckinScreen: boolean;
   onPrintBadge: (participant: Participant) => void;
+  onUpdateEvent: (event: Event) => void;
 }
+
+const DEFAULT_CHECKIN_SCREEN_CONFIG: CheckinScreenConfig = {
+  showLogo: false,
+  logoUrl: '',
+  showEventName: true,
+  backgroundColor: '#f8fafc',
+  backgroundImageUrl: '',
+  darkOverlay: false,
+  primaryColor: '#1D4ED8',
+  successColor: '#16A34A',
+  errorColor: '#DC2626',
+  searchPlaceholder: 'Buscar por nome, CPF ou QR Code',
+  resetDelaySeconds: 2
+};
+
+type FeedbackState =
+  | { type: 'success'; title: 'CHECK-IN REALIZADO'; message: string }
+  | { type: 'warning'; title: 'PARTICIPANTE JÁ CREDENCIADO'; message: string }
+  | { type: 'error'; title: 'PARTICIPANTE NÃO ENCONTRADO'; message: string };
 
 export default function CheckinPage({
   id,
@@ -43,7 +66,9 @@ export default function CheckinPage({
   setParticipants,
   currentUser,
   canCreateParticipants,
-  onPrintBadge
+  canConfigureCheckinScreen,
+  onPrintBadge,
+  onUpdateEvent
 }: CheckinPageProps) {
   // OFFLINE QUEUE STATES & HELPERS
   const [isSyncingQueue, setIsSyncingQueue] = useState(false);
@@ -108,7 +133,11 @@ export default function CheckinPage({
 
   // Search state
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   // Focus ref for continuous keyboard readiness
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -132,6 +161,15 @@ export default function CheckinPage({
   const [dynamicFormValues, setDynamicFormValues] = useState<Record<string, any>>({});
 
   const selectedEvent = events.find(e => e.id === selectedEventId);
+  const config: CheckinScreenConfig = {
+    ...DEFAULT_CHECKIN_SCREEN_CONFIG,
+    ...(selectedEvent?.checkinScreenConfig || {})
+  };
+  const [configForm, setConfigForm] = useState<CheckinScreenConfig>(config);
+
+  useEffect(() => {
+    setConfigForm(config);
+  }, [selectedEventId, selectedEvent?.checkinScreenConfig]);
 
   // Keep input focused automatically
   useEffect(() => {
@@ -185,6 +223,13 @@ export default function CheckinPage({
     }
   }, [isRegisterModalOpen, registrationFields]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
   // Standardize query comparisons
   const normalizeQuery = (text: string) => {
     return (text || '')
@@ -196,37 +241,55 @@ export default function CheckinPage({
 
   // Real-time matched participants
   const filteredParticipants = useMemo(() => {
-    const query = normalizeQuery(searchTerm);
-    if (!query) return [];
+    const query = normalizeQuery(debouncedSearchTerm);
+    if (query.length < 2) return [];
 
     const matched = participants.filter(p => {
       const idMatch = normalizeQuery(p.id).includes(query);
       const nameMatch = normalizeQuery(p.name).includes(query);
-      const emailMatch = normalizeQuery(p.email).includes(query);
       const cpfMatch = normalizeQuery(p.cpf).includes(query);
       const ticketMatch = normalizeQuery(p.ticketCode || '').includes(query);
-      const companyMatch = p.company ? normalizeQuery(p.company).includes(query) : false;
 
-      // Look into custom properties dynamically
-      const customMatches = Object.keys(p).some(key => {
-        if (['id', 'eventId', 'name', 'email', 'cpf', 'category', 'checkedIn', 'checkedInAt', 'ticketCode', 'company', 'createdAt', 'printed'].includes(key)) return false;
-        return normalizeQuery(String((p as any)[key] || '')).includes(query);
-      });
-
-      return idMatch || nameMatch || emailMatch || cpfMatch || ticketMatch || companyMatch || customMatches;
+      return idMatch || nameMatch || cpfMatch || ticketMatch;
     });
 
     setActiveSearchIndex(0);
     return matched;
-  }, [participants, searchTerm]);
+  }, [participants, debouncedSearchTerm]);
 
   // Reset check-in view back to idle focused state
   const resetAfterAction = () => {
     setSearchTerm('');
+    setDebouncedSearchTerm('');
     setActiveSearchIndex(0);
     setTimeout(() => {
       searchInputRef.current?.focus();
     }, 120);
+  };
+
+  const clearFeedbackAfterDelay = () => {
+    const delay = Math.max(1, Number(config.resetDelaySeconds) || DEFAULT_CHECKIN_SCREEN_CONFIG.resetDelaySeconds) * 1000;
+    window.setTimeout(() => {
+      setFeedback(null);
+      searchInputRef.current?.focus();
+    }, delay);
+  };
+
+  const selectParticipant = (participant: Participant) => {
+    if (participant.checkedIn) {
+      setFeedback({
+        type: 'warning',
+        title: 'PARTICIPANTE JÁ CREDENCIADO',
+        message: participant.checkedInAt
+          ? `${participant.name} já realizou check-in às ${new Date(participant.checkedInAt).toLocaleTimeString('pt-BR')}.`
+          : `${participant.name} já realizou check-in.`
+      });
+      clearFeedbackAfterDelay();
+      searchInputRef.current?.focus();
+      return;
+    }
+
+    handleCheckIn(participant);
   };
 
   // Perform participant accreditation
@@ -264,8 +327,15 @@ export default function CheckinPage({
       // Instantly call printer helper
       onPrintBadge({ ...participant, checkedIn: true, printed: true });
 
+      setFeedback({
+        type: 'success',
+        title: 'CHECK-IN REALIZADO',
+        message: `${participant.name} foi credenciado com sucesso.`
+      });
+
       // Clean the terminal to accept next customer instantly
       resetAfterAction();
+      clearFeedbackAfterDelay();
 
     } catch (err: any) {
       const isOfflineError = !navigator.onLine || err.message?.includes('Failed to fetch') || err.message?.includes('comunicação') || err.message?.includes('network') || err.message?.includes('offline');
@@ -296,11 +366,18 @@ export default function CheckinPage({
           
           // Print badge
           onPrintBadge({ ...participant, checkedIn: true, printed: true, checkedInAt: timestamp });
+
+          setFeedback({
+            type: 'success',
+            title: 'CHECK-IN REALIZADO',
+            message: `${participant.name} foi credenciado em modo offline.`
+          });
           
           // Update count
           loadPendingQueueCount();
           
           resetAfterAction();
+          clearFeedbackAfterDelay();
           return;
         } catch (queueErr) {
           console.error('Falha ao enfileirar offline:', queueErr);
@@ -454,34 +531,110 @@ export default function CheckinPage({
 
   // Keyboard navigation on list items
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (filteredParticipants.length === 0) return;
-
     if (e.key === 'ArrowDown') {
+      if (filteredParticipants.length === 0) return;
       e.preventDefault();
       setActiveSearchIndex(prev => (prev + 1) % filteredParticipants.length);
     } else if (e.key === 'ArrowUp') {
+      if (filteredParticipants.length === 0) return;
       e.preventDefault();
       setActiveSearchIndex(prev => (prev - 1 + filteredParticipants.length) % filteredParticipants.length);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const selected = filteredParticipants[activeSearchIndex];
       if (selected) {
-        if (!selected.checkedIn) {
-          handleCheckIn(selected);
-        } else if (!selected.printed) {
-          handleDirectPrint(selected);
-        } else {
-          askReprintConfirmation(selected);
-        }
+        selectParticipant(selected);
+      } else if (normalizeQuery(searchTerm).length >= 2) {
+        setFeedback({
+          type: 'error',
+          title: 'PARTICIPANTE NÃO ENCONTRADO',
+          message: `Nenhum participante encontrado para "${searchTerm}".`
+        });
+        clearFeedbackAfterDelay();
       }
     }
   };
 
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEvent || !canConfigureCheckinScreen) return;
+
+    setIsSavingConfig(true);
+    try {
+      const updated = await apiCall(`/api/events/${selectedEvent.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          checkinScreenConfig: {
+            ...configForm,
+            resetDelaySeconds: Math.max(1, Number(configForm.resetDelaySeconds) || DEFAULT_CHECKIN_SCREEN_CONFIG.resetDelaySeconds)
+          }
+        })
+      });
+      onUpdateEvent(updated);
+      addToast('Configuração da tela de Check-in salva com sucesso.', 'success');
+      setShowConfigPanel(false);
+      setTimeout(() => searchInputRef.current?.focus(), 120);
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao salvar configuração da tela de Check-in.', 'error');
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
+  const notFound =
+    normalizeQuery(debouncedSearchTerm).length >= 2 &&
+    false && filteredParticipants.length === 0 &&
+    !isCheckingInId;
+
+  const activeFeedback: FeedbackState | null = feedback || (notFound ? {
+    type: 'error',
+    title: 'PARTICIPANTE NÃO ENCONTRADO',
+    message: `Nenhum participante encontrado para "${debouncedSearchTerm}".`
+  } : null);
+
+  const feedbackColor = activeFeedback?.type === 'success'
+    ? config.successColor
+    : activeFeedback?.type === 'error'
+      ? config.errorColor
+      : '#D97706';
+
   return (
-    <div id={id} className="max-w-4xl mx-auto space-y-6">
+    <div
+      id={id}
+      className="relative min-h-[calc(100vh-150px)] overflow-hidden rounded-none sm:rounded-xl px-4 py-6 sm:px-8"
+      style={{
+        backgroundColor: config.backgroundColor,
+        backgroundImage: config.backgroundImageUrl ? `url(${config.backgroundImageUrl})` : undefined,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center'
+      }}
+    >
+      {config.darkOverlay && <div className="absolute inset-0 bg-slate-950/55" />}
+      <div className="relative z-10 max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center justify-end gap-2 select-none">
+        <a
+          href="/checkin"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
+          title="Abrir Check-in em janela separada"
+        >
+          <Maximize2 size={18} />
+        </a>
+        {canConfigureCheckinScreen && (
+          <button
+            type="button"
+            onClick={() => setShowConfigPanel(true)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
+            title="Configuração da Tela de Check-in"
+          >
+            <Settings size={18} />
+          </button>
+        )}
+      </div>
       
       {/* Top Header - Pure Operations details */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-lg border border-slate-200 select-none">
+      <div className="hidden">
         <div className="space-y-0.5">
           <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest flex items-center gap-1">
             <CircleDot className="text-emerald-500 animate-pulse" size={10} />
@@ -528,11 +681,25 @@ export default function CheckinPage({
           </p>
         </div>
       ) : (
-        <div className="space-y-6 focus-within:ring-0">
+        <div className="space-y-6 focus-within:ring-0 min-h-[calc(100vh-260px)] flex flex-col justify-center">
+          <div className="text-center">
+            {config.showLogo && config.logoUrl && (
+              <img
+                src={config.logoUrl}
+                alt="Logo do evento"
+                className="mx-auto mb-4 max-h-20 max-w-[220px] object-contain sm:max-h-24"
+              />
+            )}
+            {config.showEventName && (
+              <h1 className={`text-2xl font-black tracking-tight sm:text-4xl lg:text-5xl ${config.darkOverlay || config.backgroundImageUrl ? 'text-white' : 'text-slate-950'}`}>
+                {selectedEvent?.name}
+              </h1>
+            )}
+          </div>
           
           {/* Main search input - Centered, massive and rapid */}
           <div className="space-y-3">
-            <div className="text-center space-y-1">
+            <div className="hidden">
               <h1 className="text-xl sm:text-2xl font-black text-slate-800 font-display tracking-tight">
                 Buscar ou Escanear Participante
               </h1>
@@ -541,9 +708,9 @@ export default function CheckinPage({
               </p>
             </div>
 
-            <div className="relative max-w-xl mx-auto">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                <Search size={22} />
+            <div className="relative max-w-3xl mx-auto">
+              <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
+                <Search size={28} />
               </div>
               <input
                 ref={searchInputRef}
@@ -551,11 +718,13 @@ export default function CheckinPage({
                 value={searchTerm}
                 onChange={e => {
                   setSearchTerm(e.target.value);
+                  setFeedback(null);
                   setActiveSearchIndex(0);
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="Nome, CPF ou TKT-..."
-                className="w-full pl-12 pr-10 py-4 bg-white border border-slate-300 rounded-lg shadow-sm placeholder:text-slate-400 font-semibold focus:outline-none focus:border-[#1D4ED8] focus:ring-2 focus:ring-[#1D4ED8]/15 text-base sm:text-lg transition"
+                placeholder={config.searchPlaceholder || DEFAULT_CHECKIN_SCREEN_CONFIG.searchPlaceholder}
+                className="w-full pl-16 pr-14 py-5 sm:py-6 bg-white border-2 rounded-xl shadow-xl placeholder:text-slate-400 font-black focus:outline-none text-xl sm:text-2xl transition"
+                style={{ borderColor: config.primaryColor, boxShadow: `0 18px 45px ${config.primaryColor}22` }}
                 autoFocus
               />
               {searchTerm && (
@@ -565,9 +734,9 @@ export default function CheckinPage({
                     setActiveSearchIndex(0);
                     searchInputRef.current?.focus();
                   }}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition cursor-pointer"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
                 >
-                  <X size={18} />
+                  <X size={24} />
                 </button>
               )}
             </div>
@@ -576,7 +745,7 @@ export default function CheckinPage({
             <div className="flex items-center justify-center gap-3 select-none pt-1">
               <button
                 onClick={() => setShowScannerSimulator(!showScannerSimulator)}
-                className={`flex items-center gap-1.5 px-4 py-2 border rounded-xl text-xs font-bold transition cursor-pointer ${
+                className={`hidden items-center gap-1.5 px-4 py-2 border rounded-xl text-xs font-bold transition cursor-pointer ${
                   showScannerSimulator ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-250 border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
@@ -587,10 +756,11 @@ export default function CheckinPage({
               {canCreateParticipants && (
                 <button
                   onClick={() => setIsRegisterModalOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-[#1D4ED8] hover:bg-[#173FAE] text-white text-xs font-bold rounded-lg shadow-xs transition cursor-pointer"
+                  className="flex items-center gap-2 px-6 py-4 text-white text-base font-black rounded-xl shadow-lg transition cursor-pointer active:scale-[0.98]"
+                  style={{ backgroundColor: config.primaryColor }}
                 >
-                  <Plus size={14} />
-                  <span> Novo Cadastro</span>
+                  <Plus size={22} />
+                  <span>+ Novo Participante</span>
                 </button>
               )}
             </div>
@@ -640,9 +810,9 @@ export default function CheckinPage({
           </AnimatePresence>
 
           {/* Dynamic Result Area */}
-          <div className="max-w-xl mx-auto pt-4">
-            {searchTerm.trim().length === 0 ? (
-              <div className="text-center p-8 border border-dashed border-slate-300 rounded-lg bg-white select-none">
+          <div className="max-w-3xl mx-auto pt-4">
+            {normalizeQuery(searchTerm).length < 2 ? (
+              <div className="hidden text-center p-8 border border-dashed border-slate-300 rounded-lg bg-white select-none">
                 <QrCode size={36} className="text-slate-300 mx-auto mb-2" />
                 <h3 className="text-sm font-extrabold text-slate-700">Aguardando busca</h3>
                 <p className="text-[11px] text-slate-400 max-w-xs mx-auto mt-1">
@@ -650,8 +820,10 @@ export default function CheckinPage({
                 </p>
               </div>
             ) : filteredParticipants.length === 0 ? (
-              <div className="text-center p-10 bg-white border border-slate-200 rounded-2xl shadow-xs select-none space-y-3">
-                <div className="text-slate-350 text-slate-300"></div>
+              <div className="text-center p-5 sm:p-7 bg-white/95 border-4 rounded-xl shadow-xl select-none space-y-3" style={{ borderColor: config.errorColor }}>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full text-white" style={{ backgroundColor: config.errorColor }}>
+                  <AlertTriangle size={32} />
+                </div>
                 <h4 className="text-sm font-bold text-slate-700">Participante não localizado</h4>
                 <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
                   Não encontramos correspondência para "{searchTerm}". Verifique a digitação ou cadastre o participante utilizando o botão "Novo Cadastro".
@@ -661,7 +833,7 @@ export default function CheckinPage({
               <div className="space-y-3">
                 
                 {/* Keyboard instruction tip */}
-                <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold select-none px-1">
+                <div className="hidden">
                   <span>RESULTADOS ENCONTRADOS: {filteredParticipants.length}</span>
                   <span className="flex items-center gap-1.5">
                     <span>Use</span>
@@ -681,7 +853,7 @@ export default function CheckinPage({
                     return (
                       <div
                         key={p.id}
-                        onClick={() => setActiveSearchIndex(idx)}
+                        onClick={() => selectParticipant(p)}
                         className={`p-4 rounded-xl border transition-all duration-150 flex flex-col justify-between gap-3 bg-white relative cursor-pointer ${
                           isSelfSelected 
                             ? 'ring-2 ring-blue-600 border-blue-100 shadow-md' 
@@ -694,11 +866,11 @@ export default function CheckinPage({
                             <h4 className="font-extrabold text-slate-800 text-sm font-display truncate max-w-[280px]">
                               {p.name}
                             </h4>
-                            <span className="text-[9px] bg-slate-150 text-slate-600 font-extrabold px-1.5 py-0.5 rounded select-none uppercase">
+                            <span className="hidden text-[9px] bg-slate-150 text-slate-600 font-extrabold px-1.5 py-0.5 rounded select-none uppercase">
                               {p.category}
                             </span>
                             {p.company && (
-                              <span className="text-[9px] bg-blue-50 text-blue-600 font-bold px-1.5 py-0.5 rounded truncate max-w-[140px]">
+                              <span className="hidden text-[9px] bg-blue-50 text-blue-600 font-bold px-1.5 py-0.5 rounded truncate max-w-[140px]">
                                 {p.company}
                               </span>
                             )}
@@ -711,7 +883,7 @@ export default function CheckinPage({
                           </div>
 
                           <div className="flex flex-wrap gap-x-3 text-[11px] text-slate-500 font-medium">
-                            <span>E-mail: <b className="font-semibold text-slate-700">{p.email}</b></span>
+                            <span className="hidden">E-mail: <b className="font-semibold text-slate-700">{p.email}</b></span>
                             <span>CPF: <b className="font-mono text-slate-700">{p.cpf || 'Não possui'}</b></span>
                             <span className="font-mono text-slate-400 select-none">[{p.ticketCode}]</span>
                           </div>
@@ -796,8 +968,132 @@ export default function CheckinPage({
             )}
           </div>
 
+          {activeFeedback && (
+            <div
+              className="max-w-3xl mx-auto text-center p-5 sm:p-7 bg-white/95 border-4 rounded-xl shadow-xl select-none space-y-3"
+              style={{ borderColor: feedbackColor }}
+            >
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full text-white" style={{ backgroundColor: feedbackColor }}>
+                {activeFeedback.type === 'success' ? <CheckCircle2 size={32} /> : <AlertTriangle size={32} />}
+              </div>
+              <h4 className="text-2xl sm:text-4xl font-black" style={{ color: feedbackColor }}>{activeFeedback.title}</h4>
+              <p className="text-base sm:text-lg font-semibold text-slate-600 max-w-xl mx-auto">{activeFeedback.message}</p>
+            </div>
+          )}
+
         </div>
       )}
+
+      <AnimatePresence>
+        {showConfigPanel && canConfigureCheckinScreen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+            <motion.form
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              onSubmit={handleSaveConfig}
+              className="w-full max-w-3xl rounded-xl bg-white shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-950">Configuração da Tela de Check-in</h2>
+                  <p className="text-sm text-slate-500">Configuração visual salva apenas para este evento.</p>
+                </div>
+                <button type="button" onClick={() => setShowConfigPanel(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="grid max-h-[70vh] grid-cols-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm font-bold text-slate-700">
+                  <input type="checkbox" checked={configForm.showLogo} onChange={e => setConfigForm(prev => ({ ...prev, showLogo: e.target.checked }))} />
+                  Exibir logo
+                </label>
+                <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm font-bold text-slate-700">
+                  <input type="checkbox" checked={configForm.showEventName} onChange={e => setConfigForm(prev => ({ ...prev, showEventName: e.target.checked }))} />
+                  Exibir nome do evento
+                </label>
+
+                <label className="space-y-1 text-sm font-bold text-slate-700 md:col-span-2">
+                  Upload ou URL da logo
+                  <input value={configForm.logoUrl} onChange={e => setConfigForm(prev => ({ ...prev, logoUrl: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 font-medium" placeholder="https://..." />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => setConfigForm(prev => ({ ...prev, logoUrl: String(reader.result || '') }));
+                      reader.readAsDataURL(file);
+                    }}
+                    className="w-full rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs font-medium"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm font-bold text-slate-700">
+                  Cor de fundo
+                  <input type="color" value={configForm.backgroundColor} onChange={e => setConfigForm(prev => ({ ...prev, backgroundColor: e.target.value }))} className="h-11 w-full rounded-lg border border-slate-200 p-1" />
+                </label>
+                <label className="space-y-1 text-sm font-bold text-slate-700">
+                  Cor principal
+                  <input type="color" value={configForm.primaryColor} onChange={e => setConfigForm(prev => ({ ...prev, primaryColor: e.target.value }))} className="h-11 w-full rounded-lg border border-slate-200 p-1" />
+                </label>
+                <label className="space-y-1 text-sm font-bold text-slate-700">
+                  Cor de sucesso
+                  <input type="color" value={configForm.successColor} onChange={e => setConfigForm(prev => ({ ...prev, successColor: e.target.value }))} className="h-11 w-full rounded-lg border border-slate-200 p-1" />
+                </label>
+                <label className="space-y-1 text-sm font-bold text-slate-700">
+                  Cor de erro
+                  <input type="color" value={configForm.errorColor} onChange={e => setConfigForm(prev => ({ ...prev, errorColor: e.target.value }))} className="h-11 w-full rounded-lg border border-slate-200 p-1" />
+                </label>
+
+                <label className="space-y-1 text-sm font-bold text-slate-700 md:col-span-2">
+                  Imagem de fundo ou URL de background
+                  <input value={configForm.backgroundImageUrl} onChange={e => setConfigForm(prev => ({ ...prev, backgroundImageUrl: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 font-medium" placeholder="https://..." />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => setConfigForm(prev => ({ ...prev, backgroundImageUrl: String(reader.result || '') }));
+                      reader.readAsDataURL(file);
+                    }}
+                    className="w-full rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs font-medium"
+                  />
+                </label>
+
+                <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm font-bold text-slate-700 md:col-span-2">
+                  <input type="checkbox" checked={configForm.darkOverlay} onChange={e => setConfigForm(prev => ({ ...prev, darkOverlay: e.target.checked }))} />
+                  Usar background com escurecimento
+                </label>
+
+                <label className="space-y-1 text-sm font-bold text-slate-700 md:col-span-2">
+                  Texto do placeholder do campo de busca
+                  <input value={configForm.searchPlaceholder} onChange={e => setConfigForm(prev => ({ ...prev, searchPlaceholder: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 font-medium" />
+                </label>
+
+                <label className="space-y-1 text-sm font-bold text-slate-700">
+                  Tempo para limpar após sucesso (segundos)
+                  <input type="number" min={1} max={30} value={configForm.resetDelaySeconds} onChange={e => setConfigForm(prev => ({ ...prev, resetDelaySeconds: Number(e.target.value) }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 font-medium" />
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
+                <button type="button" onClick={() => setShowConfigPanel(false)} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSavingConfig} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+                  {isSavingConfig ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                  Salvar
+                </button>
+              </div>
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* MODAL: DYNAMIC NEW REGISTRATION FORM WITH AUTO CHECKIN */}
       <AnimatePresence>
@@ -958,6 +1254,7 @@ export default function CheckinPage({
           </div>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }

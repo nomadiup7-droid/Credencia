@@ -598,7 +598,7 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/events', authenticateToken, requireAdmin, async (req, res) => {
-  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig } = req.body;
+  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig } = req.body;
   if (!name || !date || !location || !capacity) {
     res.status(400).json({ error: 'Todos os campos do evento são obrigatórios' });
     return;
@@ -618,6 +618,7 @@ app.post('/api/events', authenticateToken, requireAdmin, async (req, res) => {
     enableCloakroom: enableCloakroom !== undefined ? Boolean(enableCloakroom) : false,
     enableScanner: enableScanner !== undefined ? Boolean(enableScanner) : true,
     layoutConfig: layoutConfig || null,
+    checkinScreenConfig: checkinScreenConfig || undefined,
     organizationId: user.organizationId || 'org1'
   });
   res.status(201).json(newEvent);
@@ -632,7 +633,7 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     return;
   }
 
-  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig } = req.body;
+  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig } = req.body;
   const updated = await db.updateEvent(req.params.id, {
     ...(name && { name }),
     ...(description !== undefined && { description }),
@@ -645,7 +646,8 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     ...(enableAccessControl !== undefined && { enableAccessControl: Boolean(enableAccessControl) }),
     ...(enableCloakroom !== undefined && { enableCloakroom: Boolean(enableCloakroom) }),
     ...(enableScanner !== undefined && { enableScanner: Boolean(enableScanner) }),
-    ...(layoutConfig !== undefined && { layoutConfig })
+    ...(layoutConfig !== undefined && { layoutConfig }),
+    ...(checkinScreenConfig !== undefined && { checkinScreenConfig })
   });
 
   res.json(updated);
