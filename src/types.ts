@@ -1,6 +1,7 @@
 // Definition of types for the Accreditation & Check-in System
 
 export type UserRole = 'ADMIN' | 'CHECKIN' | 'CHECKIN_CADASTRO' | 'admin' | 'operator' | 'SUPERVISOR' | 'ATENDENTE';
+export type EventUserRole = 'ADMIN' | 'CHECKIN_CADASTRO' | 'CHECKIN' | 'RELATORIO';
 
 export interface Organization {
   id: string;
@@ -19,6 +20,14 @@ export interface User {
   organizationId: string;
 }
 
+export interface EventUser {
+  id: string;
+  eventId: string;
+  userId: string;
+  role: EventUserRole;
+  active: boolean;
+}
+
 export interface Event {
   id: string;
   name: string;
@@ -35,6 +44,7 @@ export interface Event {
   enableScanner?: boolean;
   layoutConfig?: any;
   organizationId: string;
+  currentUserRole?: EventUserRole | UserRole;
 }
 
 export type ParticipantCategory = 'VIP' | 'Palestrante' | 'Expositor' | 'Participante' | 'Staff';
@@ -53,6 +63,7 @@ export interface Participant {
   createdAt: string;
   printed?: boolean;
   allowedAreas?: string[];
+  allowedAreaIds?: string[];
 }
 
 export type CloakroomStatus = 'guardado' | 'retirado';
@@ -134,6 +145,23 @@ export interface CheckInLog {
   organizationId?: string;
 }
 
+export type ActionLogAction =
+  | 'CHECKIN'
+  | 'CREATE_PARTICIPANT'
+  | 'EDIT_PARTICIPANT'
+  | 'REPRINT_BADGE'
+  | 'ACCESS_ALLOWED'
+  | 'ACCESS_DENIED';
+
+export interface ActionLog {
+  id: string;
+  eventId: string;
+  userId: string;
+  participantId?: string;
+  action: ActionLogAction;
+  timestamp: string;
+}
+
 export interface ParticipantField {
   id: string;
   name: string; // e.g., "Cargo", "Telefone", "Alimentação"
@@ -144,11 +172,15 @@ export interface ParticipantField {
   order?: number;
 }
 
-export interface Area {
+export interface AccessArea {
   id: string;
+  eventId: string;
   name: string;
+  active: boolean;
+}
+
+export interface Area extends AccessArea {
   color?: string;
-  eventId?: string;     // maps to event_id
   event_id?: string;    // support exact match
   isActive?: boolean;   // maps to is_active
   is_active?: boolean;  // support exact match

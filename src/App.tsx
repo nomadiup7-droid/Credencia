@@ -45,13 +45,13 @@ import Dashboard from './components/Dashboard';
 import StatsCard from './components/StatsCard';
 import EventsPage from './pages/EventsPage';
 import CheckinPage from './pages/CheckinPage';
-import ScannerPage from './pages/ScannerPage';
+import ScanAccessControlPage from './pages/ScanAccessControlPage';
 import CheckInModular from './pages/CheckInModular';
 import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
-import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, Area, AccessProfile } from './types';
+import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile } from './types';
 
 // Sleek CSS Color mapping & constants
 const CATEGORY_TAGS: Record<ParticipantCategory, { bg: string, text: string, border: string }> = {
@@ -86,6 +86,9 @@ type ActiveTab =
   | 'campos';
 
 const ACTIVE_TAB_STORAGE_KEY = 'credencia_active_tab';
+const CURRENT_EVENT_ID_STORAGE_KEY = 'currentEventId';
+const CURRENT_USER_ROLE_STORAGE_KEY = 'currentUserRole';
+const LEGACY_SELECTED_EVENT_ID_STORAGE_KEY = 'credencia_selected_event_id';
 const ACTIVE_TABS: ActiveTab[] = [
   'dashboard',
   'eventos-ativos',
@@ -119,13 +122,14 @@ export default function App() {
     const saved = localStorage.getItem('credencia_user');
     return saved ? JSON.parse(saved) : null;
   });
+  const [currentEventRole, setCurrentEventRole] = useState<string>(() => localStorage.getItem(CURRENT_USER_ROLE_STORAGE_KEY) || '');
 
   const userRole = String(currentUser?.role || '').toUpperCase();
-  const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin';
-  const isOperatorLevel1 = userRole === 'SUPERVISOR';
-  const isOperatorLevel2 = userRole === 'CHECKIN_CADASTRO';
-  const canManageParticipants = isUserAdmin || isOperatorLevel1 || isOperatorLevel2;
-  const canViewReports = isUserAdmin || isOperatorLevel1;
+  const eventRole = String(currentEventRole || currentUser?.role || '').toUpperCase();
+  const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin' || eventRole === 'ADMIN';
+  const canCreateParticipants = isUserAdmin || eventRole === 'CHECKIN_CADASTRO';
+  const canManageParticipants = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'CHECKIN_CADASTRO';
+  const canViewReports = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'RELATORIO';
   const isFernandoAdmin = String(currentUser?.email || '').toLowerCase() === 'fernando@credencia.com';
 
   // Login Form States
@@ -146,13 +150,24 @@ export default function App() {
 
   // System Users Management (Admin)
   const [usersList, setUsersList] = useState<User[]>([]);
+  const [eventUsers, setEventUsers] = useState<EventUser[]>([]);
+  const [eventUserForm, setEventUserForm] = useState({
+    eventId: '',
+    userId: '',
+    role: 'CHECKIN' as EventUserRole,
+    active: true
+  });
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [userForm, setUserForm] = useState({ id: '', name: '', email: '', password: '', role: 'CHECKIN' as UserRole });
 
   // Active Event
   const [events, setEvents] = useState<Event[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string>(() => localStorage.getItem('credencia_selected_event_id') || '');
+  const [selectedEventId, setSelectedEventId] = useState<string>(() => (
+    localStorage.getItem(CURRENT_EVENT_ID_STORAGE_KEY) ||
+    localStorage.getItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY) ||
+    ''
+  ));
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
     if (isActiveTab(savedTab)) return savedTab;
@@ -197,8 +212,8 @@ export default function App() {
     enableCloakroom: false,
     enableScanner: true
   });
-  const [participantForm, setParticipantForm] = useState<{ id: string, name: string, email: string, cpf: string, category: ParticipantCategory, company: string, allowedAreas: string[] }>({
-    id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreas: []
+  const [participantForm, setParticipantForm] = useState<{ id: string, name: string, email: string, cpf: string, category: ParticipantCategory, company: string, allowedAreaIds: string[], allowedAreas: string[] }>({
+    id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: []
   });
   const [cloakroomForm, setCloakroomForm] = useState({ participantId: '', participantName: '', itemDescription: '' });
 
@@ -234,6 +249,26 @@ export default function App() {
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
+  };
+
+  const persistSelectedEvent = (eventId: string, role?: string) => {
+    setSelectedEventId(eventId);
+
+    if (!eventId) {
+      setCurrentEventRole('');
+      localStorage.removeItem(CURRENT_EVENT_ID_STORAGE_KEY);
+      localStorage.removeItem(CURRENT_USER_ROLE_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY);
+      return;
+    }
+
+    const eventRole = role || events.find(event => event.id === eventId)?.currentUserRole || currentUser?.role || '';
+    setCurrentEventRole(eventRole);
+    localStorage.setItem(CURRENT_EVENT_ID_STORAGE_KEY, eventId);
+    localStorage.setItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY, eventId);
+    if (eventRole) {
+      localStorage.setItem(CURRENT_USER_ROLE_STORAGE_KEY, eventRole);
+    }
   };
 
   const getActiveHeaders = () => {
@@ -347,10 +382,13 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('credencia_token');
     localStorage.removeItem('credencia_user');
-    localStorage.removeItem('credencia_selected_event_id');
+    localStorage.removeItem(CURRENT_EVENT_ID_STORAGE_KEY);
+    localStorage.removeItem(CURRENT_USER_ROLE_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY);
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
     setToken(null);
     setCurrentUser(null);
+    setCurrentEventRole('');
     setSelectedEventId('');
     setEvents([]);
     setParticipants([]);
@@ -442,6 +480,62 @@ export default function App() {
     }
   };
 
+  const loadEventUsers = async (eventId: string) => {
+    if (!isUserAdmin || !eventId) {
+      setEventUsers([]);
+      return;
+    }
+    try {
+      const data = await apiCall(`/api/events/${eventId}/users`);
+      setEventUsers(data);
+    } catch (e) {
+      console.error('Erro ao carregar vínculos de operadores por evento:', e);
+    }
+  };
+
+  const handleSaveEventUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventUserForm.eventId || !eventUserForm.userId || !eventUserForm.role) {
+      addToast('Selecione evento, usuário e permissão do vínculo.', 'error');
+      return;
+    }
+
+    try {
+      const saved = await apiCall(`/api/events/${eventUserForm.eventId}/users`, {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: eventUserForm.userId,
+          role: eventUserForm.role,
+          active: eventUserForm.active
+        })
+      });
+      setEventUsers(prev => {
+        const exists = prev.some(link => link.id === saved.id);
+        return exists ? prev.map(link => link.id === saved.id ? saved : link) : [...prev, saved];
+      });
+      addToast('Vínculo entre usuário e evento salvo com sucesso!', 'success');
+    } catch (e) {}
+  };
+
+  const handleToggleEventUser = async (link: EventUser) => {
+    try {
+      const updated = await apiCall(`/api/events/${link.eventId}/users/${link.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ active: !link.active })
+      });
+      setEventUsers(prev => prev.map(item => item.id === updated.id ? updated : item));
+    } catch (e) {}
+  };
+
+  const handleDeleteEventUser = async (link: EventUser) => {
+    if (!window.confirm('Remover este vínculo entre usuário e evento?')) return;
+    try {
+      await apiCall(`/api/events/${link.eventId}/users/${link.id}`, { method: 'DELETE' });
+      setEventUsers(prev => prev.filter(item => item.id !== link.id));
+      addToast('Vínculo removido com sucesso.', 'info');
+    } catch (e) {}
+  };
+
   // Admin inserts or updates system users (operator/admin)
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -497,8 +591,17 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'usuarios' && isUserAdmin && token) {
       loadUsers();
+      if (selectedEventId) {
+        loadEventUsers(selectedEventId);
+      }
     }
-  }, [activeTab, isUserAdmin, token]);
+  }, [activeTab, isUserAdmin, token, selectedEventId]);
+
+  useEffect(() => {
+    if (!eventUserForm.eventId && selectedEventId) {
+      setEventUserForm(prev => ({ ...prev, eventId: selectedEventId }));
+    }
+  }, [selectedEventId, eventUserForm.eventId]);
 
   useEffect(() => {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
@@ -509,7 +612,7 @@ export default function App() {
     if (!currentUser) return;
     if (isUserAdmin) return;
 
-    const allowedTabs: ActiveTab[] = ['checkin'];
+    const allowedTabs: ActiveTab[] = ['eventos-ativos', 'checkin'];
     if (canManageParticipants) allowedTabs.push('participantes');
     if (canViewReports) allowedTabs.push('relatorios');
 
@@ -521,13 +624,32 @@ export default function App() {
   // --- Fetch Operations ---
   const loadEvents = async () => {
     try {
-      const data = await apiCall('/api/events');
+      const data: Event[] = await apiCall('/api/events');
       setEvents(data);
-      if (data.length > 0 && !selectedEventId) {
-        const defaultId = data[0].id;
-        setSelectedEventId(defaultId);
-        localStorage.setItem('credencia_selected_event_id', defaultId);
+
+      if (data.length === 0) {
+        persistSelectedEvent('');
+        return;
       }
+
+      const savedEventId = localStorage.getItem(CURRENT_EVENT_ID_STORAGE_KEY) || localStorage.getItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY);
+      const savedEvent = data.find(event => event.id === savedEventId);
+
+      if (data.length === 1) {
+        persistSelectedEvent(data[0].id, data[0].currentUserRole);
+        if (!selectedEventId || activeTab === 'eventos-ativos') {
+          setActiveTab(isUserAdmin ? 'evento-dashboard' : 'checkin');
+        }
+        return;
+      }
+
+      if (savedEvent) {
+        persistSelectedEvent(savedEvent.id, savedEvent.currentUserRole);
+        return;
+      }
+
+      persistSelectedEvent('');
+      setActiveTab('eventos-ativos');
     } catch (e) {}
   };
 
@@ -587,6 +709,17 @@ export default function App() {
 
   useEffect(() => {
     if (!currentEvent) return;
+    const eventRole = currentEvent.currentUserRole || currentUser?.role || '';
+    setCurrentEventRole(eventRole);
+    localStorage.setItem(CURRENT_EVENT_ID_STORAGE_KEY, currentEvent.id);
+    localStorage.setItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY, currentEvent.id);
+    if (eventRole) {
+      localStorage.setItem(CURRENT_USER_ROLE_STORAGE_KEY, eventRole);
+    }
+  }, [currentEvent, currentUser]);
+
+  useEffect(() => {
+    if (!currentEvent) return;
     if (isUserAdmin) return;
     if (activeTab === 'areas' && currentEvent.enableAccessControl === false) setActiveTab('evento-dashboard');
     if (activeTab === 'chapelaria' && currentEvent.enableCloakroom !== true) setActiveTab('evento-dashboard');
@@ -596,8 +729,7 @@ export default function App() {
   // Handle Select Event action
   const handleEventChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
-    setSelectedEventId(val);
-    localStorage.setItem('credencia_selected_event_id', val);
+    persistSelectedEvent(val);
     addToast('Evento alterado com sucesso', 'info');
   };
 
@@ -624,8 +756,7 @@ export default function App() {
         addToast('Evento atualizado com sucesso!', 'success');
       } else {
         setEvents(prev => [...prev, saved]);
-        setSelectedEventId(saved.id);
-        localStorage.setItem('credencia_selected_event_id', saved.id);
+        persistSelectedEvent(saved.id, saved.currentUserRole || 'ADMIN');
         setActiveTab('evento-dashboard');
         addToast('Evento criado e ativado com sucesso!', 'success');
       }
@@ -642,8 +773,7 @@ export default function App() {
       addToast('Evento removido do sistema.', 'success');
       setEvents(prev => prev.filter(ev => ev.id !== id));
       if (selectedEventId === id) {
-        setSelectedEventId('');
-        localStorage.removeItem('credencia_selected_event_id');
+        persistSelectedEvent('');
       }
     } catch (e) {}
   };
@@ -651,6 +781,10 @@ export default function App() {
   // --- Participant Operations ---
   const handleSaveParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreateParticipants && !participantForm.id) {
+      addToast('Usuário sem permissão para cadastrar participantes neste evento.', 'error');
+      return;
+    }
     if (!selectedEventId) {
       addToast('Selecione um evento ativo primeiro.', 'error');
       return;
@@ -667,7 +801,11 @@ export default function App() {
 
       const saved = await apiCall(endpoint, {
         method,
-        body: JSON.stringify(participantForm)
+        body: JSON.stringify({
+          ...participantForm,
+          allowedAreaIds: participantForm.allowedAreaIds || participantForm.allowedAreas || [],
+          allowedAreas: participantForm.allowedAreaIds || participantForm.allowedAreas || []
+        })
       });
 
       if (isEdit) {
@@ -679,7 +817,7 @@ export default function App() {
       }
 
       setIsParticipantModalOpen(false);
-      setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreas: [] });
+      setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: [] });
       // Refresh current dashboard metrics
       loadDataForEvent(selectedEventId);
     } catch (err) {}
@@ -907,6 +1045,10 @@ export default function App() {
   };
 
   const processUploadedFile = (file: File) => {
+    if (!canCreateParticipants) {
+      addToast('Usuário sem permissão para importar participantes neste evento.', 'error');
+      return;
+    }
     if (!file || !selectedEventId) return;
     
     setImportFileName(file.name);
@@ -957,8 +1099,8 @@ export default function App() {
           const rawCpf = findValue(['cpf', 'c.p.f.', 'documento', 'identidade', 'cpf/cnpj']);
           const rawCategory = findValue(['categoria', 'category', 'grupo']);
           const rawCompany = findValue(['empresa', 'company', 'corporação', 'corporacao', 'org', 'organização', 'organizacao', 'trabalho']);
-          const rawProfile = findValue(['tipo', 'perfil', 'type', 'profile', 'accessprofile', 'access_profile']);
-          const rawAreas = findValue(['areas', 'area', 'salas', 'sala', 'allowed_areas', 'allowedareas']);
+          const rawProfile = findValue(['perfil', 'tipo', 'type', 'profile', 'accessprofile', 'access_profile']);
+          const rawAreas = findValue(['areas', 'acessos', 'area', 'acesso', 'salas', 'sala', 'allowed_areas', 'allowedareas']);
 
           const nome = rawNome !== undefined ? String(rawNome).trim() : '';
           const email = rawEmail !== undefined ? String(rawEmail).trim() : '';
@@ -995,17 +1137,25 @@ export default function App() {
               }
             }
           }
+          let resolvedAreaIds: string[] = [];
+          let resolvedAreaNames: string[] = [];
 
           // 5. Validar se perfil/tipo existe no banco (caso usado)
           if (profile) {
-            const hasMatch = accessProfiles.some(ap => ap.name.toLowerCase() === profile.toLowerCase());
-            if (!hasMatch) {
+            const matchedProfile = accessProfiles.find(ap => ap.name.toLowerCase() === profile.toLowerCase());
+            if (!matchedProfile) {
               errors.push(`Perfil de acesso "${profile}" não encontrado no sistema`);
+            } else {
+              const profileAreaIds = Array.isArray(matchedProfile.area_ids) ? matchedProfile.area_ids : [];
+              resolvedAreaIds = [...new Set([...resolvedAreaIds, ...profileAreaIds])];
+              const profileAreaNames = profileAreaIds
+                .map(areaId => availableAreas.find(area => area.id === areaId)?.name)
+                .filter(Boolean) as string[];
+              resolvedAreaNames = [...new Set([...resolvedAreaNames, ...profileAreaNames])];
             }
           }
 
-          // 6. Validar se as áreas existem (caso usadas)
-          let resolvedAreaNames: string[] = [];
+          // 6. Validar se as areas existem (caso usadas)
           if (areasText) {
             const parsedItems = areasText.split(/[;,]+/).map(s => s.trim()).filter(Boolean);
             parsedItems.forEach(item => {
@@ -1016,7 +1166,12 @@ export default function App() {
               if (!matchedArea) {
                 errors.push(`Área "${item}" não cadastrada no evento`);
               } else {
-                resolvedAreaNames.push(matchedArea.name);
+                if (!resolvedAreaIds.includes(matchedArea.id)) {
+                  resolvedAreaIds.push(matchedArea.id);
+                }
+                if (!resolvedAreaNames.includes(matchedArea.name)) {
+                  resolvedAreaNames.push(matchedArea.name);
+                }
               }
             });
           }
@@ -1031,6 +1186,7 @@ export default function App() {
             company,
             profile,
             areasText,
+            resolvedAreaIds,
             resolvedAreaNames,
             errors,
             isValid: errors.length === 0
@@ -1080,8 +1236,11 @@ export default function App() {
         if (row.profile) {
           item['perfil'] = row.profile;
         }
-        if (row.areasText) {
-          item['areas'] = row.areasText;
+        if (row.resolvedAreaIds?.length > 0) {
+          item['allowedAreaIds'] = row.resolvedAreaIds;
+          item['allowedAreas'] = row.resolvedAreaIds;
+        } else if (row.areasText) {
+          item['acessos'] = row.areasText;
         }
         return item;
       });
@@ -1186,7 +1345,8 @@ export default function App() {
       cpf: p.cpf,
       category: p.category,
       company: p.company || '',
-      allowedAreas: p.allowedAreas || []
+      allowedAreaIds: p.allowedAreaIds || p.allowedAreas || [],
+      allowedAreas: p.allowedAreas || p.allowedAreaIds || []
     });
     setIsParticipantModalOpen(true);
   };
@@ -1471,6 +1631,12 @@ export default function App() {
   const eventHasAccessControl = currentEvent?.enableAccessControl !== false;
   const eventHasCloakroom = currentEvent?.enableCloakroom === true;
   const eventHasScanner = currentEvent?.enableScanner !== false;
+  const eventUserRoleLabels: Record<EventUserRole, string> = {
+    ADMIN: 'Administrador do evento',
+    CHECKIN_CADASTRO: 'Check-in + Cadastro',
+    CHECKIN: 'Check-in',
+    RELATORIO: 'Relatório'
+  };
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
     ...(isUserAdmin ? [{ id: 'dashboard' as const, label: 'Painel Geral', icon: BarChart3 }] : []),
@@ -1654,6 +1820,140 @@ export default function App() {
                     })}
                   </div>
                 )}
+
+                <div className="mt-8 border-t border-slate-100 pt-6">
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 font-display">Vínculos por Evento</h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Defina quais usuários participam de cada evento e qual permissão terão naquele evento.
+                      </p>
+                    </div>
+
+                    <form onSubmit={handleSaveEventUser} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2 w-full lg:max-w-4xl">
+                      <select
+                        value={eventUserForm.eventId}
+                        onChange={e => {
+                          const eventId = e.target.value;
+                          setEventUserForm(prev => ({ ...prev, eventId }));
+                          loadEventUsers(eventId);
+                        }}
+                        className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        <option value="">Selecione o evento</option>
+                        {events.map(event => (
+                          <option key={event.id} value={event.id}>{event.name}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={eventUserForm.userId}
+                        onChange={e => setEventUserForm(prev => ({ ...prev, userId: e.target.value }))}
+                        className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        <option value="">Selecione o usuário</option>
+                        {usersList.map(user => (
+                          <option key={user.id} value={user.id}>{user.name}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={eventUserForm.role}
+                        onChange={e => setEventUserForm(prev => ({ ...prev, role: e.target.value as EventUserRole }))}
+                        className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        {(Object.keys(eventUserRoleLabels) as EventUserRole[]).map(role => (
+                          <option key={role} value={role}>{eventUserRoleLabels[role]}</option>
+                        ))}
+                      </select>
+
+                      <label className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={eventUserForm.active}
+                          onChange={e => setEventUserForm(prev => ({ ...prev, active: e.target.checked }))}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-100"
+                        />
+                        <span>Ativo</span>
+                      </label>
+
+                      <button
+                        type="submit"
+                        className="px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                      >
+                        Vincular
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="mt-4 overflow-x-auto border border-slate-100 rounded-xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Usuário</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Permissão no Evento</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {eventUserForm.eventId && eventUsers.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
+                              Nenhum usuário vinculado a este evento.
+                            </td>
+                          </tr>
+                        ) : !eventUserForm.eventId ? (
+                          <tr>
+                            <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
+                              Selecione um evento para visualizar os vínculos.
+                            </td>
+                          </tr>
+                        ) : (
+                          eventUsers.map(link => {
+                            const linkedUser = usersList.find(user => user.id === link.userId);
+                            return (
+                              <tr key={link.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                <td className="p-3 text-sm font-semibold text-slate-800">
+                                  {linkedUser?.name || 'Usuário removido'}
+                                </td>
+                                <td className="p-3 text-xs text-slate-600">
+                                  {eventUserRoleLabels[link.role] || link.role}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                                    link.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                  }`}>
+                                    {link.active ? 'Ativo' : 'Inativo'}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleEventUser(link)}
+                                      className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 border border-slate-200 text-xs font-bold transition cursor-pointer"
+                                    >
+                                      {link.active ? 'Desativar' : 'Ativar'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteEventUser(link)}
+                                      className="p-1.5 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 border border-rose-200 transition cursor-pointer"
+                                      title="Remover vínculo"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             )}
           </nav>
@@ -1695,8 +1995,7 @@ export default function App() {
                 currentUser={currentUser}
                 selectedEventId={selectedEventId}
                 onSelectEvent={(eventId) => {
-                  setSelectedEventId(eventId);
-                  localStorage.setItem('credencia_selected_event_id', eventId);
+                  persistSelectedEvent(eventId);
                 }}
                 onNavigate={(tab) => setActiveTab(tab)}
                 onLogout={handleLogout}
@@ -1832,8 +2131,7 @@ export default function App() {
                         key={ev.id}
                         type="button"
                         onClick={() => {
-                          setSelectedEventId(ev.id);
-                          localStorage.setItem('credencia_selected_event_id', ev.id);
+                          persistSelectedEvent(ev.id, ev.currentUserRole);
                           setActiveTab('evento-dashboard');
                           addToast(`Evento ativo: ${ev.name}`, 'success');
                         }}
@@ -2057,8 +2355,7 @@ export default function App() {
                 setEvents={setEvents}
                 selectedEventId={selectedEventId}
                 onSelectEvent={(eventId) => {
-                  setSelectedEventId(eventId);
-                  localStorage.setItem('credencia_selected_event_id', eventId);
+                  persistSelectedEvent(eventId);
                   setActiveTab('evento-dashboard');
                 }}
                 currentUser={currentUser}
@@ -2118,29 +2415,32 @@ export default function App() {
                       <span className="hidden sm:inline">Modelo Excel</span>
                     </button>
 
-                    {/* Importador Excel/CSV Real */}
-                    <label className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl text-sm font-semibold transition cursor-pointer">
-                      <Upload size={15} />
-                      <span>Importar Excel / CSV</span>
-                      <input
-                        type="file"
-                        accept=".xlsx, .xls, .csv"
-                        onChange={handleExcelUpload}
-                        className="hidden"
-                      />
-                    </label>
+                    {canCreateParticipants && (
+                      <label className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl text-sm font-semibold transition cursor-pointer">
+                        <Upload size={15} />
+                        <span>Importar Excel / CSV</span>
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls, .csv"
+                          onChange={handleExcelUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
 
                     {/* Novo participante manual */}
-                    <button
-                      onClick={() => {
-                        setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreas: [] });
-                        setIsParticipantModalOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition cursor-pointer"
-                    >
-                      <Plus size={16} />
-                      <span>Adicionar</span>
-                    </button>
+                    {canCreateParticipants && (
+                      <button
+                        onClick={() => {
+                          setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: [] });
+                          setIsParticipantModalOpen(true);
+                        }}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition cursor-pointer"
+                      >
+                        <Plus size={16} />
+                        <span>Adicionar</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2332,14 +2632,14 @@ export default function App() {
                 events={events}
                 selectedEventId={selectedEventId}
                 onSelectEvent={(eventId) => {
-                  setSelectedEventId(eventId);
-                  localStorage.setItem('credencia_selected_event_id', eventId);
+                  persistSelectedEvent(eventId);
                 }}
                 apiCall={apiCall}
                 addToast={addToast}
                 participants={participants}
                 setParticipants={setParticipants}
                 currentUser={currentUser}
+                canCreateParticipants={canCreateParticipants}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
               />
             )}
@@ -2350,32 +2650,25 @@ export default function App() {
                 events={events}
                 selectedEventId={selectedEventId}
                 onSelectEvent={(eventId) => {
-                  setSelectedEventId(eventId);
-                  localStorage.setItem('credencia_selected_event_id', eventId);
+                  persistSelectedEvent(eventId);
                 }}
                 apiCall={apiCall}
                 addToast={addToast}
                 participants={participants}
                 setParticipants={setParticipants}
                 currentUser={currentUser}
+                canCreateParticipants={canCreateParticipants}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
               />
             )}
 
-            {/* --- TAB 10: AUTOMATIC CAMERA QR CHECKIN SCANNER --- */}
+            {/* --- TAB 10: ACCESS CONTROL SCAN --- */}
             {activeTab === 'scanner' && (
-              <ScannerPage
-                events={events}
-                selectedEventId={selectedEventId}
-                onSelectEvent={(eventId) => {
-                  setSelectedEventId(eventId);
-                  localStorage.setItem('credencia_selected_event_id', eventId);
-                }}
+              <ScanAccessControlPage
+                currentEvent={currentEvent}
+                currentUser={currentUser}
                 apiCall={apiCall}
                 addToast={addToast}
-                setParticipants={setParticipants}
-                participants={participants}
-                currentUser={currentUser}
               />
             )}
 
@@ -2999,19 +3292,20 @@ export default function App() {
                     </div>
                   ) : (
                     availableAreas.map(arr => {
-                      const isActive = arr.isActive !== false && arr.is_active !== false;
-                      const checked = participantForm.allowedAreas?.includes(arr.id);
+                      const isActive = arr.active !== false && arr.isActive !== false && arr.is_active !== false;
+                      const selectedAreas = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
+                      const checked = selectedAreas.includes(arr.id);
                       return (
                         <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ? 'opacity-50' : ''}`} title={!isActive ? 'Área Inativa' : ''}>
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={() => {
-                              const current = participantForm.allowedAreas || [];
+                              const current = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
                               const updated = checked
                                 ? current.filter(aid => aid !== arr.id)
                                 : [...current, arr.id];
-                              setParticipantForm(prev => ({ ...prev, allowedAreas: updated }));
+                              setParticipantForm(prev => ({ ...prev, allowedAreaIds: updated, allowedAreas: updated }));
                             }}
                             className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                           />

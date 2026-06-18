@@ -66,8 +66,10 @@ export default function AreaAccessControl({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const isUserAdmin = currentUser?.role?.toUpperCase() === 'ADMIN' || currentUser?.role === 'admin';
+  const currentEventRole = String(currentEvent?.currentUserRole || '').toUpperCase();
+  const isUserAdmin = currentUser?.role?.toUpperCase() === 'ADMIN' || currentUser?.role === 'admin' || currentEventRole === 'ADMIN';
   const normalizeAreaColor = (color?: string) => /^#[0-9A-Fa-f]{6}$/.test(color || '') ? color! : '#00E545';
+  const isAreaEnabled = (area: Area) => area.active !== false && area.isActive !== false && area.is_active !== false;
 
   // Auto clean result timer
   useEffect(() => {
@@ -106,7 +108,7 @@ export default function AreaAccessControl({
         setAreas(res);
         if (res.length > 0) {
           // Default to the first active area if available, otherwise just first area
-          const activeAreas = res.filter(a => a.isActive !== false && a.is_active !== false);
+          const activeAreas = res.filter(isAreaEnabled);
           const defaultArea = activeAreas.length > 0 ? activeAreas[0] : res[0];
           setSelectedAreaId(prev => res.some(a => a.id === prev) ? prev : defaultArea.id);
         } else {
@@ -208,7 +210,7 @@ export default function AreaAccessControl({
     setEditingArea(area);
     setAreaFormName(area.name);
     setAreaFormColor(area.color || '#00E545');
-    setAreaFormActive(area.isActive !== false && area.is_active !== false);
+    setAreaFormActive(isAreaEnabled(area));
     setIsAreaModalOpen(true);
   };
 
@@ -225,6 +227,7 @@ export default function AreaAccessControl({
           body: JSON.stringify({
             name: areaFormName.trim(),
             color: normalizeAreaColor(areaFormColor),
+            active: areaFormActive,
             isActive: areaFormActive,
             is_active: areaFormActive
           })
@@ -238,6 +241,7 @@ export default function AreaAccessControl({
             color: normalizeAreaColor(areaFormColor),
             eventId: currentEvent?.id || 'e1',
             event_id: currentEvent?.id || 'e1',
+            active: areaFormActive,
             isActive: areaFormActive,
             is_active: areaFormActive
           })
@@ -252,13 +256,14 @@ export default function AreaAccessControl({
   };
 
   const handleToggleAreaActive = async (area: Area) => {
-    const nextStatus = !(area.isActive !== false && area.is_active !== false);
+    const nextStatus = !isAreaEnabled(area);
     try {
       await apiCall(`/api/areas/${area.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           isActive: nextStatus,
-          is_active: nextStatus
+          is_active: nextStatus,
+          active: nextStatus
         })
       });
       addToast(`Área "${area.name}" foi ${nextStatus ? 'ativada' : 'desativada'}.`, 'success');
@@ -359,7 +364,7 @@ export default function AreaAccessControl({
 
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const selectedAreaName = selectedArea?.name || 'Área selecionada';
-  const selectedAreaIsActive = selectedArea ? (selectedArea.isActive !== false && selectedArea.is_active !== false) : true;
+  const selectedAreaIsActive = selectedArea ? isAreaEnabled(selectedArea) : true;
 
   return (
     <div className="space-y-6" id="area-access-control-module">
@@ -451,7 +456,7 @@ export default function AreaAccessControl({
                   </tr>
                 ) : (
                   areas.map(area => {
-                    const isActive = area.isActive !== false && area.is_active !== false;
+                    const isActive = isAreaEnabled(area);
                     return (
                       <tr key={area.id} className="hover:bg-slate-50/50 transition text-sm text-slate-700">
                         <td className="py-3.5 px-4 font-semibold text-slate-800">
@@ -608,7 +613,7 @@ export default function AreaAccessControl({
                 <div className="grid grid-cols-3 gap-3">
                   {areas.map(area => {
                     const isSelected = selectedAreaId === area.id;
-                    const isActive = area.isActive !== false && area.is_active !== false;
+                    const isActive = isAreaEnabled(area);
                     return (
                       <button
                         key={area.id}

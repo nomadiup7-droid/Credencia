@@ -44,6 +44,7 @@ interface CheckInModularProps {
   participants: Participant[];
   setParticipants: React.Dispatch<React.SetStateAction<Participant[]>>;
   currentUser: User | null;
+  canCreateParticipants: boolean;
   onPrintBadge: (participant: Participant) => void;
 }
 
@@ -141,6 +142,7 @@ export default function CheckInModular({
   participants,
   setParticipants,
   currentUser,
+  canCreateParticipants,
   onPrintBadge,
 }: CheckInModularProps) {
   // Store white label state
@@ -542,6 +544,10 @@ export default function CheckInModular({
   // Create participant form handler
   const handleQuickRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreateParticipants) {
+      addToast('Usuário sem permissão para cadastrar participantes neste evento.', 'error');
+      return;
+    }
     if (!newParticipantForm.name.trim()) {
       addToast('Nome é de preenchimento obrigatório.', 'warning');
       return;
@@ -1514,6 +1520,7 @@ export default function CheckInModular({
 
                 // BLOCK 3: QUICK CREATE PARTICIPANT SWITCH
                 case 'newParticipant':
+                  if (!canCreateParticipants) return null;
                   // Only logged in checkin operators check
                   return (
                     <div key="block-newParticipant" className="mb-6 flex justify-center">
@@ -1621,7 +1628,7 @@ export default function CheckInModular({
 
       {/* --- QUICK NEW VISUALLY HARMONIOUS REGISTRATION SLIDE-OVER OVERLAY DIALOG --- */}
       <AnimatePresence>
-        {isRegisterOpen && (
+        {isRegisterOpen && canCreateParticipants && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 select-none">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}

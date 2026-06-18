@@ -1,8 +1,30 @@
 import express from 'express';
 import { db } from '../server/db';
-import { UserRole } from '../src/types';
+import { UserRole, ActionLogAction } from '../src/types';
 
 const router = express.Router();
+
+const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; action: ActionLogAction }) => {
+  try {
+    if (!log.eventId || !log.userId) return;
+    await db.createActionLog({
+      eventId: log.eventId,
+      userId: log.userId,
+      ...(log.participantId ? { participantId: log.participantId } : {}),
+      action: log.action
+    });
+  } catch (error) {
+    console.error('ActionLog failed:', error);
+  }
+};
+
+const writeLegacyLog = async (log: any) => {
+  try {
+    await db.createLog(log);
+  } catch (error) {
+    console.error('Legacy audit log failed:', error);
+  }
+};
 
 // Self-contained Authentication Middleware
 const authenticateToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -119,12 +141,18 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
     
     // Log the check-in action automatically
     const reqUser = (req as any).user;
-    await db.createLog({
+    await writeLegacyLog({
       participantId: participant.id,
       action: 'CHECKIN',
       performedBy: reqUser?.name || reqUser?.email || 'Operador',
       eventId: eventId,
       organizationId: reqUser?.organizationId || 'org1'
+    });
+    await writeActionLog({
+      eventId,
+      userId: reqUser?.id,
+      participantId: participant.id,
+      action: 'CHECKIN'
     });
 
     res.status(201).json({

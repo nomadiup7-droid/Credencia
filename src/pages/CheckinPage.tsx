@@ -28,6 +28,7 @@ interface CheckinPageProps {
   participants: Participant[];
   setParticipants: React.Dispatch<React.SetStateAction<Participant[]>>;
   currentUser: User | null;
+  canCreateParticipants: boolean;
   onPrintBadge: (participant: Participant) => void;
 }
 
@@ -41,6 +42,7 @@ export default function CheckinPage({
   participants,
   setParticipants,
   currentUser,
+  canCreateParticipants,
   onPrintBadge
 }: CheckinPageProps) {
   // OFFLINE QUEUE STATES & HELPERS
@@ -130,10 +132,6 @@ export default function CheckinPage({
   const [dynamicFormValues, setDynamicFormValues] = useState<Record<string, any>>({});
 
   const selectedEvent = events.find(e => e.id === selectedEventId);
-
-  // Determine user permission to create new participant
-  const userRoleUpper = currentUser?.role?.toUpperCase() || '';
-  const canRegister = userRoleUpper === 'ADMIN' || userRoleUpper === 'SUPERVISOR' || userRoleUpper === 'CHECKIN_CADASTRO' || userRoleUpper === 'OPERATOR_PLUS';
 
   // Keep input focused automatically
   useEffect(() => {
@@ -356,6 +354,10 @@ export default function CheckinPage({
   // Handle dynamic form registration submit
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreateParticipants) {
+      addToast('Usuário sem permissão para cadastrar participantes neste evento.', 'error');
+      return;
+    }
 
     // Local dynamic validation of required fields
     const activeRequiredFields = registrationFields.filter(f => f.active && f.required);
@@ -582,7 +584,7 @@ export default function CheckinPage({
                 <span> Escanear QR Code</span>
               </button>
 
-              {canRegister && (
+              {canCreateParticipants && (
                 <button
                   onClick={() => setIsRegisterModalOpen(true)}
                   className="flex items-center gap-1.5 px-4 py-2 bg-[#1D4ED8] hover:bg-[#173FAE] text-white text-xs font-bold rounded-lg shadow-xs transition cursor-pointer"
@@ -799,7 +801,7 @@ export default function CheckinPage({
 
       {/* MODAL: DYNAMIC NEW REGISTRATION FORM WITH AUTO CHECKIN */}
       <AnimatePresence>
-        {isRegisterModalOpen && (
+        {isRegisterModalOpen && canCreateParticipants && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}

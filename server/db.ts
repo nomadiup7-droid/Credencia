@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile } from '../src/types';
+import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog } from '../src/types';
 
 // Load environment variables early
 dotenv.config();
@@ -14,11 +14,13 @@ export interface DBUser extends User {
 interface DBSchema {
   organizations: Organization[];
   users: DBUser[];
+  eventUsers?: EventUser[];
   events: Event[];
   participants: Participant[];
   cloakroom: CloakroomItem[];
   checkins?: CheckIn[];
   logs?: CheckInLog[];
+  actionLogs?: ActionLog[];
   participantFields?: ParticipantField[];
   areas?: Area[];
   areaAccessLogs?: AreaAccessLog[];
@@ -243,16 +245,18 @@ class Database {
     this.data = {
       organizations: DEFAULT_ORGANIZATIONS,
       users: DEFAULT_USERS,
+      eventUsers: [],
       events: DEFAULT_EVENTS,
       participants: DEFAULT_PARTICIPANTS,
       cloakroom: DEFAULT_CLOAKROOM,
       checkins: [],
       logs: [],
+      actionLogs: [],
       participantFields: DEFAULT_PARTICIPANT_FIELDS,
       areas: [
-        { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
-        { id: 'a2', name: 'Restaurante', color: '#F59E0B', eventId: 'e1', event_id: 'e1', isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
-        { id: 'a3', name: 'Shows', color: '#14B8A6', eventId: 'e1', event_id: 'e1', isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() }
+        { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
+        { id: 'a2', name: 'Restaurante', color: '#F59E0B', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
+        { id: 'a3', name: 'Shows', color: '#14B8A6', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() }
       ],
       areaAccessLogs: [],
       accessProfiles: []
@@ -287,11 +291,25 @@ class Database {
         this.data = {
           organizations: parsed.organizations || DEFAULT_ORGANIZATIONS,
           users: loadedUsers,
+          eventUsers: (parsed.eventUsers || []).map((eventUser: any) => ({
+            ...eventUser,
+            active: eventUser.active !== false
+          })),
           events: loadedEvents,
-          participants: parsed.participants || DEFAULT_PARTICIPANTS,
+          participants: (parsed.participants || DEFAULT_PARTICIPANTS).map((participant: any) => {
+            const allowedAreaIds = Array.isArray(participant.allowedAreaIds)
+              ? participant.allowedAreaIds
+              : (Array.isArray(participant.allowedAreas) ? participant.allowedAreas : []);
+            return {
+              ...participant,
+              allowedAreaIds,
+              allowedAreas: Array.isArray(participant.allowedAreas) ? participant.allowedAreas : allowedAreaIds
+            };
+          }),
           cloakroom: parsed.cloakroom || DEFAULT_CLOAKROOM,
           checkins: parsed.checkins || [],
           logs: parsed.logs || [],
+          actionLogs: parsed.actionLogs || [],
           participantFields: parsed.participantFields || DEFAULT_PARTICIPANT_FIELDS,
           areas: (parsed.areas || [
             { id: 'a1', name: 'Sala', color: '#00E545' },
@@ -302,8 +320,9 @@ class Database {
             color: area.color || '#00E545',
             eventId: area.eventId || area.event_id || 'e1',
             event_id: area.eventId || area.event_id || 'e1',
-            isActive: area.isActive !== undefined ? area.isActive : (area.is_active !== undefined ? area.is_active : true),
-            is_active: area.isActive !== undefined ? area.isActive : (area.is_active !== undefined ? area.is_active : true),
+            active: area.active !== undefined ? area.active : (area.isActive !== undefined ? area.isActive : (area.is_active !== undefined ? area.is_active : true)),
+            isActive: area.active !== undefined ? area.active : (area.isActive !== undefined ? area.isActive : (area.is_active !== undefined ? area.is_active : true)),
+            is_active: area.active !== undefined ? area.active : (area.isActive !== undefined ? area.isActive : (area.is_active !== undefined ? area.is_active : true)),
             createdAt: area.createdAt || area.created_at || new Date().toISOString(),
             created_at: area.createdAt || area.created_at || new Date().toISOString()
           })),
@@ -389,6 +408,55 @@ class Database {
     const index = this.data.users.findIndex(u => u.id === id);
     if (index === -1) return false;
     this.data.users.splice(index, 1);
+    this.data.eventUsers = (this.data.eventUsers || []).filter(eu => eu.userId !== id);
+    this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.userId !== id);
+    this.saveLocal();
+    return true;
+  }
+
+  // --- Event Users CRUD ---
+  async getEventUsers(eventId?: string): Promise<EventUser[]> {
+    const links = this.data.eventUsers || [];
+    if (eventId) {
+      return links.filter(eu => eu.eventId === eventId);
+    }
+    return links;
+  }
+
+  async getEventUserById(id: string): Promise<EventUser | undefined> {
+    return (this.data.eventUsers || []).find(eu => eu.id === id);
+  }
+
+  async getEventUser(eventId: string, userId: string): Promise<EventUser | undefined> {
+    return (this.data.eventUsers || []).find(eu => eu.eventId === eventId && eu.userId === userId);
+  }
+
+  async createEventUser(link: Omit<EventUser, 'id'>): Promise<EventUser> {
+    if (!this.data.eventUsers) {
+      this.data.eventUsers = [];
+    }
+    const newLink: EventUser = {
+      ...link,
+      id: 'eu_' + Math.random().toString(36).substring(2, 9)
+    };
+    this.data.eventUsers.push(newLink);
+    this.saveLocal();
+    return newLink;
+  }
+
+  async updateEventUser(id: string, updates: Partial<Omit<EventUser, 'id' | 'eventId' | 'userId'>>): Promise<EventUser | undefined> {
+    const link = (this.data.eventUsers || []).find(eu => eu.id === id);
+    if (!link) return undefined;
+    Object.assign(link, updates);
+    this.saveLocal();
+    return link;
+  }
+
+  async deleteEventUser(id: string): Promise<boolean> {
+    if (!this.data.eventUsers) return false;
+    const index = this.data.eventUsers.findIndex(eu => eu.id === id);
+    if (index === -1) return false;
+    this.data.eventUsers.splice(index, 1);
     this.saveLocal();
     return true;
   }
@@ -428,6 +496,8 @@ class Database {
     const index = this.data.events.findIndex(e => e.id === id);
     if (index === -1) return false;
     this.data.events.splice(index, 1);
+    this.data.eventUsers = (this.data.eventUsers || []).filter(eu => eu.eventId !== id);
+    this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.eventId !== id);
     this.data.participants = this.data.participants.filter(p => p.eventId !== id);
     this.data.cloakroom = this.data.cloakroom.filter(c => c.eventId !== id);
     this.saveLocal();
@@ -465,6 +535,9 @@ class Database {
 
   async createParticipant(p: Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'checkedInAt' | 'ticketCode'> & { ticketCode?: string; checkedIn?: boolean; checkedInAt?: string }): Promise<Participant> {
     const defaultCode = 'TKT-' + p.eventId.toUpperCase() + '-' + p.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
+    const allowedAreaIds = Array.isArray(p.allowedAreaIds)
+      ? p.allowedAreaIds
+      : (Array.isArray(p.allowedAreas) ? p.allowedAreas : []);
     const newParticipant: Participant = {
       ...p,
       id: 'p_' + Math.random().toString(36).substring(2, 9),
@@ -472,6 +545,8 @@ class Database {
       checkedInAt: p.checkedInAt || (p.checkedIn ? new Date().toISOString() : undefined),
       ticketCode: p.ticketCode || defaultCode,
       company: p.company || '',
+      allowedAreaIds,
+      allowedAreas: Array.isArray(p.allowedAreas) ? p.allowedAreas : allowedAreaIds,
       createdAt: new Date().toISOString()
     };
     this.data.participants.push(newParticipant);
@@ -494,7 +569,14 @@ class Database {
   async updateParticipant(id: string, updates: Partial<Omit<Participant, 'id' | 'createdAt'>>): Promise<Participant | undefined> {
     const p = this.data.participants.find(p => p.id === id);
     if (!p) return undefined;
+    const allowedAreaIds = updates.allowedAreaIds !== undefined
+      ? updates.allowedAreaIds
+      : updates.allowedAreas;
     Object.assign(p, updates);
+    if (allowedAreaIds !== undefined) {
+      p.allowedAreaIds = allowedAreaIds;
+      p.allowedAreas = allowedAreaIds;
+    }
     this.saveLocal();
     return p;
   }
@@ -503,6 +585,7 @@ class Database {
     const index = this.data.participants.findIndex(p => p.id === id);
     if (index === -1) return false;
     this.data.participants.splice(index, 1);
+    this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.participantId !== id);
     this.saveLocal();
     return true;
   }
@@ -653,6 +736,28 @@ class Database {
     return list;
   }
 
+  async createActionLog(log: Omit<ActionLog, 'id' | 'timestamp'>): Promise<ActionLog> {
+    if (!this.data.actionLogs) {
+      this.data.actionLogs = [];
+    }
+    const newLog: ActionLog = {
+      ...log,
+      id: 'alog_' + Math.random().toString(36).substring(2, 9),
+      timestamp: new Date().toISOString()
+    };
+    this.data.actionLogs.push(newLog);
+    this.saveLocal();
+    return newLog;
+  }
+
+  async getActionLogs(eventId?: string): Promise<ActionLog[]> {
+    let list = this.data.actionLogs || [];
+    if (eventId) {
+      list = list.filter(log => log.eventId === eventId);
+    }
+    return list;
+  }
+
   // --- Participant Fields CRUD ---
   async getParticipantFields(): Promise<ParticipantField[]> {
     if (!this.data.participantFields) {
@@ -682,12 +787,12 @@ class Database {
     return (this.data.areas || []).find(a => a.id === id);
   }
 
-  async createArea(areaData: { name: string; color?: string; eventId?: string; event_id?: string; isActive?: boolean; is_active?: boolean }): Promise<Area> {
+  async createArea(areaData: { name: string; color?: string; eventId?: string; event_id?: string; active?: boolean; isActive?: boolean; is_active?: boolean }): Promise<Area> {
     if (!this.data.areas) {
       this.data.areas = [];
     }
     const eId = areaData.eventId || areaData.event_id || 'e1';
-    const active = areaData.isActive !== undefined ? areaData.isActive : (areaData.is_active !== undefined ? areaData.is_active : true);
+    const active = areaData.active !== undefined ? areaData.active : (areaData.isActive !== undefined ? areaData.isActive : (areaData.is_active !== undefined ? areaData.is_active : true));
     const dateStr = new Date().toISOString();
 
     const newArea: Area = {
@@ -696,6 +801,7 @@ class Database {
       color: areaData.color || '#00E545',
       eventId: eId,
       event_id: eId,
+      active,
       isActive: active,
       is_active: active,
       createdAt: dateStr,
@@ -725,8 +831,9 @@ class Database {
       updated.eventId = val;
       updated.event_id = val;
     }
-    if (areaData.isActive !== undefined || areaData.is_active !== undefined) {
-      const val = areaData.isActive !== undefined ? areaData.isActive : areaData.is_active;
+    if (areaData.active !== undefined || areaData.isActive !== undefined || areaData.is_active !== undefined) {
+      const val = areaData.active !== undefined ? areaData.active : (areaData.isActive !== undefined ? areaData.isActive : areaData.is_active);
+      updated.active = val;
       updated.isActive = val;
       updated.is_active = val;
     }
