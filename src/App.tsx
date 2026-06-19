@@ -1152,6 +1152,148 @@ export default function App() {
     });
   }, [cloakroom, cloakroomHistoryFilter, cloakroomHistorySearch, participants]);
 
+  const escapePrintHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+  const printCloakroomLabels = (item: CloakroomItem) => {
+    const labelWidthCm = 9;
+    const labelHeightCm = 4;
+    const volumeTags = item.volumeTags && item.volumeTags.length > 0
+      ? item.volumeTags
+      : Array.from({ length: item.volumeCount || 1 }, (_, index) => `${item.tagNumber}-${index + 1}`);
+
+    const labels = [
+      {
+        title: 'CHAPELARIA',
+        tag: String(item.tagNumber),
+        subtitle: 'Etiqueta principal',
+        detail: `${item.volumeCount || volumeTags.length} volume(s)`
+      },
+      ...volumeTags.map((tag, index) => ({
+        title: 'VOLUME',
+        tag,
+        subtitle: `Volume ${index + 1} de ${volumeTags.length}`,
+        detail: `Principal #${item.tagNumber}`
+      }))
+    ];
+
+    const frame = document.createElement('iframe');
+    frame.style.position = 'fixed';
+    frame.style.right = '0';
+    frame.style.bottom = '0';
+    frame.style.width = '0';
+    frame.style.height = '0';
+    frame.style.border = '0';
+    frame.style.visibility = 'hidden';
+
+    const labelHtml = labels.map((label, index) => `
+      <section class="label ${index === labels.length - 1 ? 'last' : ''}">
+        <div class="meta">
+          <strong>${escapePrintHtml(label.title)}</strong>
+          <span>${escapePrintHtml(label.subtitle)}</span>
+        </div>
+        <div class="ticket">${escapePrintHtml(label.tag)}</div>
+        <div class="participant">${escapePrintHtml(item.participantName)}</div>
+        <div class="description">${escapePrintHtml(item.itemDescription || '-')}</div>
+        <div class="footer">
+          <span>${escapePrintHtml(label.detail)}</span>
+          <span>${new Date(item.registeredAt).toLocaleString('pt-BR')}</span>
+        </div>
+      </section>
+    `).join('');
+
+    const printHtml = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Etiquetas Chapelaria</title>
+          <style>
+            @page {
+              size: ${labelWidthCm}cm ${labelHeightCm}cm;
+              margin: 0;
+            }
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              color: #000;
+              font-family: Arial, Helvetica, sans-serif;
+            }
+            .label {
+              width: ${labelWidthCm}cm;
+              height: ${labelHeightCm}cm;
+              box-sizing: border-box;
+              padding: 0.35cm 0.45cm;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              page-break-after: always;
+              break-after: page;
+            }
+            .label.last {
+              page-break-after: auto;
+              break-after: auto;
+            }
+            .meta,
+            .footer {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
+              font-size: 10px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+            }
+            .meta strong {
+              font-size: 13px;
+            }
+            .ticket {
+              text-align: center;
+              font-size: 42px;
+              line-height: 1;
+              font-weight: 900;
+              font-family: Arial Black, Arial, Helvetica, sans-serif;
+            }
+            .participant {
+              text-align: center;
+              font-size: 18px;
+              font-weight: 800;
+              line-height: 1.05;
+            }
+            .description {
+              text-align: center;
+              font-size: 11px;
+              line-height: 1.15;
+              min-height: 14px;
+            }
+          </style>
+        </head>
+        <body>${labelHtml}</body>
+      </html>`;
+
+    document.body.appendChild(frame);
+    const printDocument = frame.contentWindow?.document;
+    if (!printDocument || !frame.contentWindow) {
+      frame.remove();
+      return;
+    }
+
+    printDocument.open();
+    printDocument.write(printHtml);
+    printDocument.close();
+
+    setTimeout(() => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      setTimeout(() => frame.remove(), 1000);
+    }, 250);
+  };
+
   const handleOperationalCloakroomSave = async () => {
     if (!selectedEventId) {
       addToast('Selecione um evento ativo', 'error');
@@ -1179,6 +1321,7 @@ export default function App() {
       setCloakroomSelectedParticipant(null);
       setCloakroomVolumeCount(1);
       setCloakroomDescription('');
+      printCloakroomLabels(saved);
       addToast(`Pertences registrados. Ticket #${saved.tagNumber}`, 'success');
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
@@ -1204,6 +1347,7 @@ export default function App() {
       });
 
       setCloakroom(prev => [saved, ...prev]);
+      printCloakroomLabels(saved);
       addToast(`Item guardado com sucesso! Etiqueta gerada: #${saved.tagNumber}`, 'success');
       setIsCloakroomModalOpen(false);
       setCloakroomForm({ participantId: '', participantName: '', itemDescription: '' });
@@ -1678,6 +1822,46 @@ export default function App() {
       };
     });
   }, [availableAreas, reportAreaAccessLogs, reportParticipants]);
+
+  const reportParticipantIds = useMemo(() => new Set(reportParticipants.map(participant => participant.id)), [reportParticipants]);
+
+  const reportCloakroomItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return cloakroom
+      .filter(item => {
+        const participant = item.participantId ? participants.find(p => p.id === item.participantId) : undefined;
+        const matchesParticipantFilters = item.participantId
+          ? reportParticipantIds.has(item.participantId)
+          : selectedCategoryFilter === 'all' && selectedPresenceFilter === 'all';
+
+        const searchableText = [
+          item.participantName,
+          item.itemDescription,
+          String(item.tagNumber),
+          ...(item.volumeTags || []),
+          participant?.cpf || ''
+        ].join(' ').toLowerCase();
+
+        return matchesParticipantFilters && (!query || searchableText.includes(query));
+      })
+      .sort((a, b) => new Date(b.returnedAt || b.registeredAt).getTime() - new Date(a.returnedAt || a.registeredAt).getTime());
+  }, [cloakroom, participants, reportParticipantIds, searchQuery, selectedCategoryFilter, selectedPresenceFilter]);
+
+  const reportCloakroomSummary = useMemo(() => {
+    const stored = reportCloakroomItems.filter(item => item.status === 'guardado');
+    const returned = reportCloakroomItems.filter(item => item.status === 'retirado');
+    const totalVolumes = reportCloakroomItems.reduce((sum, item) => sum + (item.volumeCount || 1), 0);
+    const storedVolumes = stored.reduce((sum, item) => sum + (item.volumeCount || 1), 0);
+
+    return {
+      totalTickets: reportCloakroomItems.length,
+      stored: stored.length,
+      returned: returned.length,
+      totalVolumes,
+      storedVolumes
+    };
+  }, [reportCloakroomItems]);
 
 
   // Clean up initial bootstrap user if missing key items
@@ -3656,6 +3840,107 @@ export default function App() {
                   </div>
                 )}
 
+                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
+                        <FolderLock size={17} className="text-slate-500" />
+                        <span>Relatorio da Chapelaria</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Entradas, devolucoes e volumes registrados na chapelaria do evento atual.
+                      </p>
+                    </div>
+                    <p className="text-xs font-bold text-slate-500">
+                      {reportCloakroomItems.length} registro(s) nos filtros atuais
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
+                    {[
+                      { title: 'Tickets', value: reportCloakroomSummary.totalTickets, icon: Tag, color: 'bg-blue-50 text-blue-700 border-blue-100' },
+                      { title: 'Guardados', value: reportCloakroomSummary.stored, icon: FolderLock, color: 'bg-amber-50 text-amber-700 border-amber-100' },
+                      { title: 'Retirados', value: reportCloakroomSummary.returned, icon: CheckCircle2, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+                      { title: 'Volumes totais', value: reportCloakroomSummary.totalVolumes, icon: BarChart3, color: 'bg-slate-50 text-slate-700 border-slate-100' },
+                      { title: 'Volumes em guarda', value: reportCloakroomSummary.storedVolumes, icon: Clock, color: 'bg-rose-50 text-rose-700 border-rose-100' }
+                    ].map(card => {
+                      const Icon = card.icon;
+                      return (
+                        <div key={card.title} className={`border rounded-lg p-4 ${card.color}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wider opacity-75">{card.title}</p>
+                              <p className="text-2xl font-black text-slate-950 mt-1">{card.value}</p>
+                            </div>
+                            <div className="w-9 h-9 rounded-lg bg-white/80 flex items-center justify-center shrink-0">
+                              <Icon size={18} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-100 rounded-lg">
+                    <table className="w-full text-left border-collapse min-w-[1050px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Ticket</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Participante</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Volumes</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Descricao</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Entrada</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador entrada</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Devolucao</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador retirada</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportCloakroomItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="p-10 text-center text-slate-400">
+                              <FolderLock className="mx-auto text-slate-300 mb-2" size={30} />
+                              <p className="font-semibold text-slate-500">Nenhuma movimentacao de chapelaria nos filtros atuais.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          reportCloakroomItems.map(item => (
+                            <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
+                              <td className="p-3 font-mono text-xs font-black text-slate-800">#{item.tagNumber}</td>
+                              <td className="p-3">
+                                <div className="font-bold text-slate-800 text-sm">{item.participantName}</div>
+                                {item.volumeTags && item.volumeTags.length > 0 && (
+                                  <div className="text-[11px] text-slate-400 font-mono mt-1">{item.volumeTags.join(', ')}</div>
+                                )}
+                              </td>
+                              <td className="p-3 text-sm font-bold text-slate-700">{item.volumeCount || 1}</td>
+                              <td className="p-3 text-xs text-slate-600 max-w-[220px]">{item.itemDescription || '-'}</td>
+                              <td className="p-3">
+                                {item.status === 'retirado' ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                                    <CheckCircle2 size={12} />
+                                    Retirado
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
+                                    <Clock size={12} />
+                                    Guardado
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3 font-mono text-xs text-slate-700">{new Date(item.registeredAt).toLocaleString('pt-BR')}</td>
+                              <td className="p-3 text-xs text-slate-600">{item.registeredByName || '-'}</td>
+                              <td className="p-3 font-mono text-xs text-slate-700">{item.returnedAt ? new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td>
+                              <td className="p-3 text-xs text-slate-600">{item.returnedByName || '-'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
                     <div>
@@ -3991,6 +4276,67 @@ export default function App() {
             <p className="text-[10px] uppercase font-bold text-zinc-500">Presença</p>
             <p className="text-xl font-black">{reportSummary.attendanceRate}%</p>
           </div>
+        </div>
+
+        <div className="relative z-10 mb-6">
+          <h2 className="text-sm font-black uppercase border-b border-black pb-2 mb-3">Relatorio de Chapelaria</h2>
+          <div className="grid grid-cols-5 gap-2 mb-4">
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Tickets</p>
+              <p className="text-lg font-black">{reportCloakroomSummary.totalTickets}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Guardados</p>
+              <p className="text-lg font-black">{reportCloakroomSummary.stored}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Retirados</p>
+              <p className="text-lg font-black">{reportCloakroomSummary.returned}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Volumes</p>
+              <p className="text-lg font-black">{reportCloakroomSummary.totalVolumes}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Em guarda</p>
+              <p className="text-lg font-black">{reportCloakroomSummary.storedVolumes}</p>
+            </div>
+          </div>
+
+          <table className="w-full text-left text-[10px] text-slate-950 mb-6">
+            <thead>
+              <tr className="border-b border-black">
+                <th className="py-1">Ticket</th>
+                <th className="py-1">Participante</th>
+                <th className="py-1">Volumes</th>
+                <th className="py-1">Status</th>
+                <th className="py-1">Entrada</th>
+                <th className="py-1">Op. entrada</th>
+                <th className="py-1">Devolucao</th>
+                <th className="py-1 text-right">Op. retirada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportCloakroomItems.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-3 text-center text-zinc-500">Nenhuma movimentacao de chapelaria nos filtros atuais.</td>
+                </tr>
+              ) : (
+                reportCloakroomItems.map(item => (
+                  <tr key={item.id} className="border-b border-zinc-200">
+                    <td className="py-1 font-mono font-bold">#{item.tagNumber}</td>
+                    <td className="py-1 font-semibold">{item.participantName}</td>
+                    <td className="py-1">{item.volumeCount || 1}</td>
+                    <td className="py-1">{item.status === 'retirado' ? 'RETIRADO' : 'GUARDADO'}</td>
+                    <td className="py-1 font-mono">{new Date(item.registeredAt).toLocaleString('pt-BR')}</td>
+                    <td className="py-1">{item.registeredByName || '-'}</td>
+                    <td className="py-1 font-mono">{item.returnedAt ? new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td>
+                    <td className="py-1 text-right">{item.returnedByName || '-'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
 
         <table className="relative z-10 w-full text-left text-xs text-slate-950">
