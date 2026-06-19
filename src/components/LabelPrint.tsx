@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Participant, Event, BadgeFieldItem } from '../types';
 import UserQRCode from './UserQRCode';
 import { Printer, X } from 'lucide-react';
+import QRCode from 'qrcode';
 
 interface LabelPrintProps {
   id?: string;
@@ -10,6 +11,17 @@ interface LabelPrintProps {
   onClose: () => void;
   autoPrint?: boolean;
 }
+
+let lastAutoPrintSignature = '';
+let lastAutoPrintAt = 0;
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 
 export default function LabelPrint({
   id = 'label-print-component',
@@ -66,25 +78,6 @@ export default function LabelPrint({
   const isQrOnSide = config.qrPosition === 'left' || config.qrPosition === 'right' || config.qrPosition === 'side-by-side';
   const qrOrder = (config.qrPosition === 'top' || config.qrPosition === 'left') ? -1 : 1;
 
-  const handlePrint = () => {
-    window.focus();
-    window.print();
-  };
-
-  useEffect(() => {
-    if (participant && event && autoPrint) {
-      const timer = setTimeout(() => {
-        if (printCountRef.current < 1) {
-          printCountRef.current += 1;
-          handlePrint();
-        }
-      }, 700);
-      return () => clearTimeout(timer);
-    }
-  }, [participant, event, autoPrint]);
-
-  if (!participant || !event) return null;
-
   // Safe fields list normalization
   const getNormalizedFields = (): BadgeFieldItem[] => {
     if (config.fields && Array.isArray(config.fields) && config.fields.length > 0) {
@@ -122,6 +115,188 @@ export default function LabelPrint({
 
   const activeFields = getNormalizedFields();
 
+  const buildPrintFieldHtml = () => {
+    if (!participant || !event) return '';
+
+    return activeFields
+      .filter(f => f.visible)
+      .map((field) => {
+        const fontSize = field.fontSize ? `${field.fontSize}px` : undefined;
+
+        switch (field.id) {
+          case 'header':
+            if (!config.customHeader) return '';
+            return `<span style="font-size: ${fontSize || '8px'}; font-weight: ${field.bold ? 900 : 500}; text-transform: uppercase; line-height: 1;">${escapeHtml(config.customHeader)}</span>`;
+          case 'event':
+            return `<span style="font-size: ${fontSize || '9px'}; font-weight: ${field.bold ? 900 : 600}; text-transform: uppercase; color: #64748b; line-height: 1.1;">${escapeHtml(event.name)}</span>`;
+          case 'category':
+            return `<span style="font-size: ${fontSize || '8px'}; font-weight: ${field.bold ? 900 : 600}; text-transform: uppercase; line-height: 1.1;">${escapeHtml(participant.category || '')}</span>`;
+          case 'name':
+            return `<h1 style="font-size: ${fontSize || fontMultiplierName}; font-weight: ${field.bold ? 900 : 600}; line-height: 1.05; margin: 0;">${escapeHtml(participant.badgeName || participant.name)}</h1>`;
+          case 'company':
+            if (!participant.company) return '';
+            return `<p style="font-size: ${fontSize || fontMultiplierMeta}; font-weight: ${field.bold ? 800 : 500}; margin: 0; text-transform: uppercase; line-height: 1.1;">${escapeHtml(participant.company)}</p>`;
+          case 'cpf':
+            if (!participant.cpf) return '';
+            return `<p style="font-size: ${fontSize || fontMultiplierMeta}; font-weight: ${field.bold ? 700 : 400}; margin: 0; font-family: monospace; line-height: 1.1;">CPF: ${escapeHtml(participant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'))}</p>`;
+          case 'email':
+            if (!participant.email) return '';
+            return `<p style="font-size: ${fontSize || fontMultiplierMeta}; font-weight: ${field.bold ? 700 : 400}; margin: 0; font-family: monospace; line-height: 1.1;">${escapeHtml(participant.email)}</p>`;
+          case 'ticketCode':
+            if (!participant.ticketCode) return '';
+            return `<p style="font-size: ${fontSize || '7px'}; font-weight: ${field.bold ? 700 : 400}; margin: 0; font-family: monospace; text-transform: uppercase; line-height: 1.1;">Ref: ${escapeHtml(participant.ticketCode)}</p>`;
+          default:
+            return '';
+        }
+      })
+      .join('');
+  };
+
+  const handlePrint = async () => {
+    if (!participant || !event) return;
+
+    const printFrame = document.createElement('iframe');
+    const frameName = `label-print-${participant.id}-${Date.now()}`;
+    printFrame.name = frameName;
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    printFrame.style.visibility = 'hidden';
+
+    const qrUrl = config.showQrCode
+      ? await QRCode.toDataURL(participant.id, {
+          width: Math.max(48, Math.round(config.qrSize * 1.5)),
+          margin: 2,
+          color: {
+            dark: '#0f172a',
+            light: '#ffffff'
+          }
+        })
+      : '';
+
+    const printHtml = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Etiqueta</title>
+          <style>
+            @page {
+              size: ${widthCm}cm ${heightCm}cm;
+              margin: 0;
+            }
+            html,
+            body {
+              width: ${widthCm}cm;
+              height: ${heightCm}cm;
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              background: #ffffff;
+              color: #000000;
+              font-family: Arial, Helvetica, sans-serif;
+            }
+            .label {
+              width: ${widthCm}cm;
+              height: ${heightCm}cm;
+              padding: ${config.padding / 10}cm;
+              box-sizing: border-box;
+              display: flex;
+              flex-direction: ${isQrOnSide ? 'row' : 'column'};
+              align-items: center;
+              justify-content: space-between;
+              gap: 4px;
+              page-break-after: avoid;
+              page-break-before: avoid;
+              page-break-inside: avoid;
+              break-after: avoid;
+              break-before: avoid;
+              break-inside: avoid;
+            }
+            .fields {
+              order: 0;
+              align-self: stretch;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              flex: 1;
+              min-width: 0;
+              gap: 2px;
+              text-align: ${config.alignment};
+            }
+            .qr {
+              order: ${qrOrder};
+              margin: 4px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+            }
+            .qr img {
+              display: block;
+              width: ${Math.max(48, Math.round(config.qrSize * 1.5))}px;
+              height: ${Math.max(48, Math.round(config.qrSize * 1.5))}px;
+              border: 0;
+              outline: 0;
+            }
+            * {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="label">
+            <div class="fields">${buildPrintFieldHtml()}</div>
+            ${qrUrl ? `<div class="qr"><img src="${qrUrl}" alt="QR Code" /></div>` : ''}
+          </div>
+        </body>
+      </html>`;
+
+    document.body.appendChild(printFrame);
+    const printDocument = printFrame.contentWindow?.document;
+
+    if (!printDocument || !printFrame.contentWindow) {
+      printFrame.remove();
+      return;
+    }
+
+    printDocument.open();
+    printDocument.write(printHtml);
+    printDocument.close();
+
+    setTimeout(() => {
+      printFrame.contentWindow?.focus();
+      printFrame.contentWindow?.print();
+      setTimeout(() => printFrame.remove(), 1000);
+    }, 250);
+  };
+
+  useEffect(() => {
+    if (participant && event && autoPrint) {
+      const timer = setTimeout(() => {
+        if (printCountRef.current < 1) {
+          const signature = `${event.id}:${participant.id}`;
+          const now = Date.now();
+
+          if (lastAutoPrintSignature === signature && now - lastAutoPrintAt < 2500) {
+            return;
+          }
+
+          lastAutoPrintSignature = signature;
+          lastAutoPrintAt = now;
+          printCountRef.current += 1;
+          void handlePrint();
+        }
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [participant, event, autoPrint]);
+
+  if (!participant || !event) return null;
+
   // Layout parameters
   const getAlignmentClass = () => {
     switch (config.alignment) {
@@ -148,22 +323,33 @@ export default function LabelPrint({
             background-color: white !important;
           }
           #root {
-            height: 0 !important;
-            max-height: 0 !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
             margin: 0 !important;
             padding: 0 !important;
             border: none !important;
-            float: left !important;
+            width: ${widthCm}cm !important;
+            height: ${heightCm}cm !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
           }
           body * {
             visibility: hidden !important;
           }
-          #printable-credential, #printable-credential * {
+          #${id} {
+            position: fixed !important;
+            inset: 0 auto auto 0 !important;
+            display: block !important;
+            width: ${widthCm}cm !important;
+            height: ${heightCm}cm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+          }
+          #label-preview, #label-preview * {
             visibility: visible !important;
           }
-          #printable-credential {
+          #label-preview {
             position: fixed !important;
             left: 0 !important;
             top: 0 !important;
@@ -184,6 +370,9 @@ export default function LabelPrint({
             box-shadow: none !important;
             page-break-inside: avoid !important;
             page-break-after: avoid !important;
+          }
+          #label-preview {
+            border-radius: 0 !important;
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -221,7 +410,7 @@ export default function LabelPrint({
           {/* Interactive preview container */}
           <div 
             ref={printableRef}
-            id="printable-credential"
+            id="label-preview"
             style={{ 
               width: `${widthCm * 44}px`, 
               height: `${heightCm * 44}px`,
@@ -374,6 +563,7 @@ export default function LabelPrint({
               </div>
             )}
           </div>
+
         </div>
 
         {/* Footer controls */}
@@ -393,6 +583,7 @@ export default function LabelPrint({
           </button>
         </div>
       </div>
+
     </div>
   );
 }

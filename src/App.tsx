@@ -1349,7 +1349,7 @@ export default function App() {
 
     const worksheet = XLSX.utils.json_to_sheet(outputRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'RelatÃ³rio');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
     XLSX.writeFile(workbook, `Filtro_${titleSuffix}_${currentEvent.name.replace(/\s+/g, '_')}.xlsx`);
     addToast('Planilha gerada com sucesso!', 'success');
   };
@@ -1675,7 +1675,7 @@ export default function App() {
     ADMIN: 'Administrador do evento',
     CHECKIN_CADASTRO: 'Check-in + Cadastro',
     CHECKIN: 'Check-in',
-    RELATORIO: 'RelatÃ³rio'
+    RELATORIO: 'Relatório'
   };
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
@@ -1688,8 +1688,8 @@ export default function App() {
     ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
     ...(isUserAdmin ? [{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
     ...(isUserAdmin ? [{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
-    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'RelatÃ³rios', icon: Download }] : []),
-    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'ImpressÃ£o de Etiquetas', icon: Printer }] : []),
+    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
+    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
   ];
 
   const secondaryNavItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [];
@@ -1934,7 +1934,7 @@ export default function App() {
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">UsuÃ¡rio</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">PermissÃ£o no Evento</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">AÃ§Ãµes</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2048,7 +2048,7 @@ export default function App() {
               <section className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operaÃƒÂ§ÃƒÂ£o</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operação</p>
                     <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">{currentEvent.name}</h1>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       Painel limpo para acompanhar e operar somente os recursos habilitados neste evento.
@@ -2080,7 +2080,7 @@ export default function App() {
                     value={stats?.totalCheckedIn ?? participants.filter(p => p.checkedIn).length}
                     iconName="UserCheck"
                     description={`${stats?.totalWaiting ?? participants.filter(p => !p.checkedIn).length} pendentes`}
-                    trend={{ text: 'Operacao', type: 'success' }}
+                    trend={{ text: 'Operação', type: 'success' }}
                     colorTheme="blue"
                     onClick={() => setActiveTab('checkin')}
                   />
@@ -2088,7 +2088,7 @@ export default function App() {
                     title="Salas"
                     value={eventHasAccessControl ? availableAreas.length : 'Inativo'}
                     iconName="ShieldCheck"
-                    description={eventHasAccessControl ? 'Areas configuradas' : 'Modulo desligado'}
+                    description={eventHasAccessControl ? 'Áreas configuradas' : 'Módulo desligado'}
                     trend={{ text: eventHasAccessControl ? 'Acessos' : 'Opcional', type: eventHasAccessControl ? 'success' : 'warning' }}
                     colorTheme="purple"
                     onClick={eventHasAccessControl ? () => setActiveTab('areas') : undefined}
@@ -2097,7 +2097,7 @@ export default function App() {
                     title="Chapelaria"
                     value={eventHasCloakroom ? cloakroom.filter(c => c.status === 'guardado').length : 'Inativo'}
                     iconName="FolderLock"
-                    description={eventHasCloakroom ? 'Itens guardados agora' : 'Modulo desligado'}
+                    description={eventHasCloakroom ? 'Itens guardados agora' : 'Módulo desligado'}
                     trend={{ text: eventHasCloakroom ? 'Ativa' : 'Opcional', type: eventHasCloakroom ? 'success' : 'warning' }}
                     colorTheme="amber"
                     onClick={eventHasCloakroom ? () => setActiveTab('chapelaria') : undefined}
@@ -2110,18 +2110,18 @@ export default function App() {
                     <button onClick={() => setActiveTab('participantes')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                       <Users size={18} className="text-slate-500 mb-2" />
                       <div className="font-bold text-slate-900 text-sm">Participantes</div>
-                      <div className="text-xs text-slate-500 mt-1">Cadastro, importacao e credenciais.</div>
+                      <div className="text-xs text-slate-500 mt-1">Cadastro, importação e credenciais.</div>
                     </button>
                     <button onClick={() => setActiveTab('checkin')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                       <QrCode size={18} className="text-slate-500 mb-2" />
                       <div className="font-bold text-slate-900 text-sm">Check-in</div>
-                      <div className="text-xs text-slate-500 mt-1">Busca rapida e entrada do participante.</div>
+                      <div className="text-xs text-slate-500 mt-1">Busca rápida e entrada do participante.</div>
                     </button>
                     {eventHasAccessControl && (
                       <button onClick={() => setActiveTab('areas')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                         <ShieldCheck size={18} className="text-slate-500 mb-2" />
                         <div className="font-bold text-slate-900 text-sm">Salas e acessos</div>
-                        <div className="text-xs text-slate-500 mt-1">Setores, perfis e validacao por area.</div>
+                        <div className="text-xs text-slate-500 mt-1">Setores, perfis e validação por área.</div>
                       </button>
                     )}
                     {eventHasCloakroom && (
@@ -2141,7 +2141,7 @@ export default function App() {
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Eventos ativos</p>
-                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">Escolha o evento da operaÃ§Ã£o</h1>
+                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">Escolha o evento da operação</h1>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       O evento selecionado controla o painel, os participantes, o check-in, o scanner e os acessos.
                     </p>
@@ -2520,7 +2520,7 @@ export default function App() {
                       onChange={e => setSelectedPresenceFilter(e.target.value as any)}
                       className="text-xs bg-slate-100 border-none rounded-xl px-3 py-2 text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer w-full md:w-auto"
                     >
-                      <option value="all">PresenÃ§a: Todos</option>
+                      <option value="all">Presença: Todos</option>
                       <option value="present">Credenciado / Presente</option>
                       <option value="absent">Aguardando / Ausente</option>
                     </select>
@@ -2538,8 +2538,8 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Identidade / CPF</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Empresa</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Categoria</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status PresenÃ§a</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">AÃ§Ãµes e Credencial</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status Presença</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">Ações e Credencial</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2626,7 +2626,7 @@ export default function App() {
                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                     }`}
                                   >
-                                    {p.checkedIn ? 'Desfazer' : 'Dar PresenÃ§a'}
+                                    {p.checkedIn ? 'Desfazer' : 'Dar Presença'}
                                   </button>
 
                                   <button
@@ -2850,9 +2850,9 @@ export default function App() {
               <div className="space-y-6 max-w-4xl">
                 
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800 font-display">ExportaÃ§Ã£o de RelatÃ³rios de Auditoria</h2>
+                  <h2 className="text-xl font-bold text-slate-800 font-display">Exportação de Relatórios de Auditoria</h2>
                   <p className="text-sm text-slate-500">
-                    Gere documentos Excel (.xlsx) auditÃ¡veis com dados unificados de trÃ¢nsito dos participantes.
+                    Gere documentos Excel (.xlsx) auditáveis com dados unificados de trânsito dos participantes.
                   </p>
                 </div>
 
@@ -2864,9 +2864,9 @@ export default function App() {
                       <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-700 mb-4">
                         <Users size={20} />
                       </div>
-                      <h3 className="font-bold text-slate-800 text-sm font-display mb-1">ExportaÃ§Ã£o da Lista Geral</h3>
+                      <h3 className="font-bold text-slate-800 text-sm font-display mb-1">Exportação da Lista Geral</h3>
                       <p className="text-xs text-slate-500 leading-relaxed mb-6">
-                        Inclui todos os integrantes cadastrados e prÃ©-inscritos para o evento ativo "{currentEvent?.name}", com status operacional e CPFs formatados.
+                        Inclui todos os integrantes cadastrados e pré-inscritos para o evento ativo "{currentEvent?.name}", com status operacional e CPFs formatados.
                       </p>
                     </div>
                     <button
@@ -2886,7 +2886,7 @@ export default function App() {
                       </div>
                       <h3 className="font-bold text-slate-800 text-sm font-display mb-1">Apenas Pessoas Credenciadas</h3>
                       <p className="text-xs text-slate-500 leading-relaxed mb-6">
-                        Filtro estratÃ©gico contendo apenas as pessoas que realizaram o check-in presencial no evento, contendo o horÃ¡rio preciso de credenciamento.
+                        Filtro estratégico contendo apenas as pessoas que realizaram o check-in presencial no evento, contendo o horário preciso de credenciamento.
                       </p>
                     </div>
                     <button
@@ -2906,10 +2906,10 @@ export default function App() {
                     <span>Auditoria Simplificada do Evento</span>
                   </h4>
                   <div className="text-xs text-slate-300 space-y-2 mt-4">
-                    <p>â€¢ Nome do Evento: <b>{currentEvent?.name}</b></p>
-                    <p>â€¢ Capacidade Registrada: <b>{currentEvent?.capacity} participantes</b></p>
-                    <p>â€¢ Inscritos Confirmados: <b>{participants.length}</b></p>
-                    <p>â€¢ Porcentagem de PresenÃ§a: <b>{participants.length > 0 ? Math.round((participants.filter(p=>p.checkedIn).length / participants.length) * 100) : 0}%</b></p>
+                    <p>• Nome do Evento: <b>{currentEvent?.name}</b></p>
+                    <p>• Capacidade Registrada: <b>{currentEvent?.capacity} participantes</b></p>
+                    <p>• Inscritos Confirmados: <b>{participants.length}</b></p>
+                    <p>• Porcentagem de Presença: <b>{participants.length > 0 ? Math.round((participants.filter(p=>p.checkedIn).length / participants.length) * 100) : 0}%</b></p>
                   </div>
                 </div>
 
@@ -2920,10 +2920,10 @@ export default function App() {
             {activeTab === 'impressao' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">ImpressÃ£o de Etiquetas</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">ConfiguraÃ§Ã£o de etiquetas e crachÃ¡s</h2>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Impressão de Etiquetas</p>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração de etiquetas e crachás</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Configure o modelo de impressÃ£o, fontes, campos exibidos e layout das credenciais do evento.
+                    Configure o modelo de impressão, fontes, campos exibidos e layout das credenciais do evento.
                   </p>
                 </div>
 
@@ -2956,9 +2956,9 @@ export default function App() {
               <div className="space-y-6 animate-fade-in">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Campos de Cadastro</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">ConfiguraÃ§Ã£o dos campos de cadastro</h2>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração dos campos de cadastro</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Defina os campos exibidos nos cadastros e formulÃ¡rios rÃ¡pidos dos participantes.
+                    Defina os campos exibidos nos cadastros e formulários rápidos dos participantes.
                   </p>
                 </div>
 
@@ -2978,7 +2978,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800 font-display">Operadores do Sistema</h2>
-                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e nÃ­veis de acesso dos operadores e administradores.</p>
+                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e níveis de acesso dos operadores e administradores.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -3013,9 +3013,9 @@ export default function App() {
                         <tr className="bg-slate-50 border-b border-slate-100">
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome Completo</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">E-mail de Login</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">NÃ­vel de Acesso</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Nível de Acesso</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Registro</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">AÃ§Ãµes</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3127,8 +3127,8 @@ export default function App() {
       {/* --- PRINT SHADOW LOG: APENAS VISÃVEL DURANTE O PRINT REAL (Filtro Geral de PresenÃ§a) --- */}
       <div className="hidden print:block p-10 bg-white text-black min-h-screen">
         <div className="border-b-2 border-slate-900 pb-4 mb-6">
-          <h1 className="text-2xl font-bold font-display uppercase">RelatÃ³rio Central de Credenciamento</h1>
-          <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} â€¢ Data de ImpressÃ£o: {new Date().toLocaleString('pt-BR')}</p>
+          <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
+          <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} • Data de Impressão: {new Date().toLocaleString('pt-BR')}</p>
         </div>
 
         <table className="w-full text-left text-xs text-slate-950">
