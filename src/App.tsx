@@ -176,17 +176,31 @@ const isActiveTab = (value: string | null): value is ActiveTab => {
   return !!value && ACTIVE_TABS.includes(value as ActiveTab);
 };
 
+const readStoredToken = () => {
+  const saved = localStorage.getItem('credencia_token');
+  return saved && saved !== 'undefined' && saved !== 'null' ? saved : null;
+};
+
+const readStoredUser = (): User | null => {
+  const saved = localStorage.getItem('credencia_user');
+  if (!saved || saved === 'undefined' || saved === 'null') return null;
+
+  try {
+    return JSON.parse(saved) || null;
+  } catch (error) {
+    localStorage.removeItem('credencia_user');
+    return null;
+  }
+};
+
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [showFernandoWelcome, setShowFernandoWelcome] = useState(false);
 
   // Session / Auth States
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('credencia_token'));
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('credencia_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [token, setToken] = useState<string | null>(() => readStoredToken());
+  const [currentUser, setCurrentUser] = useState<User | null>(() => readStoredUser());
   const [currentEventRole, setCurrentEventRole] = useState<string>('');
 
   const userRole = String(currentUser?.role || '').toUpperCase();
@@ -744,14 +758,30 @@ export default function App() {
   // Keep the current tab when it is allowed; only redirect when permissions require it.
   useEffect(() => {
     if (!currentUser) return;
-    if (isUserAdmin) return;
+    const allowedTabs: ActiveTab[] = isUserAdmin
+      ? [
+          'dashboard',
+          'eventos',
+          'usuarios',
+          'participantes',
+          'campos',
+          'checkin',
+          'areas',
+          'scanner',
+          'chapelaria',
+          'impressao',
+          'evento-dashboard',
+          'eventos-ativos',
+          'etiquetas',
+          'checkin-modular'
+        ]
+      : ['eventos-ativos', 'checkin'];
 
-    const allowedTabs: ActiveTab[] = ['eventos-ativos', 'checkin'];
-    if (canManageParticipants) allowedTabs.push('participantes');
-    if (canViewReports) allowedTabs.push('relatorios');
+    if (isUserAdmin || canManageParticipants) allowedTabs.push('participantes');
+    if (isUserAdmin || canViewReports) allowedTabs.push('relatorios');
 
     if (!allowedTabs.includes(activeTab)) {
-      setActiveTab('checkin');
+      setActiveTab(isUserAdmin ? 'dashboard' : 'checkin');
     }
   }, [currentUser, isUserAdmin, canManageParticipants, canViewReports, activeTab]);
 
@@ -2136,7 +2166,7 @@ export default function App() {
   };
 
   // --- Layout components Render helpers ---
-  if (!token) {
+  if (!token || !currentUser) {
     return (
       <div className="min-h-screen bg-[#f7f7f2] text-slate-900 flex items-center justify-center p-6">
         <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-10 items-center">
@@ -2425,22 +2455,9 @@ export default function App() {
   const secondaryNavItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [];
 
   const isMoreActive = secondaryNavItems.some(item => item.id === activeTab);
-  const visibleNavIds = navItems.map(item => item.id);
-  const visibleNavKey = visibleNavIds.join('|');
   const isStandaloneCheckin = window.location.pathname === '/checkin';
   const isCheckinOnlyOperator = !!currentUser && !isUserAdmin && !canCreateParticipants && !canViewReports;
   const shouldUseFullscreenCheckin = activeTab === 'checkin' && (isStandaloneCheckin || isCheckinOnlyOperator);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    const internalTabs: ActiveTab[] = isUserAdmin
-      ? ['evento-dashboard', 'eventos-ativos', 'etiquetas', 'checkin-modular']
-      : ['eventos-ativos'];
-    if (internalTabs.includes(activeTab)) return;
-    if (!visibleNavIds.includes(activeTab)) {
-      setActiveTab(isUserAdmin ? 'dashboard' : 'checkin');
-    }
-  }, [currentUser, activeTab, isUserAdmin, visibleNavKey]);
 
   return (
     <div className={`min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ? 'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
@@ -3418,6 +3435,7 @@ export default function App() {
                 canConfigureCheckinScreen={isUserAdmin}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
                 onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ? updated : ev))}
+                onLogout={handleLogout}
               />
             )}
 

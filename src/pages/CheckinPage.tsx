@@ -18,7 +18,8 @@ import {
   CheckCircle2,
   Maximize2,
   CircleDot,
-  Pencil
+  Pencil,
+  Users
 } from 'lucide-react';
 
 interface CheckinPageProps {
@@ -35,6 +36,7 @@ interface CheckinPageProps {
   canConfigureCheckinScreen: boolean;
   onPrintBadge: (participant: Participant) => void;
   onUpdateEvent: (event: Event) => void;
+  onLogout: () => void;
 }
 
 const DEFAULT_CHECKIN_SCREEN_CONFIG: CheckinScreenConfig = {
@@ -69,7 +71,8 @@ export default function CheckinPage({
   canCreateParticipants,
   canConfigureCheckinScreen,
   onPrintBadge,
-  onUpdateEvent
+  onUpdateEvent,
+  onLogout
 }: CheckinPageProps) {
   // OFFLINE QUEUE STATES & HELPERS
   const [isSyncingQueue, setIsSyncingQueue] = useState(false);
@@ -653,6 +656,7 @@ export default function CheckinPage({
   const isStandaloneCheckin = window.location.pathname === '/checkin';
   const isCheckinOnlyOperator = !!currentUser && !canCreateParticipants && !canConfigureCheckinScreen;
   const isFullscreenCheckin = isStandaloneCheckin || isCheckinOnlyOperator;
+  const toolbarPositionClass = isFullscreenCheckin ? 'fixed right-4 top-4 z-50' : 'absolute right-4 top-4 z-50';
 
   return (
     <div
@@ -667,7 +671,7 @@ export default function CheckinPage({
     >
       {config.darkOverlay && <div className="absolute inset-0 bg-slate-950/55" />}
       <div className="relative z-10 mx-auto flex min-h-full max-w-4xl flex-col space-y-6">
-      <div className="flex items-center justify-end gap-2 select-none">
+      <div className={`${toolbarPositionClass} flex items-center justify-end gap-2 select-none`}>
         {!isCheckinOnlyOperator && (
           <a
             href="/checkin"
@@ -689,6 +693,14 @@ export default function CheckinPage({
             <Settings size={18} />
           </button>
         )}
+        <button
+          type="button"
+          onClick={onLogout}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
+          title="Trocar usuário"
+        >
+          <Users size={18} />
+        </button>
       </div>
       
       {/* Top Header - Pure Operations details */}
