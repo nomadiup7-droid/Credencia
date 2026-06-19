@@ -650,11 +650,14 @@ export default function CheckinPage({
     : activeFeedback?.type === 'error'
       ? config.errorColor
       : '#D97706';
+  const isStandaloneCheckin = window.location.pathname === '/checkin';
+  const isCheckinOnlyOperator = !!currentUser && !canCreateParticipants && !canConfigureCheckinScreen;
+  const isFullscreenCheckin = isStandaloneCheckin || isCheckinOnlyOperator;
 
   return (
     <div
       id={id}
-      className="relative min-h-[calc(100vh-150px)] overflow-hidden rounded-none sm:rounded-xl px-4 py-6 sm:px-8"
+      className={`relative overflow-hidden px-4 py-6 sm:px-8 ${isFullscreenCheckin ? 'h-screen min-h-screen rounded-none' : 'min-h-[calc(100vh-150px)] rounded-none sm:rounded-xl'}`}
       style={{
         backgroundColor: config.backgroundColor,
         backgroundImage: config.backgroundImageUrl ? `url(${config.backgroundImageUrl})` : undefined,
@@ -663,17 +666,19 @@ export default function CheckinPage({
       }}
     >
       {config.darkOverlay && <div className="absolute inset-0 bg-slate-950/55" />}
-      <div className="relative z-10 max-w-4xl mx-auto space-y-6">
+      <div className="relative z-10 mx-auto flex min-h-full max-w-4xl flex-col space-y-6">
       <div className="flex items-center justify-end gap-2 select-none">
-        <a
-          href="/checkin"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
-          title="Abrir Check-in em janela separada"
-        >
-          <Maximize2 size={18} />
-        </a>
+        {!isCheckinOnlyOperator && (
+          <a
+            href="/checkin"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
+            title="Abrir Check-in em janela separada"
+          >
+            <Maximize2 size={18} />
+          </a>
+        )}
         {canConfigureCheckinScreen && (
           <button
             type="button"
@@ -734,7 +739,7 @@ export default function CheckinPage({
           </p>
         </div>
       ) : (
-        <div className="space-y-6 focus-within:ring-0 min-h-[calc(100vh-260px)] flex flex-col justify-center">
+        <div className={`space-y-6 focus-within:ring-0 flex flex-1 flex-col justify-center ${isFullscreenCheckin ? 'min-h-0' : 'min-h-[calc(100vh-260px)]'}`}>
           <div className="text-center">
             {config.showLogo && config.logoUrl && (
               <img

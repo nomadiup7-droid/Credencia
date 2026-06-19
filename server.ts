@@ -166,18 +166,18 @@ const requireAccessAreaAdmin = async (req: express.Request, res: express.Respons
   const eventId = area?.eventId || area?.event_id || bodyEventId;
 
   if (!eventId) {
-    res.status(400).json({ error: 'eventId Ã© obrigatÃ³rio para gerenciar Ã¡reas' });
+    res.status(400).json({ error: 'eventId é obrigatório para gerenciar áreas' });
     return;
   }
 
   const event = await db.getEventById(eventId);
   if (!event || event.organizationId !== user.organizationId) {
-    res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+    res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
     return;
   }
 
   if (!(await canManageAccessAreasForEvent(user, eventId))) {
-    res.status(403).json({ error: 'Apenas ADMIN pode gerenciar Ã¡reas de acesso' });
+    res.status(403).json({ error: 'Apenas ADMIN pode gerenciar áreas de acesso' });
     return;
   }
 
@@ -586,7 +586,7 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
       .filter(link => link.userId === user.id && link.active);
     const eventLink = activeLinks.find(link => link.eventId === event.id);
     if (activeLinks.length > 0 && !eventLink) {
-      res.status(403).json({ error: 'UsuÃ¡rio sem acesso a este evento' });
+      res.status(403).json({ error: 'Usuário sem acesso a este evento' });
       return;
     }
 
@@ -598,7 +598,7 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/events', authenticateToken, requireAdmin, async (req, res) => {
-  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig } = req.body;
+  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig } = req.body;
   if (!name || !date || !location || !capacity) {
     res.status(400).json({ error: 'Todos os campos do evento são obrigatórios' });
     return;
@@ -619,6 +619,7 @@ app.post('/api/events', authenticateToken, requireAdmin, async (req, res) => {
     enableScanner: enableScanner !== undefined ? Boolean(enableScanner) : true,
     layoutConfig: layoutConfig || null,
     checkinScreenConfig: checkinScreenConfig || undefined,
+    cloakroomLabelConfig: cloakroomLabelConfig || undefined,
     organizationId: user.organizationId || 'org1'
   });
   res.status(201).json(newEvent);
@@ -633,7 +634,7 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     return;
   }
 
-  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig } = req.body;
+  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig } = req.body;
   const updated = await db.updateEvent(req.params.id, {
     ...(name && { name }),
     ...(description !== undefined && { description }),
@@ -647,7 +648,8 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     ...(enableCloakroom !== undefined && { enableCloakroom: Boolean(enableCloakroom) }),
     ...(enableScanner !== undefined && { enableScanner: Boolean(enableScanner) }),
     ...(layoutConfig !== undefined && { layoutConfig }),
-    ...(checkinScreenConfig !== undefined && { checkinScreenConfig })
+    ...(checkinScreenConfig !== undefined && { checkinScreenConfig }),
+    ...(cloakroomLabelConfig !== undefined && { cloakroomLabelConfig })
   });
 
   res.json(updated);

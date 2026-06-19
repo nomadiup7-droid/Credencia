@@ -42,6 +42,19 @@ export interface CheckinScreenConfig {
   resetDelaySeconds: number;
 }
 
+export interface CloakroomLabelConfig {
+  showEventName: boolean;
+  showLabelType: boolean;
+  showTicketNumber: boolean;
+  showParticipantName: boolean;
+  showDescription: boolean;
+  showVolumeCount: boolean;
+  showDateTime: boolean;
+  showOperator: boolean;
+  lineOrder?: Array<'participantName' | 'description' | 'ticketNumber' | 'volumeCount' | 'eventName' | 'labelType' | 'dateTime' | 'operator'>;
+  fontSizes?: Partial<Record<'participantName' | 'description' | 'ticketNumber' | 'volumeCount' | 'eventName' | 'labelType' | 'dateTime' | 'operator', number>>;
+}
+
 export interface Event {
   id: string;
   name: string;
@@ -58,6 +71,7 @@ export interface Event {
   enableScanner?: boolean;
   layoutConfig?: any;
   checkinScreenConfig?: CheckinScreenConfig;
+  cloakroomLabelConfig?: CloakroomLabelConfig;
   organizationId: string;
   currentUserRole?: EventUserRole | UserRole;
 }
