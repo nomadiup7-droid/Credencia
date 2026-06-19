@@ -93,7 +93,7 @@ const verifyPermission = (permission: string) => {
   };
 };
 
-const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; action: ActionLogAction }) => {
+const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; ticketNumber?: number; action: ActionLogAction }) => {
   try {
     if (!log.eventId || !log.userId) return;
     await db.createActionLog({
@@ -1214,10 +1214,10 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     return;
   }
 
-  const { participantId, participantName, itemDescription } = req.body;
+  const { participantId, participantName, itemDescription, volumeCount } = req.body;
 
-  if (!participantName || !itemDescription) {
-    res.status(400).json({ error: 'Nome do participante e descrição do item são obrigatórios' });
+  if (!participantName) {
+    res.status(400).json({ error: 'Nome do participante é obrigatório' });
     return;
   }
 
@@ -1225,7 +1225,18 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     eventId,
     participantId,
     participantName,
-    itemDescription
+    itemDescription: itemDescription || '',
+    volumeCount: Math.max(1, Math.min(5, Number(volumeCount) || 1)),
+    registeredByUserId: user.id,
+    registeredByName: user.name || user.email || 'Operador'
+  });
+
+  await writeActionLog({
+    eventId,
+    userId: user.id,
+    participantId,
+    ticketNumber: newItem.tagNumber,
+    action: 'CLOAKROOM_CREATE'
   });
 
   res.status(201).json(newItem);
@@ -1245,7 +1256,19 @@ app.post('/api/cloakroom/:id/collect', authenticateToken, requireAdmin, async (r
     return;
   }
 
-  const updatedItem = await db.collectCloakroomItem(req.params.id);
+  const updatedItem = await db.collectCloakroomItem(req.params.id, {
+    userId: user.id,
+    name: user.name || user.email || 'Operador'
+  });
+
+  await writeActionLog({
+    eventId: item.eventId,
+    userId: user.id,
+    participantId: item.participantId,
+    ticketNumber: item.tagNumber,
+    action: 'CLOAKROOM_RETURN'
+  });
+
   res.json(updatedItem);
 });
 

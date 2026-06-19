@@ -222,6 +222,8 @@ const DEFAULT_CLOAKROOM: CloakroomItem[] = [
     participantName: 'Alice Silva Santos',
     itemDescription: 'Mochila preta com notebook',
     tagNumber: 101,
+    volumeCount: 1,
+    volumeTags: ['101-1'],
     status: 'guardado',
     registeredAt: new Date('2026-06-02T13:48:00Z').toISOString()
   },
@@ -232,6 +234,8 @@ const DEFAULT_CLOAKROOM: CloakroomItem[] = [
     participantName: 'Bruno Ramos de Oliveira',
     itemDescription: 'Casaco cinza de lã',
     tagNumber: 102,
+    volumeCount: 1,
+    volumeTags: ['102-1'],
     status: 'retirado',
     registeredAt: new Date('2026-06-02T14:18:00Z').toISOString(),
     returnedAt: new Date('2026-06-02T16:30:00Z').toISOString()
@@ -673,12 +677,15 @@ class Database {
     return maxTag + 1;
   }
 
-  async createCloakroomItem(item: Omit<CloakroomItem, 'id' | 'tagNumber' | 'status' | 'registeredAt' | 'returnedAt'>): Promise<CloakroomItem> {
+  async createCloakroomItem(item: Omit<CloakroomItem, 'id' | 'tagNumber' | 'status' | 'registeredAt' | 'returnedAt' | 'volumeTags'>): Promise<CloakroomItem> {
     const nextTag = await this.getNextTagNumber(item.eventId);
+    const volumeCount = Math.max(1, Math.min(5, Number(item.volumeCount) || 1));
     const newItem: CloakroomItem = {
       ...item,
       id: 'c_' + Math.random().toString(36).substring(2, 9),
       tagNumber: nextTag,
+      volumeCount,
+      volumeTags: Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`),
       status: 'guardado',
       registeredAt: new Date().toISOString()
     };
@@ -687,12 +694,14 @@ class Database {
     return newItem;
   }
 
-  async collectCloakroomItem(id: string): Promise<CloakroomItem | undefined> {
+  async collectCloakroomItem(id: string, returnedBy?: { userId?: string; name?: string }): Promise<CloakroomItem | undefined> {
     const returnedAt = new Date().toISOString();
     const item = this.data.cloakroom.find(c => c.id === id);
     if (!item) return undefined;
     item.status = 'retirado';
     item.returnedAt = returnedAt;
+    item.returnedByUserId = returnedBy?.userId;
+    item.returnedByName = returnedBy?.name;
     this.saveLocal();
     return item;
   }

@@ -91,6 +91,12 @@ export interface CloakroomItem {
   participantName: string;
   itemDescription: string;
   tagNumber: number; // Automatic sequential tag number
+  volumeCount?: number;
+  volumeTags?: string[];
+  registeredByUserId?: string;
+  registeredByName?: string;
+  returnedByUserId?: string;
+  returnedByName?: string;
   status: CloakroomStatus;
   registeredAt: string;
   returnedAt?: string;
@@ -167,13 +173,16 @@ export type ActionLogAction =
   | 'EDIT_PARTICIPANT'
   | 'REPRINT_BADGE'
   | 'ACCESS_ALLOWED'
-  | 'ACCESS_DENIED';
+  | 'ACCESS_DENIED'
+  | 'CLOAKROOM_CREATE'
+  | 'CLOAKROOM_RETURN';
 
 export interface ActionLog {
   id: string;
   eventId: string;
   userId: string;
   participantId?: string;
+  ticketNumber?: number;
   action: ActionLogAction;
   timestamp: string;
 }

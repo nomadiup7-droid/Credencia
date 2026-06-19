@@ -68,6 +68,46 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
+interface ReportAreaAccessLog {
+  id: string;
+  participantId: string;
+  areaId: string;
+  status: 'ALLOWED' | 'DENIED';
+  userId: string;
+  timestamp: string;
+  participantName?: string;
+  participantCpf?: string;
+  areaName?: string;
+  operatorName?: string;
+}
+
+interface ReportActionLog {
+  id: string;
+  eventId: string;
+  userId: string;
+  participantId?: string;
+  action: string;
+  timestamp: string;
+  participantName?: string;
+  operatorName?: string;
+}
+
+interface ReportBrandConfig {
+  showLogo: boolean;
+  logoUrl: string;
+  showWatermark: boolean;
+  watermarkUrl: string;
+  watermarkOpacity: number;
+}
+
+const DEFAULT_REPORT_BRAND_CONFIG: ReportBrandConfig = {
+  showLogo: false,
+  logoUrl: '',
+  showWatermark: false,
+  watermarkUrl: '',
+  watermarkOpacity: 0.08
+};
+
 type ActiveTab =
   | 'dashboard'
   | 'eventos-ativos'
@@ -202,17 +242,31 @@ export default function App() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [availableAreas, setAvailableAreas] = useState<Area[]>([]);
   const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
+  const [areaAccessLogs, setAreaAccessLogs] = useState<ReportAreaAccessLog[]>([]);
+  const [actionLogs, setActionLogs] = useState<ReportActionLog[]>([]);
   const [loadingMain, setLoadingMain] = useState(false);
 
   // Filter / Search states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedPresenceFilter, setSelectedPresenceFilter] = useState<'all' | 'present' | 'absent'>('all');
+  const [reportBrandConfig, setReportBrandConfig] = useState<ReportBrandConfig>(DEFAULT_REPORT_BRAND_CONFIG);
 
   // Modal / Form trigger states
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
   const [isCloakroomModalOpen, setIsCloakroomModalOpen] = useState(false);
+  const [cloakroomTab, setCloakroomTab] = useState<'store' | 'return' | 'history'>('store');
+  const [cloakroomSearch, setCloakroomSearch] = useState('');
+  const [cloakroomSelectedParticipant, setCloakroomSelectedParticipant] = useState<Participant | null>(null);
+  const [cloakroomVolumeCount, setCloakroomVolumeCount] = useState(1);
+  const [cloakroomDescription, setCloakroomDescription] = useState('');
+  const [cloakroomSuccess, setCloakroomSuccess] = useState<CloakroomItem | null>(null);
+  const [cloakroomReturnSearch, setCloakroomReturnSearch] = useState('');
+  const [cloakroomReturnItem, setCloakroomReturnItem] = useState<CloakroomItem | null>(null);
+  const [cloakroomReturnSuccess, setCloakroomReturnSuccess] = useState<CloakroomItem | null>(null);
+  const [cloakroomHistoryFilter, setCloakroomHistoryFilter] = useState<'all' | 'guardado' | 'retirado'>('all');
+  const [cloakroomHistorySearch, setCloakroomHistorySearch] = useState('');
   const [eventForm, setEventForm] = useState({
     id: '',
     name: '',
@@ -698,12 +752,16 @@ export default function App() {
     setLoadingMain(true);
     try {
       // Load current areas and access profiles for the event dynamically
-      const [areasData, profilesData] = await Promise.all([
+      const [areasData, profilesData, accessLogsData, actionLogsData] = await Promise.all([
         apiCall(`/api/areas?eventId=${eventId}`),
-        apiCall(`/api/access-profiles?eventId=${eventId}`)
+        apiCall(`/api/access-profiles?eventId=${eventId}`),
+        apiCall('/api/access-control/logs').catch(() => []),
+        apiCall(`/api/action-logs?eventId=${eventId}`).catch(() => [])
       ]);
       setAvailableAreas(areasData || []);
       setAccessProfiles(profilesData || []);
+      setAreaAccessLogs(Array.isArray(accessLogsData) ? accessLogsData : []);
+      setActionLogs(Array.isArray(actionLogsData) ? actionLogsData : []);
 
       if (isUserAdmin || canViewReports) {
         // Parallelize fetches for speedy Operacao load times for admins
@@ -757,6 +815,33 @@ export default function App() {
       localStorage.setItem(CURRENT_USER_ROLE_STORAGE_KEY, eventRole);
     }
   }, [currentEvent, currentUser]);
+
+  useEffect(() => {
+    if (!selectedEventId) {
+      setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG);
+      return;
+    }
+
+    const savedConfig = localStorage.getItem(`credencia_report_brand_${selectedEventId}`);
+    if (!savedConfig) {
+      setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG);
+      return;
+    }
+
+    try {
+      setReportBrandConfig({
+        ...DEFAULT_REPORT_BRAND_CONFIG,
+        ...JSON.parse(savedConfig)
+      });
+    } catch (error) {
+      setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG);
+    }
+  }, [selectedEventId]);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+    localStorage.setItem(`credencia_report_brand_${selectedEventId}`, JSON.stringify(reportBrandConfig));
+  }, [reportBrandConfig, selectedEventId]);
 
   useEffect(() => {
     if (!currentEvent) return;
@@ -1010,21 +1095,112 @@ export default function App() {
   };
 
   // --- Chapelaria Operations ---
-  const handleSaveCloakroomItem = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const normalizeCloakroomQuery = (value: string) => value.toLowerCase().replace(/\D/g, '').trim();
+  const normalizeCloakroomText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+  const cloakroomParticipantResults = useMemo(() => {
+    const query = cloakroomSearch.trim();
+    if (query.length < 2) return [];
+
+    const textQuery = normalizeCloakroomText(query);
+    const numberQuery = normalizeCloakroomQuery(query);
+
+    return participants
+      .filter(participant => {
+        const nameMatch = normalizeCloakroomText(participant.name).includes(textQuery);
+        const cpfMatch = numberQuery.length >= 3 && participant.cpf.replace(/\D/g, '').includes(numberQuery);
+        const codeMatch = normalizeCloakroomText(participant.ticketCode || '').includes(textQuery);
+        return nameMatch || cpfMatch || codeMatch;
+      })
+      .slice(0, 8);
+  }, [cloakroomSearch, participants]);
+
+  const cloakroomReturnResults = useMemo(() => {
+    const query = cloakroomReturnSearch.trim();
+    if (query.length < 1) return [];
+
+    const textQuery = normalizeCloakroomText(query);
+    const numberQuery = normalizeCloakroomQuery(query);
+
+    return cloakroom
+      .filter(item => item.status === 'guardado')
+      .filter(item => {
+        const tagMatch = String(item.tagNumber).includes(query) || (item.volumeTags || []).some(tag => tag.includes(query));
+        const participant = participants.find(p => p.id === item.participantId);
+        const nameMatch = normalizeCloakroomText(item.participantName).includes(textQuery);
+        const cpfMatch = numberQuery.length >= 3 && (participant?.cpf || '').replace(/\D/g, '').includes(numberQuery);
+        const codeMatch = normalizeCloakroomText(participant?.ticketCode || '').includes(textQuery);
+        return tagMatch || nameMatch || cpfMatch || codeMatch;
+      })
+      .slice(0, 10);
+  }, [cloakroom, cloakroomReturnSearch, participants]);
+
+  const filteredCloakroomHistory = useMemo(() => {
+    const query = cloakroomHistorySearch.trim();
+    const textQuery = normalizeCloakroomText(query);
+    const numberQuery = normalizeCloakroomQuery(query);
+
+    return cloakroom.filter(item => {
+      const statusMatch = cloakroomHistoryFilter === 'all' || item.status === cloakroomHistoryFilter;
+      const participant = participants.find(p => p.id === item.participantId);
+      const searchMatch = !query
+        || String(item.tagNumber).includes(query)
+        || (item.volumeTags || []).some(tag => tag.includes(query))
+        || normalizeCloakroomText(item.participantName).includes(textQuery)
+        || (numberQuery.length >= 3 && (participant?.cpf || '').replace(/\D/g, '').includes(numberQuery));
+      return statusMatch && searchMatch;
+    });
+  }, [cloakroom, cloakroomHistoryFilter, cloakroomHistorySearch, participants]);
+
+  const handleOperationalCloakroomSave = async () => {
     if (!selectedEventId) {
       addToast('Selecione um evento ativo', 'error');
       return;
     }
-    if (!cloakroomForm.participantName || !cloakroomForm.itemDescription) {
-      addToast('Nome do participante e descriÃ§Ã£o do item sÃ£o obrigatÃ³rios', 'error');
+    if (!cloakroomSelectedParticipant) {
+      addToast('Localize e selecione um participante antes de guardar os pertences.', 'error');
       return;
     }
 
     try {
       const saved = await apiCall(`/api/events/${selectedEventId}/cloakroom`, {
         method: 'POST',
-        body: JSON.stringify(cloakroomForm)
+        body: JSON.stringify({
+          participantId: cloakroomSelectedParticipant.id,
+          participantName: cloakroomSelectedParticipant.name,
+          itemDescription: cloakroomDescription.trim(),
+          volumeCount: cloakroomVolumeCount
+        })
+      });
+
+      setCloakroom(prev => [saved, ...prev]);
+      setCloakroomSuccess(saved);
+      setCloakroomSearch('');
+      setCloakroomSelectedParticipant(null);
+      setCloakroomVolumeCount(1);
+      setCloakroomDescription('');
+      addToast(`Pertences registrados. Ticket #${saved.tagNumber}`, 'success');
+      loadDataForEvent(selectedEventId);
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao registrar pertences.', 'error');
+    }
+  };
+
+  const handleSaveCloakroomItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEventId) {
+      addToast('Selecione um evento ativo', 'error');
+      return;
+    }
+    if (!cloakroomForm.participantName) {
+      addToast('Nome do participante é obrigatório', 'error');
+      return;
+    }
+
+    try {
+      const saved = await apiCall(`/api/events/${selectedEventId}/cloakroom`, {
+        method: 'POST',
+        body: JSON.stringify({ ...cloakroomForm, volumeCount: 1 })
       });
 
       setCloakroom(prev => [saved, ...prev]);
@@ -1035,12 +1211,15 @@ export default function App() {
     } catch (err) {}
   };
 
-  const handleWithdrawCloakroomItem = async (id: string, tagNum: number) => {
-    if (!window.confirm(`Confirmar devoluÃ§Ã£o do item etiqueta #${tagNum}?`)) return;
+  const handleWithdrawCloakroomItem = async (id: string, tagNum: number, skipConfirm = false) => {
+    if (!skipConfirm && !window.confirm(`Confirmar devolução do item etiqueta #${tagNum}?`)) return;
     try {
       const updated = await apiCall(`/api/cloakroom/${id}/collect`, { method: 'POST' });
       setCloakroom(prev => prev.map(item => item.id === id ? updated : item));
-      addToast(`Etiqueta #${tagNum} devolvida e concluÃ­da com sucesso!`, 'success');
+      setCloakroomReturnSuccess(updated);
+      setCloakroomReturnItem(null);
+      setCloakroomReturnSearch('');
+      addToast(`Etiqueta #${tagNum} devolvida e concluída com sucesso!`, 'success');
       if (selectedEventId) {
         loadDataForEvent(selectedEventId);
       }
@@ -1327,25 +1506,38 @@ export default function App() {
 
 
   // --- REPORTS EXPORT GENERATORS ---
-  const exportParticipantsToExcelWithFilter = (presentOnly: boolean) => {
+  const exportParticipantsToExcelWithFilter = (presentOnly: boolean, sourceList?: Participant[], fileLabel?: string) => {
     if (!currentEvent) return;
+
+    const reportSource = sourceList || participants;
     
     const baseList = presentOnly 
-      ? participants.filter(p => p.checkedIn)
-      : participants;
+      ? reportSource.filter(p => p.checkedIn)
+      : reportSource;
 
-    const titleSuffix = presentOnly ? 'Presentes' : 'Inscritos_Geral';
+    const titleSuffix = fileLabel || (presentOnly ? 'Presentes' : 'Inscritos_Geral');
     
-    const outputRows = baseList.map(p => ({
-      Nome: p.name,
-      'E-mail': p.email,
-      CPF: p.cpf,
-      Empresa: p.company || '',
-      Categoria: p.category,
-      'Credenciado?': p.checkedIn ? 'Sim' : 'NÃ£o',
-      'HorÃ¡rio do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'NÃ£o realizado',
-      'CÃ³digo do Convite': p.ticketCode
-    }));
+    const outputRows = baseList.map(p => {
+      const participantAreaLogs = areaAccessLogs.filter(log => log.participantId === p.id);
+      const allowedAreaNames = [...new Set(participantAreaLogs
+        .filter(log => log.status === 'ALLOWED')
+        .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Área'))];
+      const deniedCount = participantAreaLogs.filter(log => log.status === 'DENIED').length;
+
+      return {
+        Nome: p.name,
+        'E-mail': p.email,
+        CPF: p.cpf,
+        Empresa: p.company || '',
+        Categoria: p.category,
+        'Credenciado?': p.checkedIn ? 'Sim' : 'Não',
+        'Horário do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
+        'Acessos por Sala': allowedAreaNames.length > 0 ? allowedAreaNames.join(', ') : '-',
+        'Acessos Negados': deniedCount,
+        'Operador Responsável': getReportCheckinOperator(p),
+        'Código do Convite': p.ticketCode
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(outputRows);
     const workbook = XLSX.utils.book_new();
@@ -1374,6 +1566,118 @@ export default function App() {
       return matchSearch && matchCategory && matchPresence;
     });
   }, [participants, searchQuery, selectedCategoryFilter, selectedPresenceFilter]);
+
+  const reportParticipants = filteredParticipantsList;
+
+  const reportSummary = useMemo(() => {
+    const total = reportParticipants.length;
+    const checkedIn = reportParticipants.filter(p => p.checkedIn).length;
+    const pending = total - checkedIn;
+    const attendanceRate = total > 0 ? Math.round((checkedIn / total) * 100) : 0;
+
+    return { total, checkedIn, pending, attendanceRate };
+  }, [reportParticipants]);
+
+  const reportCheckinsByHour = useMemo(() => {
+    const buckets = reportParticipants
+      .filter(p => p.checkedIn && p.checkedInAt)
+      .reduce<Record<string, number>>((acc, participant) => {
+        const hour = new Date(participant.checkedInAt as string).toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit'
+        }).slice(0, 2) + 'h';
+        acc[hour] = (acc[hour] || 0) + 1;
+        return acc;
+      }, {});
+
+    return Object.entries(buckets)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([label, count]) => ({ label, count }));
+  }, [reportParticipants]);
+
+  const reportParticipantsByCategory = useMemo(() => {
+    return (Object.keys(CATEGORY_TAGS) as ParticipantCategory[])
+      .map(category => ({
+        label: category,
+        count: reportParticipants.filter(p => p.category === category).length
+      }))
+      .filter(item => item.count > 0);
+  }, [reportParticipants]);
+
+  const reportPresenceBreakdown = useMemo(() => ([
+    { label: 'Credenciados', count: reportSummary.checkedIn, color: 'bg-emerald-500' },
+    { label: 'Pendentes', count: reportSummary.pending, color: 'bg-amber-400' }
+  ]), [reportSummary]);
+
+  const reportCheckinOperatorByParticipant = useMemo(() => {
+    const map = new Map<string, string>();
+    const checkinLogs = actionLogs
+      .filter(log => log.action === 'CHECKIN' && log.participantId)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    checkinLogs.forEach(log => {
+      if (log.participantId && !map.has(log.participantId)) {
+        map.set(log.participantId, log.operatorName || 'Operador');
+      }
+    });
+
+    return map;
+  }, [actionLogs]);
+
+  const getReportCheckinOperator = (participant: Participant) => {
+    return reportCheckinOperatorByParticipant.get(participant.id)
+      || (participant as any).operatorName
+      || (participant as any).checkedInByName
+      || (participant as any).checkedInBy
+      || '-';
+  };
+
+  const reportAreaAccessLogs = useMemo(() => {
+    const participantIds = new Set(reportParticipants.map(p => p.id));
+    const areaIds = new Set(availableAreas.map(area => area.id));
+
+    return areaAccessLogs.filter(log => {
+      const logParticipant = participants.find(p => p.id === log.participantId);
+      const matchesParticipant = participantIds.has(log.participantId);
+      const matchesArea = areaIds.size === 0 || areaIds.has(log.areaId);
+      const matchesEvent = !currentEvent?.id || logParticipant?.eventId === currentEvent.id || matchesParticipant;
+      return matchesParticipant && matchesArea && matchesEvent;
+    });
+  }, [areaAccessLogs, availableAreas, currentEvent, participants, reportParticipants]);
+
+  const reportAreaAccessSummary = useMemo(() => {
+    return availableAreas.map(area => {
+      const logs = reportAreaAccessLogs.filter(log => log.areaId === area.id);
+      const allowed = logs.filter(log => log.status === 'ALLOWED').length;
+      const denied = logs.filter(log => log.status === 'DENIED').length;
+
+      return {
+        areaId: area.id,
+        areaName: area.name,
+        allowed,
+        denied,
+        total: logs.length
+      };
+    }).filter(item => item.total > 0);
+  }, [availableAreas, reportAreaAccessLogs]);
+
+  const reportParticipantAreaAccess = useMemo(() => {
+    return reportParticipants.map(participant => {
+      const logs = reportAreaAccessLogs.filter(log => log.participantId === participant.id);
+      const allowedAreaNames = [...new Set(logs
+        .filter(log => log.status === 'ALLOWED')
+        .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Área'))];
+      const deniedCount = logs.filter(log => log.status === 'DENIED').length;
+
+      return {
+        participantId: participant.id,
+        allowedAreaNames,
+        deniedCount,
+        total: logs.length,
+        lastAccessAt: logs[0]?.timestamp
+      };
+    });
+  }, [availableAreas, reportAreaAccessLogs, reportParticipants]);
 
 
   // Clean up initial bootstrap user if missing key items
@@ -2285,10 +2589,10 @@ export default function App() {
                     <div className="flex items-center gap-1 text-amber-700 text-xs font-semibold bg-amber-50 rounded px-2 py-0.5 w-fit">
                       <Tag size={12} />
                       <span>{cloakroom.filter(c => c.status === 'retirado').length} entregues hoje</span>
-                    </div>
-                  </div>
-
                 </div>
+                </div>
+
+              </div>
 
                 {/* GrÃ¡fico de HorÃ¡rios e Logs Recentes de Check-in */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2748,6 +3052,174 @@ export default function App() {
                   </button>
                 </div>
 
+                <div className="grid grid-cols-3 gap-2 bg-white border border-slate-200 rounded-lg p-1">
+                  {[
+                    { id: 'store' as const, label: 'Guardar Pertences' },
+                    { id: 'return' as const, label: 'Retirar Pertences' },
+                    { id: 'history' as const, label: 'Histórico' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setCloakroomTab(tab.id)}
+                      className={`px-3 py-2 rounded-md text-xs font-bold transition cursor-pointer ${
+                        cloakroomTab === tab.id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {cloakroomTab === 'store' && (
+                  <div className="grid grid-cols-1 xl:grid-cols-[1.25fr_0.75fr] gap-5">
+                    <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-5 shadow-xs">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Passo 1</p>
+                        <h3 className="text-lg font-bold text-slate-900 mt-1">Localizar participante</h3>
+                        <div className="relative mt-3">
+                          <Search size={18} className="absolute left-3 top-3.5 text-slate-400" />
+                          <input
+                            value={cloakroomSearch}
+                            onChange={event => {
+                              setCloakroomSearch(event.target.value);
+                              setCloakroomSelectedParticipant(null);
+                              setCloakroomSuccess(null);
+                            }}
+                            placeholder="Buscar por nome, CPF ou QR Code"
+                            className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-lg text-base font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        {!cloakroomSelectedParticipant && cloakroomParticipantResults.length > 0 && (
+                          <div className="mt-3 border border-slate-100 rounded-lg overflow-hidden">
+                            {cloakroomParticipantResults.map(participant => (
+                              <button
+                                key={participant.id}
+                                onClick={() => {
+                                  setCloakroomSelectedParticipant(participant);
+                                  setCloakroomSearch(participant.name);
+                                }}
+                                className="w-full text-left p-3 hover:bg-blue-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer"
+                              >
+                                <div className="font-bold text-slate-900 text-sm">{participant.name}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{participant.category}{participant.company ? ` • ${participant.company}` : ''} • {participant.ticketCode}</div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {cloakroomSelectedParticipant && (
+                          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
+                            <div className="font-black text-slate-950">{cloakroomSelectedParticipant.name}</div>
+                            <div className="text-sm text-slate-600 mt-1">{cloakroomSelectedParticipant.category}{cloakroomSelectedParticipant.company ? ` • ${cloakroomSelectedParticipant.company}` : ''}</div>
+                            <div className="text-xs font-mono text-blue-700 mt-2">Código: {cloakroomSelectedParticipant.ticketCode}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Passo 2</p>
+                        <h3 className="text-lg font-bold text-slate-900 mt-1">Quantidade de volumes</h3>
+                        <div className="flex flex-wrap items-center gap-2 mt-3">
+                          {[1, 2, 3, 4, 5].map(volume => (
+                            <button key={volume} onClick={() => setCloakroomVolumeCount(volume)} className={`px-4 py-3 rounded-lg text-sm font-bold border transition cursor-pointer ${cloakroomVolumeCount === volume ? 'bg-slate-950 text-white border-slate-950' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'}`}>
+                              {volume} volume{volume > 1 ? 's' : ''}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Passo 3</p>
+                        <h3 className="text-lg font-bold text-slate-900 mt-1">Descrição dos volumes</h3>
+                        <textarea value={cloakroomDescription} onChange={event => setCloakroomDescription(event.target.value)} placeholder="Mochila preta, casaco azul, mala de bordo..." rows={3} className="w-full mt-3 px-3 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="bg-slate-950 text-white rounded-lg p-5 shadow-xs">
+                        <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Resumo da impressão</p>
+                        <div className="mt-4 space-y-3 text-sm">
+                          <div className="flex justify-between"><span>Volume(s)</span><b>{cloakroomVolumeCount}</b></div>
+                          <div className="flex justify-between"><span>Etiqueta principal</span><b>1</b></div>
+                          <div className="flex justify-between"><span>Etiquetas de volume</span><b>{cloakroomVolumeCount}</b></div>
+                          <div className="pt-3 border-t border-white/20 flex justify-between text-lg"><span>Total</span><b>{1 + cloakroomVolumeCount}</b></div>
+                        </div>
+                        <button onClick={handleOperationalCloakroomSave} disabled={!cloakroomSelectedParticipant} className="mt-5 w-full px-4 py-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-500 text-white text-sm font-black transition cursor-pointer disabled:cursor-not-allowed">GUARDAR PERTENCES</button>
+                      </div>
+
+                      {cloakroomSuccess && (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-5">
+                          <div className="flex items-center gap-2 text-emerald-800 font-black"><CheckCircle2 size={20} /><span>Pertences registrados com sucesso</span></div>
+                          <div className="mt-4 text-sm text-slate-700">
+                            <p>Número: <b className="font-mono text-slate-950">{cloakroomSuccess.tagNumber}</b></p>
+                            <p className="mt-2">Volumes:</p>
+                            <div className="flex flex-wrap gap-2 mt-2">{(cloakroomSuccess.volumeTags || []).map(tag => <span key={tag} className="px-2.5 py-1 bg-white border border-emerald-200 rounded font-mono text-xs font-bold">{tag}</span>)}</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {cloakroomTab === 'return' && (
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-5">
+                    <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                      <h3 className="text-lg font-bold text-slate-900">Retirar pertences</h3>
+                      <div className="relative mt-4">
+                        <Search size={18} className="absolute left-3 top-3.5 text-slate-400" />
+                        <input value={cloakroomReturnSearch} onChange={event => { setCloakroomReturnSearch(event.target.value); setCloakroomReturnItem(null); setCloakroomReturnSuccess(null); }} placeholder="Buscar por etiqueta, nome, CPF ou QR Code" className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-lg text-base font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500" />
+                      </div>
+                      {cloakroomReturnResults.length > 0 && (
+                        <div className="mt-3 border border-slate-100 rounded-lg overflow-hidden">
+                          {cloakroomReturnResults.map(item => (
+                            <button key={item.id} onClick={() => { setCloakroomReturnItem(item); setCloakroomReturnSearch(String(item.tagNumber)); }} className="w-full text-left p-3 hover:bg-amber-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer">
+                              <div className="flex items-center justify-between gap-3"><span className="font-mono font-black text-amber-700">#{item.tagNumber}</span><span className="text-xs text-slate-500">{item.volumeCount || 1} volume(s)</span></div>
+                              <div className="font-bold text-slate-900 text-sm mt-1">{item.participantName}</div>
+                              <div className="text-xs text-slate-500 mt-0.5">{item.itemDescription || 'Sem descrição'}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-4">
+                      {cloakroomReturnItem ? (
+                        <div className="bg-white border border-amber-200 rounded-lg p-5 shadow-xs">
+                          <p className="text-xs font-bold uppercase tracking-wider text-amber-600">Item localizado</p>
+                          <h3 className="text-xl font-black text-slate-950 mt-1">#{cloakroomReturnItem.tagNumber}</h3>
+                          <div className="mt-4 space-y-2 text-sm text-slate-700">
+                            <p><b>Participante:</b> {cloakroomReturnItem.participantName}</p>
+                            <p><b>Volumes:</b> {cloakroomReturnItem.volumeCount || 1}</p>
+                            <p><b>Descrição:</b> {cloakroomReturnItem.itemDescription || '-'}</p>
+                            <p><b>Entrada:</b> {new Date(cloakroomReturnItem.registeredAt).toLocaleString('pt-BR')}</p>
+                            <p><b>Operador entrada:</b> {cloakroomReturnItem.registeredByName || '-'}</p>
+                          </div>
+                          <button onClick={() => handleWithdrawCloakroomItem(cloakroomReturnItem.id, cloakroomReturnItem.tagNumber, true)} className="mt-5 w-full px-4 py-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-black transition cursor-pointer">ENTREGAR PERTENCES</button>
+                        </div>
+                      ) : (
+                        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-400"><FolderLock className="mx-auto mb-3" size={32} /><p className="font-semibold">Busque uma etiqueta para entrega.</p></div>
+                      )}
+                      {cloakroomReturnSuccess && <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-5 text-emerald-800 font-black flex items-center gap-2"><CheckCircle2 size={20} /><span>Entrega concluída: #{cloakroomReturnSuccess.tagNumber}</span></div>}
+                    </div>
+                  </div>
+                )}
+
+                {cloakroomTab === 'history' && (
+                  <>
+
+                <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Histórico da chapelaria</h3>
+                    <p className="text-xs text-slate-500">{filteredCloakroomHistory.length} registros encontrados.</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <select value={cloakroomHistoryFilter} onChange={event => setCloakroomHistoryFilter(event.target.value as any)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="all">Todos</option>
+                      <option value="guardado">Guardados</option>
+                      <option value="retirado">Retirados</option>
+                    </select>
+                    <input value={cloakroomHistorySearch} onChange={event => setCloakroomHistorySearch(event.target.value)} placeholder="Nome, CPF ou ticket" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                </div>
+
                 {/* Grid de Itens Atuais */}
                 <div className="bg-white rounded-2xl shadow-xs border border-slate-100 overflow-hidden">
                   <div className="overflow-x-auto">
@@ -2763,7 +3235,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {cloakroom.length === 0 ? (
+                        {filteredCloakroomHistory.length === 0 ? (
                           <tr>
                             <td colSpan={6} className="p-12 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={32} />
@@ -2772,7 +3244,7 @@ export default function App() {
                             </td>
                           </tr>
                         ) : (
-                          cloakroom.map(item => (
+                          filteredCloakroomHistory.map(item => (
                             <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition">
                               
                               <td className="p-4 text-center align-middle">
@@ -2841,78 +3313,431 @@ export default function App() {
                     </table>
                   </div>
                 </div>
+                  </>
+                )}
 
               </div>
             )}
 
-            {/* --- TAB 6: RELATÃ“RIOS --- */}
+            {/* --- TAB 6: RELATÓRIOS --- */}
             {activeTab === 'relatorios' && (
-              <div className="space-y-6 max-w-4xl">
-                
-                <div>
-                  <h2 className="text-xl font-bold text-slate-800 font-display">Exportação de Relatórios de Auditoria</h2>
-                  <p className="text-sm text-slate-500">
-                    Gere documentos Excel (.xlsx) auditáveis com dados unificados de trânsito dos participantes.
-                  </p>
+              <div className="space-y-6 animate-fade-in">
+                <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
+                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatório" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
+                      )}
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Relatórios</p>
+                        <h2 className="text-2xl font-bold text-slate-900 font-display mt-1">Dashboard de credenciamento</h2>
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+                      Acompanhe presença, categorias e horários do evento atual sem alterar as exportações existentes.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                    <button
+                      onClick={() => exportParticipantsToExcelWithFilter(false, reportParticipants, 'Relatorio_Filtrado')}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      <Download size={15} />
+                      <span>Baixar planilha geral</span>
+                    </button>
+                    <button
+                      onClick={() => exportParticipantsToExcelWithFilter(true, reportParticipants, 'Presentes_Filtrado')}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      <CheckCircle2 size={15} />
+                      <span>Baixar presentes</span>
+                    </button>
+                    <button
+                      onClick={triggerPrintableReport}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      <Printer size={15} />
+                      <span>Imprimir relatório</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  
-                  {/* Card 1: Geral */}
-                  <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-100 flex flex-col justify-between">
-                    <div>
-                      <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-700 mb-4">
-                        <Users size={20} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {[
+                    { title: 'Total de participantes', value: reportSummary.total, icon: Users, color: 'bg-blue-50 text-blue-700 border-blue-100' },
+                    { title: 'Check-ins realizados', value: reportSummary.checkedIn, icon: UserCheck, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+                    { title: 'Participantes pendentes', value: reportSummary.pending, icon: Clock, color: 'bg-amber-50 text-amber-700 border-amber-100' },
+                    { title: 'Percentual de presença', value: `${reportSummary.attendanceRate}%`, icon: BarChart3, color: 'bg-violet-50 text-violet-700 border-violet-100' }
+                  ].map(card => {
+                    const Icon = card.icon;
+                    return (
+                      <div key={card.title} className={`bg-white border rounded-lg p-5 shadow-xs ${card.color}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-wider opacity-75">{card.title}</p>
+                            <p className="text-3xl font-black text-slate-950 mt-2">{card.value}</p>
+                          </div>
+                          <div className="w-10 h-10 rounded-lg bg-white/75 flex items-center justify-center shrink-0">
+                            <Icon size={20} />
+                          </div>
+                        </div>
                       </div>
-                      <h3 className="font-bold text-slate-800 text-sm font-display mb-1">Exportação da Lista Geral</h3>
-                      <p className="text-xs text-slate-500 leading-relaxed mb-6">
-                        Inclui todos os integrantes cadastrados e pré-inscritos para o evento ativo "{currentEvent?.name}", com status operacional e CPFs formatados.
+                    );
+                  })}
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Evento atual</label>
+                      <select
+                        value={selectedEventId}
+                        disabled
+                        className="w-full px-3 py-3 bg-slate-100 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700"
+                      >
+                        <option>{currentEvent?.name || 'Evento não selecionado'}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Categoria</label>
+                      <select
+                        value={selectedCategoryFilter}
+                        onChange={e => setSelectedCategoryFilter(e.target.value)}
+                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="all">Todas as categorias</option>
+                        <option value="VIP">VIP</option>
+                        <option value="Palestrante">Palestrante</option>
+                        <option value="Expositor">Expositor</option>
+                        <option value="Participante">Participante</option>
+                        <option value="Staff">Staff</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Status</label>
+                      <select
+                        value={selectedPresenceFilter}
+                        onChange={e => setSelectedPresenceFilter(e.target.value as any)}
+                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="all">Todos</option>
+                        <option value="present">Credenciados</option>
+                        <option value="absent">Pendentes</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Busca</label>
+                      <div className="relative">
+                        <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={e => setSearchQuery(e.target.value)}
+                          placeholder="Nome ou CPF"
+                          className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
+                        <FileText size={17} className="text-slate-500" />
+                        <span>Identidade visual do relatório</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Configure uma logo no topo e uma marca d'água para a versão impressa do relatório.
                       </p>
                     </div>
+
                     <button
-                      onClick={() => exportParticipantsToExcelWithFilter(false)}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+                      type="button"
+                      onClick={() => setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG)}
+                      className="self-start px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
                     >
-                      <Download size={14} />
-                      <span>Baixar Planilha Geral (.xlsx)</span>
+                      Limpar marca
                     </button>
                   </div>
 
-                  {/* Card 2: Apenas Credenciados */}
-                  <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-100 flex flex-col justify-between">
-                    <div>
-                      <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 mb-4">
-                        <CheckCircle2 size={20} />
-                      </div>
-                      <h3 className="font-bold text-slate-800 text-sm font-display mb-1">Apenas Pessoas Credenciadas</h3>
-                      <p className="text-xs text-slate-500 leading-relaxed mb-6">
-                        Filtro estratégico contendo apenas as pessoas que realizaram o check-in presencial no evento, contendo o horário preciso de credenciamento.
-                      </p>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={reportBrandConfig.showLogo}
+                          onChange={event => setReportBrandConfig(prev => ({ ...prev, showLogo: event.target.checked }))}
+                          className="rounded border-slate-300"
+                        />
+                        Exibir logo no topo
+                      </label>
+                      <input
+                        type="url"
+                        value={reportBrandConfig.logoUrl}
+                        onChange={event => setReportBrandConfig(prev => ({ ...prev, logoUrl: event.target.value }))}
+                        placeholder="URL da logo superior"
+                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
+                        <div className="h-16 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-2">
+                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatório" className="max-h-full max-w-full object-contain" />
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => exportParticipantsToExcelWithFilter(true)}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <Download size={14} />
-                      <span>Baixar Planilha de Presentes (.xlsx)</span>
-                    </button>
-                  </div>
 
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={reportBrandConfig.showWatermark}
+                          onChange={event => setReportBrandConfig(prev => ({ ...prev, showWatermark: event.target.checked }))}
+                          className="rounded border-slate-300"
+                        />
+                        Exibir marca d'água na impressão
+                      </label>
+                      <input
+                        type="url"
+                        value={reportBrandConfig.watermarkUrl}
+                        onChange={event => setReportBrandConfig(prev => ({ ...prev, watermarkUrl: event.target.value }))}
+                        placeholder="URL da imagem da marca d'água"
+                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          <span>Opacidade</span>
+                          <span>{Math.round(reportBrandConfig.watermarkOpacity * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.03"
+                          max="0.25"
+                          step="0.01"
+                          value={reportBrandConfig.watermarkOpacity}
+                          onChange={event => setReportBrandConfig(prev => ({ ...prev, watermarkOpacity: Number(event.target.value) }))}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="bg-slate-900 text-slate-100 p-6 rounded-2xl">
-                  <h4 className="font-bold text-white text-sm font-display mb-2 flex items-center gap-2">
-                    <History size={16} className="text-blue-400" />
-                    <span>Auditoria Simplificada do Evento</span>
-                  </h4>
-                  <div className="text-xs text-slate-300 space-y-2 mt-4">
-                    <p>• Nome do Evento: <b>{currentEvent?.name}</b></p>
-                    <p>• Capacidade Registrada: <b>{currentEvent?.capacity} participantes</b></p>
-                    <p>• Inscritos Confirmados: <b>{participants.length}</b></p>
-                    <p>• Porcentagem de Presença: <b>{participants.length > 0 ? Math.round((participants.filter(p=>p.checkedIn).length / participants.length) * 100) : 0}%</b></p>
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                    <div className="flex items-center justify-between gap-3 mb-5">
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Check-ins por horário</h3>
+                      <History size={17} className="text-slate-400" />
+                    </div>
+                    <div className="space-y-3">
+                      {reportCheckinsByHour.length === 0 ? (
+                        <p className="text-sm text-slate-400 py-8 text-center">Nenhum check-in nos filtros atuais.</p>
+                      ) : (
+                        reportCheckinsByHour.map(item => {
+                          const max = Math.max(...reportCheckinsByHour.map(row => row.count), 1);
+                          return (
+                            <div key={item.label} className="space-y-1">
+                              <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                                <span>{item.label}</span>
+                                <span>{item.count}</span>
+                              </div>
+                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.max((item.count / max) * 100, 6)}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                    <div className="flex items-center justify-between gap-3 mb-5">
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Participantes por categoria</h3>
+                      <Tag size={17} className="text-slate-400" />
+                    </div>
+                    <div className="space-y-3">
+                      {reportParticipantsByCategory.length === 0 ? (
+                        <p className="text-sm text-slate-400 py-8 text-center">Nenhuma categoria encontrada.</p>
+                      ) : (
+                        reportParticipantsByCategory.map(item => {
+                          const max = Math.max(...reportParticipantsByCategory.map(row => row.count), 1);
+                          return (
+                            <div key={item.label} className="space-y-1">
+                              <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                                <span>{item.label}</span>
+                                <span>{item.count}</span>
+                              </div>
+                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-teal-500 rounded-full" style={{ width: `${Math.max((item.count / max) * 100, 6)}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                    <div className="flex items-center justify-between gap-3 mb-5">
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Presentes x Ausentes</h3>
+                      <BarChart3 size={17} className="text-slate-400" />
+                    </div>
+                    <div className="space-y-4">
+                      <div className="h-5 bg-slate-100 rounded-full overflow-hidden flex">
+                        {reportPresenceBreakdown.map(item => (
+                          <div
+                            key={item.label}
+                            className={`${item.color} h-full`}
+                            style={{ width: `${reportSummary.total > 0 ? (item.count / reportSummary.total) * 100 : 0}%` }}
+                          />
+                        ))}
+                      </div>
+                      {reportPresenceBreakdown.map(item => (
+                        <div key={item.label} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${item.color}`} />
+                            <span className="font-semibold text-slate-700">{item.label}</span>
+                          </div>
+                          <span className="font-bold text-slate-950">{item.count}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
+                {currentEvent?.enableAccessControl !== false && (
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
+                          <ShieldCheck size={17} className="text-slate-500" />
+                          <span>Acessos por sala</span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Exibe liberações e negações registradas pelo controle de acesso do evento.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs font-bold">
+                        <span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" />Liberados</span>
+                        <span className="inline-flex items-center gap-1.5 text-rose-700"><span className="w-2 h-2 rounded-full bg-rose-500" />Negados</span>
+                      </div>
+                    </div>
+
+                    {reportAreaAccessSummary.length === 0 ? (
+                      <div className="py-8 text-center border border-dashed border-slate-200 rounded-lg bg-slate-50">
+                        <ShieldAlert className="mx-auto text-slate-300 mb-2" size={28} />
+                        <p className="text-sm font-semibold text-slate-500">Nenhum acesso por sala registrado nos filtros atuais.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {reportAreaAccessSummary.map(item => {
+                          const max = Math.max(...reportAreaAccessSummary.map(row => row.total), 1);
+                          return (
+                            <div key={item.areaId} className="border border-slate-100 rounded-lg p-4 bg-slate-50/60">
+                              <div className="flex items-center justify-between gap-3 mb-3">
+                                <span className="font-bold text-slate-800 text-sm">{item.areaName}</span>
+                                <span className="text-xs font-black text-slate-500">{item.total} leituras</span>
+                              </div>
+                              <div className="h-3 bg-white rounded-full overflow-hidden flex border border-slate-100">
+                                <div className="h-full bg-emerald-500" style={{ width: `${Math.max((item.allowed / max) * 100, item.allowed > 0 ? 5 : 0)}%` }} />
+                                <div className="h-full bg-rose-500" style={{ width: `${Math.max((item.denied / max) * 100, item.denied > 0 ? 5 : 0)}%` }} />
+                              </div>
+                              <div className="flex items-center justify-between text-xs text-slate-600 mt-2">
+                                <span>{item.allowed} liberados</span>
+                                <span>{item.denied} negados</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatório</h3>
+                      <p className="text-xs text-slate-500">{reportParticipants.length} registros nos filtros atuais.</p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[1080px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">CPF</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Categoria</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Horário do check-in</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos por sala</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsável</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportParticipants.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-12 text-center text-slate-400">
+                              <Info className="mx-auto text-slate-300 mb-2" size={32} />
+                              <p className="font-semibold text-slate-500">Nenhum participante nos filtros atuais.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          reportParticipants.map(p => {
+                            const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
+                            return (
+                            <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
+                              <td className="p-4">
+                                <div className="font-bold text-slate-800 text-sm">{p.name}</div>
+                                <div className="text-xs text-slate-400">{p.email || 'E-mail não informado'}</div>
+                              </td>
+                              <td className="p-4 font-mono text-xs text-slate-700">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
+                              <td className="p-4">
+                                <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${CATEGORY_TAGS[p.category].bg}`}>
+                                  {p.category}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                {p.checkedIn ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                                    <Check size={12} strokeWidth={3} />
+                                    Credenciado
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
+                                    <Clock size={12} />
+                                    Pendente
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4 font-mono text-xs text-slate-700">
+                                {p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}
+                              </td>
+                              <td className="p-4 text-xs text-slate-600">
+                                {areaAccess && areaAccess.total > 0 ? (
+                                  <div className="space-y-1">
+                                    <div className="font-semibold text-slate-800">
+                                      {areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}
+                                    </div>
+                                    {areaAccess.deniedCount > 0 && (
+                                      <div className="text-rose-600 font-semibold">{areaAccess.deniedCount} negado(s)</div>
+                                    )}
+                                  </div>
+                                ) : '-'}
+                              </td>
+                              <td className="p-4 text-xs text-slate-600">
+                                {getReportCheckinOperator(p)}
+                              </td>
+                            </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -3124,37 +3949,81 @@ export default function App() {
         </div>
       )}
 
-      {/* --- PRINT SHADOW LOG: APENAS VISÃVEL DURANTE O PRINT REAL (Filtro Geral de PresenÃ§a) --- */}
-      <div className="hidden print:block p-10 bg-white text-black min-h-screen">
-        <div className="border-b-2 border-slate-900 pb-4 mb-6">
-          <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
-          <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} • Data de Impressão: {new Date().toLocaleString('pt-BR')}</p>
+      {/* --- PRINT SHADOW LOG: APENAS VISÍVEL DURANTE O PRINT REAL --- */}
+      <div className="hidden print:block relative p-8 bg-white text-black min-h-screen overflow-hidden">
+        {reportBrandConfig.showWatermark && reportBrandConfig.watermarkUrl && (
+          <img
+            src={reportBrandConfig.watermarkUrl}
+            alt=""
+            className="absolute left-1/2 top-1/2 max-w-[70%] max-h-[70%] -translate-x-1/2 -translate-y-1/2 object-contain pointer-events-none"
+            style={{ opacity: reportBrandConfig.watermarkOpacity }}
+          />
+        )}
+
+        <div className="relative z-10 border-b-2 border-slate-900 pb-4 mb-5 flex items-center justify-between gap-6">
+          <div>
+            <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
+            <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} • Data de Impressão: {new Date().toLocaleString('pt-BR')}</p>
+          </div>
+          {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
+            <img
+              src={reportBrandConfig.logoUrl}
+              alt="Logo do relatório"
+              className="max-h-16 max-w-[180px] object-contain"
+            />
+          )}
         </div>
 
-        <table className="w-full text-left text-xs text-slate-950">
+        <div className="relative z-10 grid grid-cols-4 gap-3 mb-6">
+          <div className="border border-zinc-300 rounded p-3">
+            <p className="text-[10px] uppercase font-bold text-zinc-500">Total</p>
+            <p className="text-xl font-black">{reportSummary.total}</p>
+          </div>
+          <div className="border border-zinc-300 rounded p-3">
+            <p className="text-[10px] uppercase font-bold text-zinc-500">Credenciados</p>
+            <p className="text-xl font-black">{reportSummary.checkedIn}</p>
+          </div>
+          <div className="border border-zinc-300 rounded p-3">
+            <p className="text-[10px] uppercase font-bold text-zinc-500">Pendentes</p>
+            <p className="text-xl font-black">{reportSummary.pending}</p>
+          </div>
+          <div className="border border-zinc-300 rounded p-3">
+            <p className="text-[10px] uppercase font-bold text-zinc-500">Presença</p>
+            <p className="text-xl font-black">{reportSummary.attendanceRate}%</p>
+          </div>
+        </div>
+
+        <table className="relative z-10 w-full text-left text-xs text-slate-950">
           <thead>
             <tr className="border-b border-black">
               <th className="py-2">Nome</th>
-              <th className="py-2">E-mail</th>
               <th className="py-2">CPF</th>
-              <th className="py-2">Empresa</th>
               <th className="py-2">Categoria</th>
               <th className="py-2">Status</th>
-              <th className="py-2 text-right">HorÃ¡rio Entrada</th>
+              <th className="py-2">Horário do check-in</th>
+              <th className="py-2">Acessos por sala</th>
+              <th className="py-2 text-right">Operador</th>
             </tr>
           </thead>
           <tbody>
-            {participants.map(p => (
-              <tr key={p.id} className="border-b border-zinc-200">
-                <td className="py-2 font-semibold">{p.name}</td>
-                <td className="py-2">{p.email}</td>
-                <td className="py-2 font-mono">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
-                <td className="py-2">{p.company || '-'}</td>
-                <td className="py-2">{p.category}</td>
-                <td className="py-2">{p.checkedIn ? 'PRESENTE' : 'AUSENTE'}</td>
-                <td className="py-2 text-right font-mono">{p.checkedInAt ? new Date(p.checkedInAt).toLocaleTimeString('pt-BR') : '-'}</td>
-              </tr>
-            ))}
+            {reportParticipants.map(p => {
+              const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
+              return (
+                <tr key={p.id} className="border-b border-zinc-200">
+                  <td className="py-2 font-semibold">{p.name}</td>
+                  <td className="py-2 font-mono">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
+                  <td className="py-2">{p.category}</td>
+                  <td className="py-2">{p.checkedIn ? 'CREDENCIADO' : 'PENDENTE'}</td>
+                  <td className="py-2 font-mono">{p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>
+                  <td className="py-2">
+                    {areaAccess && areaAccess.total > 0
+                      ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
+                      : '-'}
+                  </td>
+                  <td className="py-2 text-right">{getReportCheckinOperator(p)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
