@@ -93,13 +93,14 @@ const verifyPermission = (permission: string) => {
   };
 };
 
-const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; ticketNumber?: number; action: ActionLogAction }) => {
+const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; activityId?: string; ticketNumber?: number; action: ActionLogAction }) => {
   try {
     if (!log.eventId || !log.userId) return;
     await db.createActionLog({
       eventId: log.eventId,
       userId: log.userId,
       ...(log.participantId ? { participantId: log.participantId } : {}),
+      ...(log.activityId ? { activityId: log.activityId } : {}),
       action: log.action
     });
   } catch (error) {
@@ -150,6 +151,30 @@ const requireParticipantCreatePermission = async (req: express.Request, res: exp
   next();
 };
 
+const canIssueCertificatesForEvent = async (user: any, eventId: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+
+  const eventLink = await db.getEventUser(eventId, user.id);
+  if (eventLink?.active) {
+    return eventLink.role === 'ADMIN' || eventLink.role === 'CHECKIN_CADASTRO';
+  }
+
+  return globalRole === 'CHECKIN_CADASTRO';
+};
+
+const requireCertificatePermission = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  const eventId = req.params.eventId || req.body?.eventId;
+
+  if (!user || !eventId || !(await canIssueCertificatesForEvent(user, eventId))) {
+    res.status(403).json({ error: 'Usuário sem permissão para emitir certificados neste evento' });
+    return;
+  }
+
+  next();
+};
+
 const canManageAccessAreasForEvent = async (user: any, eventId?: string) => {
   const globalRole = String(user?.role || '').toUpperCase();
   if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
@@ -182,6 +207,33 @@ const requireAccessAreaAdmin = async (req: express.Request, res: express.Respons
   }
 
   (req as any).accessAreaEventId = eventId;
+  next();
+};
+
+const requireActivityAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  const activity = req.params.id ? await db.getActivityById(req.params.id) : undefined;
+  const eventId = activity?.eventId || req.params.eventId || req.body?.eventId;
+
+  if (!eventId) {
+    res.status(400).json({ error: 'eventId é obrigatório para gerenciar atividades' });
+    return;
+  }
+
+  const event = await db.getEventById(eventId);
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+    return;
+  }
+
+  if (!(await canManageAccessAreasForEvent(user, eventId))) {
+    res.status(403).json({ error: 'Apenas ADMIN pode gerenciar atividades' });
+    return;
+  }
+
+  (req as any).activityEventId = eventId;
+  (req as any).activityEvent = event;
+  (req as any).activityRecord = activity;
   next();
 };
 
@@ -1153,6 +1205,351 @@ app.get('/api/action-logs', authenticateToken, async (req, res) => {
   }));
 
   res.json(enriched.reverse());
+});
+
+// --- ACTIVITIES & ACTIVITY ATTENDANCE ---
+app.get('/api/events/:eventId/activities', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const activities = await db.getActivities(req.params.eventId);
+    res.json(activities);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao listar atividades' });
+  }
+});
+
+app.post('/api/events/:eventId/activities', authenticateToken, requireActivityAdmin, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const { title, roomName, speakerName, date, startTime, endTime, workloadHours, active } = req.body;
+    if (!title || !roomName || !date || !startTime || !endTime) {
+      res.status(400).json({ error: 'Título, sala, data, início e fim são obrigatórios' });
+      return;
+    }
+
+    const activity = await db.createActivity({
+      eventId: req.params.eventId,
+      title,
+      roomName,
+      speakerName: speakerName || '',
+      date,
+      startTime,
+      endTime,
+      workloadHours: Number(workloadHours) || 0,
+      active: active !== false
+    });
+    res.status(201).json(activity);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao criar atividade' });
+  }
+});
+
+app.put('/api/activities/:id', authenticateToken, requireActivityAdmin, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const activity = await db.getActivityById(req.params.id);
+    if (!activity) {
+      res.status(404).json({ error: 'Atividade não encontrada' });
+      return;
+    }
+
+    const event = await db.getEventById(activity.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(403).json({ error: 'Acesso negado para esta atividade' });
+      return;
+    }
+
+    const updated = await db.updateActivity(req.params.id, req.body);
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao atualizar atividade' });
+  }
+});
+
+app.delete('/api/activities/:id', authenticateToken, requireActivityAdmin, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const activity = await db.getActivityById(req.params.id);
+    if (!activity) {
+      res.status(404).json({ error: 'Atividade não encontrada' });
+      return;
+    }
+
+    const event = await db.getEventById(activity.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(403).json({ error: 'Acesso negado para esta atividade' });
+      return;
+    }
+
+    await db.deleteActivity(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao excluir atividade' });
+  }
+});
+
+app.get('/api/events/:eventId/activity-attendances', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const activityId = req.query.activityId as string | undefined;
+    const attendances = await db.getActivityAttendances(req.params.eventId, activityId);
+    const [participants, users] = await Promise.all([
+      db.getParticipants(req.params.eventId),
+      db.getUsers(user.organizationId)
+    ]);
+
+    const enriched = attendances.map(att => {
+      const participant = participants.find(p => p.id === att.participantId);
+      const operator = users.find(u => u.id === att.checkedByUserId);
+      return {
+        ...att,
+        participantName: participant?.name || 'Participante não encontrado',
+        participantCpf: participant?.cpf || '',
+        participantCategory: participant?.category || '',
+        operatorName: operator?.name || 'Operador'
+      };
+    });
+
+    res.json(enriched.reverse());
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao listar presenças por atividade' });
+  }
+});
+
+app.post('/api/events/:eventId/activity-attendances', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { activityId, search } = req.body;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const activity = activityId ? await db.getActivityById(activityId) : undefined;
+    if (!activity || activity.eventId !== req.params.eventId || activity.active === false) {
+      res.status(400).json({ error: 'Atividade inválida ou inativa' });
+      return;
+    }
+
+    const cleanSearch = String(search || '').trim();
+    if (!cleanSearch) {
+      res.status(400).json({ error: 'Informe nome, CPF ou QR Code do participante' });
+      return;
+    }
+
+    const normalizeText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    const normalizeCode = (value: string) => normalizeText(value).replace(/[^a-z0-9_-]/g, '');
+    const queryText = normalizeText(cleanSearch);
+    const queryCpf = cleanSearch.replace(/\D/g, '');
+    const queryCode = normalizeCode(cleanSearch);
+    const codeMatches = (storedCode: string) => {
+      if (!storedCode || !queryCode) return false;
+      return storedCode === queryCode || storedCode.includes(queryCode) || queryCode.includes(storedCode);
+    };
+    const participants = await db.getParticipants(req.params.eventId);
+    const participant = participants.find(p => {
+      const participantId = normalizeCode(p.id || '');
+      const ticketCode = normalizeCode(p.ticketCode || '');
+      return codeMatches(participantId)
+        || codeMatches(ticketCode)
+        || (!!queryCpf && p.cpf.replace(/\D/g, '') === queryCpf)
+        || normalizeText(p.name).includes(queryText);
+    });
+
+    if (!participant) {
+      res.status(404).json({ status: 'NOT_FOUND', error: 'Participante não encontrado' });
+      return;
+    }
+
+    const existing = await db.getActivityAttendance(activity.id, participant.id);
+    if (existing) {
+      res.status(200).json({
+        status: 'ALREADY_REGISTERED',
+        attendance: existing,
+        participant
+      });
+      return;
+    }
+
+    const attendance = await db.createActivityAttendance({
+      eventId: req.params.eventId,
+      activityId: activity.id,
+      participantId: participant.id,
+      checkedByUserId: user.id
+    });
+
+    await writeActionLog({
+      eventId: req.params.eventId,
+      activityId: activity.id,
+      participantId: participant.id,
+      userId: user.id,
+      action: 'ACTIVITY_ATTENDANCE_REGISTERED'
+    });
+
+    res.status(201).json({
+      status: 'REGISTERED',
+      attendance,
+      participant
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao registrar presença na atividade' });
+  }
+});
+
+app.get('/api/events/:eventId/certificates/participant', authenticateToken, requireCertificatePermission, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const search = String(req.query.search || '').trim();
+    if (!search) {
+      res.status(400).json({ error: 'Informe nome, CPF ou QR Code do participante' });
+      return;
+    }
+
+    const normalizeText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    const normalizeCode = (value: string) => normalizeText(value).replace(/[^a-z0-9_-]/g, '');
+    const queryText = normalizeText(search);
+    const queryCpf = search.replace(/\D/g, '');
+    const queryCode = normalizeCode(search);
+    const codeMatches = (storedCode: string) => {
+      if (!storedCode || !queryCode) return false;
+      return storedCode === queryCode || storedCode.includes(queryCode) || queryCode.includes(storedCode);
+    };
+    const participants = await db.getParticipants(req.params.eventId);
+    const participant = participants.find(p => {
+      const participantId = normalizeCode(p.id || '');
+      const ticketCode = normalizeCode(p.ticketCode || '');
+      return codeMatches(participantId)
+        || codeMatches(ticketCode)
+        || (!!queryCpf && p.cpf.replace(/\D/g, '') === queryCpf)
+        || normalizeText(p.name).includes(queryText);
+    });
+
+    if (!participant) {
+      res.status(404).json({ error: 'Participante não encontrado' });
+      return;
+    }
+
+    const [activities, attendances, certificates] = await Promise.all([
+      db.getActivities(req.params.eventId),
+      db.getActivityAttendances(req.params.eventId),
+      db.getCertificates(req.params.eventId, participant.id)
+    ]);
+
+    const participantAttendances = attendances.filter(att => att.participantId === participant.id);
+    const attendedActivities = participantAttendances
+      .map(attendance => {
+        const activity = activities.find(item => item.id === attendance.activityId);
+        if (!activity) return null;
+        return {
+          ...activity,
+          checkedAt: attendance.checkedAt,
+          attendanceId: attendance.id
+        };
+      })
+      .filter(Boolean);
+    const totalHours = attendedActivities.reduce((sum: number, activity: any) => sum + (Number(activity.workloadHours) || 0), 0);
+
+    res.json({
+      participant,
+      event,
+      attendedActivities,
+      totalHours,
+      certificates
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao buscar dados para certificado' });
+  }
+});
+
+app.post('/api/events/:eventId/certificates', authenticateToken, requireCertificatePermission, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { participantId, activityId, type } = req.body;
+    const certificateType = type === 'activity' ? 'activity' : 'general';
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const participant = participantId ? await db.getParticipantById(participantId) : undefined;
+    if (!participant || participant.eventId !== req.params.eventId) {
+      res.status(404).json({ error: 'Participante não encontrado' });
+      return;
+    }
+
+    const attendances = (await db.getActivityAttendances(req.params.eventId)).filter(att => att.participantId === participant.id);
+    if (attendances.length === 0) {
+      res.status(400).json({ error: 'Participante não possui presença registrada.' });
+      return;
+    }
+
+    const activities = await db.getActivities(req.params.eventId);
+    let certificateActivityId: string | undefined;
+    let totalHours = 0;
+
+    if (certificateType === 'activity') {
+      const activity = activityId ? activities.find(item => item.id === activityId) : undefined;
+      const hasAttendance = activity ? attendances.some(att => att.activityId === activity.id) : false;
+      if (!activity || !hasAttendance) {
+        res.status(400).json({ error: 'Participante não possui presença registrada nesta atividade.' });
+        return;
+      }
+      certificateActivityId = activity.id;
+      totalHours = Number(activity.workloadHours) || 0;
+    } else {
+      totalHours = attendances.reduce((sum, attendance) => {
+        const activity = activities.find(item => item.id === attendance.activityId);
+        return sum + (Number(activity?.workloadHours) || 0);
+      }, 0);
+    }
+
+    const certificate = await db.createCertificate({
+      eventId: req.params.eventId,
+      participantId: participant.id,
+      ...(certificateActivityId ? { activityId: certificateActivityId } : {}),
+      type: certificateType,
+      totalHours,
+      issuedByUserId: user.id
+    });
+
+    await writeActionLog({
+      eventId: req.params.eventId,
+      participantId: participant.id,
+      ...(certificateActivityId ? { activityId: certificateActivityId } : {}),
+      userId: user.id,
+      action: 'CERTIFICATE_ISSUED'
+    });
+
+    res.status(201).json({ certificate });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao emitir certificado' });
+  }
 });
 
 // Register action reprint

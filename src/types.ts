@@ -189,16 +189,56 @@ export type ActionLogAction =
   | 'ACCESS_ALLOWED'
   | 'ACCESS_DENIED'
   | 'CLOAKROOM_CREATE'
-  | 'CLOAKROOM_RETURN';
+  | 'CLOAKROOM_RETURN'
+  | 'ACTIVITY_ATTENDANCE_REGISTERED'
+  | 'CERTIFICATE_ISSUED';
 
 export interface ActionLog {
   id: string;
   eventId: string;
   userId: string;
   participantId?: string;
+  activityId?: string;
   ticketNumber?: number;
   action: ActionLogAction;
   timestamp: string;
+}
+
+export interface Activity {
+  id: string;
+  eventId: string;
+  title: string;
+  roomName: string;
+  speakerName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  workloadHours: number;
+  active: boolean;
+  createdAt?: string;
+}
+
+export interface ActivityAttendance {
+  id: string;
+  eventId: string;
+  activityId: string;
+  participantId: string;
+  checkedAt: string;
+  checkedByUserId: string;
+}
+
+export type CertificateType = 'activity' | 'general';
+
+export interface Certificate {
+  id: string;
+  eventId: string;
+  participantId: string;
+  activityId?: string;
+  type: CertificateType;
+  totalHours: number;
+  certificateCode: string;
+  issuedAt: string;
+  issuedByUserId: string;
 }
 
 export interface ParticipantField {

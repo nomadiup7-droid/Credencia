@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog } from '../src/types';
+import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate } from '../src/types';
 
 // Load environment variables early
 dotenv.config();
@@ -21,6 +21,9 @@ interface DBSchema {
   checkins?: CheckIn[];
   logs?: CheckInLog[];
   actionLogs?: ActionLog[];
+  activities?: Activity[];
+  activityAttendances?: ActivityAttendance[];
+  certificates?: Certificate[];
   participantFields?: ParticipantField[];
   areas?: Area[];
   areaAccessLogs?: AreaAccessLog[];
@@ -28,6 +31,15 @@ interface DBSchema {
 }
 
 const DB_FILE_PATH = path.join(process.cwd(), 'db.json');
+
+const fixMojibake = (value?: string) => {
+  if (!value || !/[ÃÂ]/.test(value)) return value || '';
+  try {
+    return Buffer.from(value, 'latin1').toString('utf8');
+  } catch (error) {
+    return value;
+  }
+};
 
 const DEFAULT_ORGANIZATIONS: Organization[] = [
   {
@@ -256,6 +268,9 @@ class Database {
       checkins: [],
       logs: [],
       actionLogs: [],
+      activities: [],
+      activityAttendances: [],
+      certificates: [],
       participantFields: DEFAULT_PARTICIPANT_FIELDS,
       areas: [
         { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
@@ -314,6 +329,16 @@ class Database {
           checkins: parsed.checkins || [],
           logs: parsed.logs || [],
           actionLogs: parsed.actionLogs || [],
+          activities: (parsed.activities || []).map((activity: any) => ({
+            ...activity,
+            title: fixMojibake(activity.title),
+            roomName: fixMojibake(activity.roomName),
+            speakerName: fixMojibake(activity.speakerName),
+            workloadHours: Number(activity.workloadHours) || 0,
+            active: activity.active !== false
+          })),
+          activityAttendances: parsed.activityAttendances || [],
+          certificates: parsed.certificates || [],
           participantFields: parsed.participantFields || DEFAULT_PARTICIPANT_FIELDS,
           areas: (parsed.areas || [
             { id: 'a1', name: 'Sala', color: '#00E545' },
@@ -414,6 +439,8 @@ class Database {
     this.data.users.splice(index, 1);
     this.data.eventUsers = (this.data.eventUsers || []).filter(eu => eu.userId !== id);
     this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.userId !== id);
+    this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.checkedByUserId !== id);
+    this.data.certificates = (this.data.certificates || []).filter(cert => cert.issuedByUserId !== id);
     this.saveLocal();
     return true;
   }
@@ -502,6 +529,9 @@ class Database {
     this.data.events.splice(index, 1);
     this.data.eventUsers = (this.data.eventUsers || []).filter(eu => eu.eventId !== id);
     this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.eventId !== id);
+    this.data.activities = (this.data.activities || []).filter(activity => activity.eventId !== id);
+    this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.eventId !== id);
+    this.data.certificates = (this.data.certificates || []).filter(cert => cert.eventId !== id);
     this.data.participants = this.data.participants.filter(p => p.eventId !== id);
     this.data.cloakroom = this.data.cloakroom.filter(c => c.eventId !== id);
     this.saveLocal();
@@ -590,6 +620,8 @@ class Database {
     if (index === -1) return false;
     this.data.participants.splice(index, 1);
     this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.participantId !== id);
+    this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.participantId !== id);
+    this.data.certificates = (this.data.certificates || []).filter(cert => cert.participantId !== id);
     this.saveLocal();
     return true;
   }
@@ -765,6 +797,145 @@ class Database {
       list = list.filter(log => log.eventId === eventId);
     }
     return list;
+  }
+
+  // --- Activities & Attendance ---
+  async getActivities(eventId?: string): Promise<Activity[]> {
+    if (!this.data.activities) {
+      this.data.activities = [];
+    }
+    if (eventId) {
+      return this.data.activities.filter(activity => activity.eventId === eventId);
+    }
+    return this.data.activities;
+  }
+
+  async getActivityById(id: string): Promise<Activity | undefined> {
+    return (this.data.activities || []).find(activity => activity.id === id);
+  }
+
+  async createActivity(activity: Omit<Activity, 'id' | 'createdAt'>): Promise<Activity> {
+    if (!this.data.activities) {
+      this.data.activities = [];
+    }
+    const newActivity: Activity = {
+      ...activity,
+      title: fixMojibake(activity.title),
+      roomName: fixMojibake(activity.roomName),
+      speakerName: fixMojibake(activity.speakerName),
+      id: 'act_' + Math.random().toString(36).substring(2, 9),
+      workloadHours: Number(activity.workloadHours) || 0,
+      active: activity.active !== false,
+      createdAt: new Date().toISOString()
+    };
+    this.data.activities.push(newActivity);
+    this.saveLocal();
+    return newActivity;
+  }
+
+  async updateActivity(id: string, updates: Partial<Omit<Activity, 'id' | 'eventId' | 'createdAt'>>): Promise<Activity | undefined> {
+    const activity = (this.data.activities || []).find(item => item.id === id);
+    if (!activity) return undefined;
+    Object.assign(activity, {
+      ...updates,
+      ...(updates.title !== undefined ? { title: fixMojibake(updates.title) } : {}),
+      ...(updates.roomName !== undefined ? { roomName: fixMojibake(updates.roomName) } : {}),
+      ...(updates.speakerName !== undefined ? { speakerName: fixMojibake(updates.speakerName) } : {}),
+      ...(updates.workloadHours !== undefined ? { workloadHours: Number(updates.workloadHours) || 0 } : {}),
+      ...(updates.active !== undefined ? { active: updates.active !== false } : {})
+    });
+    this.saveLocal();
+    return activity;
+  }
+
+  async deleteActivity(id: string): Promise<boolean> {
+    if (!this.data.activities) return false;
+    const index = this.data.activities.findIndex(activity => activity.id === id);
+    if (index === -1) return false;
+    this.data.activities.splice(index, 1);
+    this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.activityId !== id);
+    this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.activityId !== id);
+    this.data.certificates = (this.data.certificates || []).filter(cert => cert.activityId !== id);
+    this.saveLocal();
+    return true;
+  }
+
+  async getActivityAttendances(eventId?: string, activityId?: string): Promise<ActivityAttendance[]> {
+    if (!this.data.activityAttendances) {
+      this.data.activityAttendances = [];
+    }
+    let list = this.data.activityAttendances;
+    if (eventId) {
+      list = list.filter(att => att.eventId === eventId);
+    }
+    if (activityId) {
+      list = list.filter(att => att.activityId === activityId);
+    }
+    return list;
+  }
+
+  async getActivityAttendance(activityId: string, participantId: string): Promise<ActivityAttendance | undefined> {
+    return (this.data.activityAttendances || []).find(att => att.activityId === activityId && att.participantId === participantId);
+  }
+
+  async createActivityAttendance(attendance: Omit<ActivityAttendance, 'id' | 'checkedAt'>): Promise<ActivityAttendance> {
+    if (!this.data.activityAttendances) {
+      this.data.activityAttendances = [];
+    }
+    const existing = await this.getActivityAttendance(attendance.activityId, attendance.participantId);
+    if (existing) return existing;
+    const newAttendance: ActivityAttendance = {
+      ...attendance,
+      id: 'aa_' + Math.random().toString(36).substring(2, 9),
+      checkedAt: new Date().toISOString()
+    };
+    this.data.activityAttendances.push(newAttendance);
+    this.saveLocal();
+    return newAttendance;
+  }
+
+  async getCertificates(eventId?: string, participantId?: string): Promise<Certificate[]> {
+    if (!this.data.certificates) {
+      this.data.certificates = [];
+    }
+    let list = this.data.certificates;
+    if (eventId) {
+      list = list.filter(cert => cert.eventId === eventId);
+    }
+    if (participantId) {
+      list = list.filter(cert => cert.participantId === participantId);
+    }
+    return list;
+  }
+
+  async getCertificateById(id: string): Promise<Certificate | undefined> {
+    return (this.data.certificates || []).find(cert => cert.id === id);
+  }
+
+  private getNextCertificateCode(): string {
+    const year = new Date().getFullYear();
+    const maxNumber = (this.data.certificates || []).reduce((max, cert) => {
+      const match = String(cert.certificateCode || '').match(/^CERT-\d{4}-(\d+)$/);
+      const value = match ? Number(match[1]) : 0;
+      return Math.max(max, value);
+    }, 0);
+    return `CERT-${year}-${String(maxNumber + 1).padStart(6, '0')}`;
+  }
+
+  async createCertificate(certificate: Omit<Certificate, 'id' | 'issuedAt' | 'certificateCode'>): Promise<Certificate> {
+    if (!this.data.certificates) {
+      this.data.certificates = [];
+    }
+    const newCertificate: Certificate = {
+      ...certificate,
+      id: 'cert_' + Math.random().toString(36).substring(2, 9),
+      certificateCode: this.getNextCertificateCode(),
+      totalHours: Number(certificate.totalHours) || 0,
+      issuedAt: new Date().toISOString()
+    };
+    this.data.certificates.push(newCertificate);
+    this.saveLocal();
+    return newCertificate;
   }
 
   // --- Participant Fields CRUD ---

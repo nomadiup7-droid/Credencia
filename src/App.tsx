@@ -37,7 +37,10 @@ import {
   ShieldCheck,
   MoreHorizontal,
   Sun,
-  Moon
+  Moon,
+  ClipboardCheck,
+  BookOpen,
+  Award
 } from 'lucide-react';
 import PrintCredential from './components/PrintCredential';
 import LabelConfigTab from './components/LabelConfigTab';
@@ -51,7 +54,7 @@ import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
-import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig } from './types';
+import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate } from './types';
 
 // Sleek CSS Color mapping & constants
 const CATEGORY_TAGS: Record<ParticipantCategory, { bg: string, text: string, border: string }> = {
@@ -90,6 +93,32 @@ interface ReportActionLog {
   timestamp: string;
   participantName?: string;
   operatorName?: string;
+}
+
+interface ActivityAttendanceView {
+  id: string;
+  eventId: string;
+  activityId: string;
+  participantId: string;
+  checkedAt: string;
+  checkedByUserId: string;
+  participantName?: string;
+  participantCpf?: string;
+  participantCategory?: string;
+  operatorName?: string;
+}
+
+interface CertificateActivityView extends Activity {
+  checkedAt?: string;
+  attendanceId?: string;
+}
+
+interface CertificateLookupResult {
+  participant: Participant;
+  event: Event;
+  attendedActivities: CertificateActivityView[];
+  totalHours: number;
+  certificates: Certificate[];
 }
 
 interface ReportBrandConfig {
@@ -142,6 +171,9 @@ type ActiveTab =
   | 'checkin'
   | 'checkin-modular'
   | 'scanner'
+  | 'atividades'
+  | 'presenca-atividade'
+  | 'certificados'
   | 'areas'
   | 'chapelaria'
   | 'relatorios'
@@ -163,6 +195,9 @@ const ACTIVE_TABS: ActiveTab[] = [
   'checkin',
   'checkin-modular',
   'scanner',
+  'atividades',
+  'presenca-atividade',
+  'certificados',
   'areas',
   'chapelaria',
   'relatorios',
@@ -193,6 +228,49 @@ const readStoredUser = (): User | null => {
   }
 };
 
+const fixMojibake = (value?: string) => {
+  if (!value || !/[ÃÂ]/.test(value)) return value || '';
+  try {
+    return decodeURIComponent(escape(value));
+  } catch (error) {
+    return value;
+  }
+};
+
+const escapeCertificateHtml = (value?: string) => fixMojibake(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;');
+
+const normalizeParticipantSearch = (value?: string) => fixMojibake(value || '')
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[._\-+/ ]/g, '');
+
+const getParticipantSearchScore = (participant: Participant, query: string) => {
+  const name = normalizeParticipantSearch(participant.name);
+  const badgeName = normalizeParticipantSearch(participant.badgeName || '');
+  const firstName = normalizeParticipantSearch(participant.name.split(/\s+/)[0] || '');
+  const badgeFirstName = normalizeParticipantSearch((participant.badgeName || '').split(/\s+/)[0] || '');
+  const cpf = normalizeParticipantSearch(participant.cpf || '');
+  const ticketCode = normalizeParticipantSearch(participant.ticketCode || '');
+  const id = normalizeParticipantSearch(participant.id || '');
+
+  if (firstName.startsWith(query)) return 0;
+  if (badgeFirstName.startsWith(query)) return 1;
+  if (name.startsWith(query)) return 2;
+  if (badgeName.startsWith(query)) return 3;
+  if (cpf.startsWith(query)) return 4;
+  if (ticketCode.startsWith(query) || id.startsWith(query) || query.includes(ticketCode) || query.includes(id)) return 5;
+  if (name.includes(query)) return 6;
+  if (badgeName.includes(query)) return 7;
+  if (cpf.includes(query) || ticketCode.includes(query) || id.includes(query)) return 8;
+  return 99;
+};
+
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -207,6 +285,7 @@ export default function App() {
   const eventRole = String(currentEventRole || currentUser?.role || '').toUpperCase();
   const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin' || eventRole === 'ADMIN';
   const canCreateParticipants = isUserAdmin || eventRole === 'CHECKIN_CADASTRO';
+  const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO';
   const canManageParticipants = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'CHECKIN_CADASTRO';
   const canViewReports = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'RELATORIO';
   const isFernandoAdmin = String(currentUser?.email || '').toLowerCase() === 'fernando@credencia.com';
@@ -283,6 +362,8 @@ export default function App() {
   const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
   const [areaAccessLogs, setAreaAccessLogs] = useState<ReportAreaAccessLog[]>([]);
   const [actionLogs, setActionLogs] = useState<ReportActionLog[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activityAttendances, setActivityAttendances] = useState<ActivityAttendanceView[]>([]);
   const [loadingMain, setLoadingMain] = useState(false);
 
   // Filter / Search states
@@ -323,6 +404,24 @@ export default function App() {
     id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: []
   });
   const [cloakroomForm, setCloakroomForm] = useState({ participantId: '', participantName: '', itemDescription: '' });
+  const [activityForm, setActivityForm] = useState({
+    id: '',
+    title: '',
+    roomName: '',
+    speakerName: '',
+    date: '',
+    startTime: '',
+    endTime: '',
+    workloadHours: 1,
+    active: true
+  });
+  const [activityAttendanceActivityId, setActivityAttendanceActivityId] = useState('');
+  const [activityAttendanceSearch, setActivityAttendanceSearch] = useState('');
+  const [activityAttendanceFeedback, setActivityAttendanceFeedback] = useState<{ type: 'success' | 'warning' | 'error'; title: string; message: string } | null>(null);
+  const [certificateSearch, setCertificateSearch] = useState('');
+  const [certificateLookup, setCertificateLookup] = useState<CertificateLookupResult | null>(null);
+  const [certificateFeedback, setCertificateFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const [activeCertificate, setActiveCertificate] = useState<{ certificate: Certificate; activity?: CertificateActivityView } | null>(null);
 
   // Badge Visualizer state
   const [activeBadgeParticipant, setActiveBadgeParticipant] = useState<Participant | null>(null);
@@ -766,6 +865,9 @@ export default function App() {
           'participantes',
           'campos',
           'checkin',
+          'atividades',
+          'presenca-atividade',
+          'certificados',
           'areas',
           'scanner',
           'chapelaria',
@@ -775,15 +877,16 @@ export default function App() {
           'etiquetas',
           'checkin-modular'
         ]
-      : ['eventos-ativos', 'checkin'];
+      : ['eventos-ativos', 'checkin', 'presenca-atividade'];
 
     if (isUserAdmin || canManageParticipants) allowedTabs.push('participantes');
     if (isUserAdmin || canViewReports) allowedTabs.push('relatorios');
+    if (canIssueCertificates) allowedTabs.push('certificados');
 
     if (!allowedTabs.includes(activeTab)) {
       setActiveTab(isUserAdmin ? 'dashboard' : 'checkin');
     }
-  }, [currentUser, isUserAdmin, canManageParticipants, canViewReports, activeTab]);
+  }, [currentUser, isUserAdmin, canManageParticipants, canViewReports, canIssueCertificates, activeTab]);
 
   // --- Fetch Operations ---
   const loadEvents = async () => {
@@ -822,16 +925,20 @@ export default function App() {
     setLoadingMain(true);
     try {
       // Load current areas and access profiles for the event dynamically
-      const [areasData, profilesData, accessLogsData, actionLogsData] = await Promise.all([
+      const [areasData, profilesData, accessLogsData, actionLogsData, activitiesData, activityAttendancesData] = await Promise.all([
         apiCall(`/api/areas?eventId=${eventId}`),
         apiCall(`/api/access-profiles?eventId=${eventId}`),
         apiCall('/api/access-control/logs').catch(() => []),
-        apiCall(`/api/action-logs?eventId=${eventId}`).catch(() => [])
+        apiCall(`/api/action-logs?eventId=${eventId}`).catch(() => []),
+        apiCall(`/api/events/${eventId}/activities`).catch(() => []),
+        apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => [])
       ]);
       setAvailableAreas(areasData || []);
       setAccessProfiles(profilesData || []);
       setAreaAccessLogs(Array.isArray(accessLogsData) ? accessLogsData : []);
       setActionLogs(Array.isArray(actionLogsData) ? actionLogsData : []);
+      setActivities(Array.isArray(activitiesData) ? activitiesData : []);
+      setActivityAttendances(Array.isArray(activityAttendancesData) ? activityAttendancesData : []);
 
       if (isUserAdmin || canViewReports) {
         // Parallelize fetches for speedy Operacao load times for admins
@@ -980,6 +1087,12 @@ export default function App() {
     if (activeTab === 'scanner' && currentEvent.enableScanner === false) setActiveTab('evento-dashboard');
   }, [activeTab, currentEvent, isUserAdmin]);
 
+  useEffect(() => {
+    if (activityAttendanceActivityId && activities.some(activity => activity.id === activityAttendanceActivityId && activity.active !== false)) return;
+    const firstActive = activities.find(activity => activity.active !== false);
+    setActivityAttendanceActivityId(firstActive?.id || '');
+  }, [activities, activityAttendanceActivityId]);
+
   // Handle Select Event action
   const handleEventChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
@@ -1030,6 +1143,262 @@ export default function App() {
         persistSelectedEvent('');
       }
     } catch (e) {}
+  };
+
+  const resetActivityForm = () => {
+    setActivityForm({
+      id: '',
+      title: '',
+      roomName: '',
+      speakerName: '',
+      date: currentEvent?.date || '',
+      startTime: '',
+      endTime: '',
+      workloadHours: 1,
+      active: true
+    });
+  };
+
+  const editActivity = (activity: Activity) => {
+    setActivityForm({
+      id: activity.id,
+      title: fixMojibake(activity.title),
+      roomName: fixMojibake(activity.roomName),
+      speakerName: fixMojibake(activity.speakerName || ''),
+      date: activity.date,
+      startTime: activity.startTime,
+      endTime: activity.endTime,
+      workloadHours: activity.workloadHours || 0,
+      active: activity.active !== false
+    });
+  };
+
+  const handleSaveActivity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEventId) {
+      addToast('Selecione um evento ativo primeiro.', 'error');
+      return;
+    }
+    if (!activityForm.title || !activityForm.roomName || !activityForm.date || !activityForm.startTime || !activityForm.endTime) {
+      addToast('Preencha título, sala, data, início e fim da atividade.', 'error');
+      return;
+    }
+
+    try {
+      const isEdit = !!activityForm.id;
+      const saved = await apiCall(isEdit ? `/api/activities/${activityForm.id}` : `/api/events/${selectedEventId}/activities`, {
+        method: isEdit ? 'PUT' : 'POST',
+        body: JSON.stringify({
+          title: fixMojibake(activityForm.title),
+          roomName: fixMojibake(activityForm.roomName),
+          speakerName: fixMojibake(activityForm.speakerName),
+          date: activityForm.date,
+          startTime: activityForm.startTime,
+          endTime: activityForm.endTime,
+          workloadHours: Number(activityForm.workloadHours) || 0,
+          active: activityForm.active
+        })
+      });
+
+      setActivities(prev => isEdit ? prev.map(item => item.id === saved.id ? saved : item) : [saved, ...prev]);
+      resetActivityForm();
+      addToast(isEdit ? 'Atividade atualizada.' : 'Atividade criada.', 'success');
+    } catch (err) {}
+  };
+
+  const handleDeleteActivity = async (id: string) => {
+    if (!window.confirm('Excluir esta atividade também removerá suas presenças registradas. Confirmar?')) return;
+    try {
+      await apiCall(`/api/activities/${id}`, { method: 'DELETE' });
+      setActivities(prev => prev.filter(item => item.id !== id));
+      setActivityAttendances(prev => prev.filter(item => item.activityId !== id));
+      if (activityAttendanceActivityId === id) setActivityAttendanceActivityId('');
+      addToast('Atividade excluída.', 'success');
+    } catch (err) {}
+  };
+
+  const handleToggleActivity = async (activity: Activity) => {
+    try {
+      const updated = await apiCall(`/api/activities/${activity.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ active: activity.active === false })
+      });
+      setActivities(prev => prev.map(item => item.id === updated.id ? updated : item));
+      addToast(updated.active === false ? 'Atividade desativada.' : 'Atividade ativada.', 'success');
+    } catch (err) {}
+  };
+
+  const handleSubmitActivityAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEventId || !activityAttendanceActivityId) {
+      setActivityAttendanceFeedback({ type: 'error', title: 'Selecione uma atividade', message: 'Escolha a atividade antes de registrar presença.' });
+      return;
+    }
+    if (!activityAttendanceSearch.trim()) {
+      setActivityAttendanceFeedback({ type: 'error', title: 'Informe o participante', message: 'Leia o QR Code ou busque por nome/CPF.' });
+      return;
+    }
+
+    try {
+      const result = await apiCall(`/api/events/${selectedEventId}/activity-attendances`, {
+        method: 'POST',
+        body: JSON.stringify({
+          activityId: activityAttendanceActivityId,
+          search: activityAttendanceSearch
+        })
+      });
+
+      if (result.status === 'ALREADY_REGISTERED') {
+        setActivityAttendanceFeedback({
+          type: 'warning',
+          title: 'Participante já registrado nesta atividade',
+          message: result.participant?.name || 'Esta presença já existe.'
+        });
+        return;
+      }
+
+      setActivityAttendanceFeedback({
+        type: 'success',
+        title: 'Presença registrada',
+        message: result.participant?.name || 'Registro concluído com sucesso.'
+      });
+      setActivityAttendanceSearch('');
+      const updated = await apiCall(`/api/events/${selectedEventId}/activity-attendances?activityId=${activityAttendanceActivityId}`).catch(() => []);
+      setActivityAttendances(prev => [
+        ...(Array.isArray(updated) ? updated : []),
+        ...prev.filter(item => item.activityId !== activityAttendanceActivityId)
+      ]);
+    } catch (err: any) {
+      setActivityAttendanceFeedback({
+        type: 'error',
+        title: 'Participante não encontrado',
+        message: err?.message || 'Nenhum participante localizado para esta busca.'
+      });
+    }
+  };
+
+  const loadCertificateParticipant = async (searchValue: string) => {
+    if (!selectedEventId) {
+      setCertificateFeedback({ type: 'error', message: 'Selecione um evento ativo primeiro.' });
+      return;
+    }
+    if (!searchValue.trim()) {
+      setCertificateFeedback({ type: 'error', message: 'Informe nome, CPF ou QR Code do participante.' });
+      return;
+    }
+
+    try {
+      const result = await apiCall(`/api/events/${selectedEventId}/certificates/participant?search=${encodeURIComponent(searchValue.trim())}`);
+      setCertificateLookup(result);
+      setActiveCertificate(null);
+      setCertificateFeedback(result.attendedActivities?.length
+        ? null
+        : { type: 'warning', message: 'Participante não possui presença registrada.' });
+    } catch (err: any) {
+      setCertificateLookup(null);
+      setActiveCertificate(null);
+      setCertificateFeedback({ type: 'error', message: err?.message || 'Participante não encontrado.' });
+    }
+  };
+
+  const handleSearchCertificateParticipant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await loadCertificateParticipant(certificateSearch);
+  };
+
+  const handleIssueCertificate = async (type: 'general' | 'activity', activityId?: string) => {
+    if (!selectedEventId || !certificateLookup?.participant) {
+      setCertificateFeedback({ type: 'error', message: 'Busque um participante antes de emitir o certificado.' });
+      return;
+    }
+    if (certificateLookup.attendedActivities.length === 0) {
+      setCertificateFeedback({ type: 'warning', message: 'Participante não possui presença registrada.' });
+      return;
+    }
+
+    try {
+      const result = await apiCall(`/api/events/${selectedEventId}/certificates`, {
+        method: 'POST',
+        body: JSON.stringify({
+          participantId: certificateLookup.participant.id,
+          type,
+          ...(activityId ? { activityId } : {})
+        })
+      });
+      const certificate: Certificate = result.certificate;
+      const activity = activityId ? certificateLookup.attendedActivities.find(item => item.id === activityId) : undefined;
+      setCertificateLookup(prev => prev ? ({ ...prev, certificates: [certificate, ...(prev.certificates || [])] }) : prev);
+      setActiveCertificate({ certificate, activity });
+      setCertificateFeedback({ type: 'success', message: `Certificado emitido: ${certificate.certificateCode}` });
+    } catch (err: any) {
+      setCertificateFeedback({ type: 'error', message: err?.message || 'Erro ao emitir certificado.' });
+    }
+  };
+
+  const printCertificate = () => {
+    if (!activeCertificate || !certificateLookup) return;
+    const participant = certificateLookup.participant;
+    const event = certificateLookup.event;
+    const activity = activeCertificate.activity || certificateLookup.attendedActivities.find(item => item.id === activeCertificate.certificate.activityId);
+    const isActivity = activeCertificate.certificate.type === 'activity' && activity;
+    const certificateBody = isActivity
+      ? `
+        <p>Certificamos que <strong>${escapeCertificateHtml(participant.name)}</strong></p>
+        <p>participou da atividade</p>
+        <h2>${escapeCertificateHtml(activity.title)}</h2>
+        <p>ministrada por</p>
+        <h3>${escapeCertificateHtml(activity.speakerName || 'Palestrante não informado')}</h3>
+        <p>com carga horária de</p>
+        <h2>${activeCertificate.certificate.totalHours} horas.</h2>
+      `
+      : `
+        <p>Certificamos que <strong>${escapeCertificateHtml(participant.name)}</strong></p>
+        <p>participou do evento</p>
+        <h2>${escapeCertificateHtml(event.name)}</h2>
+        <p>com carga horária total de</p>
+        <h2>${activeCertificate.certificate.totalHours} horas.</h2>
+      `;
+    const win = window.open('', '_blank', 'width=1120,height=760');
+    if (!win) return;
+    win.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Certificado ${activeCertificate.certificate.certificateCode}</title>
+          <style>
+            @page { size: A4 landscape; margin: 14mm; }
+            * { box-sizing: border-box; }
+            body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; background: #fff; }
+            .certificate { min-height: calc(100vh - 28mm); border: 12px solid #e5e7eb; padding: 52px; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+            .label { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.34em; color: #64748b; }
+            h1 { margin: 22px 0 6px; font-size: 44px; }
+            h2 { margin: 8px 0; font-size: 32px; }
+            h3 { margin: 8px 0; font-size: 26px; }
+            p { margin: 10px 0; font-size: 22px; line-height: 1.45; }
+            .line { width: 140px; height: 1px; background: #cbd5e1; margin: 26px auto; }
+            .meta { margin-top: 42px; font-size: 12px; font-weight: 700; color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <section class="certificate">
+            <div class="label">Certificado</div>
+            <h1>CREDENCIA</h1>
+            <div class="line"></div>
+            ${certificateBody}
+            <div class="meta">
+              <div>Código: ${activeCertificate.certificate.certificateCode}</div>
+              <div>Emitido em ${new Date(activeCertificate.certificate.issuedAt).toLocaleString('pt-BR')}</div>
+            </div>
+          </section>
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   };
 
   // --- Participant Operations ---
@@ -2447,6 +2816,9 @@ export default function App() {
     { id: 'checkin' as const, label: 'Check-in', icon: QrCode },
     ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
     ...(isUserAdmin ? [{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
+    ...(isUserAdmin ? [{ id: 'atividades' as const, label: 'Atividades', icon: BookOpen }] : []),
+    { id: 'presenca-atividade' as const, label: 'Presença em Atividade', icon: ClipboardCheck },
+    ...(canIssueCertificates ? [{ id: 'certificados' as const, label: 'Certificados', icon: Award }] : []),
     ...(isUserAdmin ? [{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
     ...(canViewReports ? [{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
     ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
@@ -2458,6 +2830,39 @@ export default function App() {
   const isStandaloneCheckin = window.location.pathname === '/checkin';
   const isCheckinOnlyOperator = !!currentUser && !isUserAdmin && !canCreateParticipants && !canViewReports;
   const shouldUseFullscreenCheckin = activeTab === 'checkin' && (isStandaloneCheckin || isCheckinOnlyOperator);
+  const activeActivities = activities.filter(activity => activity.active !== false);
+  const selectedActivity = activities.find(activity => activity.id === activityAttendanceActivityId) || null;
+  const selectedActivityAttendances = activityAttendances.filter(att => att.activityId === activityAttendanceActivityId);
+  const certificateParticipant = certificateLookup?.participant;
+  const certificateEvent = certificateLookup?.event || currentEvent;
+  const certificateActivity = activeCertificate?.activity
+    || certificateLookup?.attendedActivities.find(activity => activity.id === activeCertificate?.certificate.activityId);
+  const activityParticipantSuggestions = (() => {
+    const query = normalizeParticipantSearch(activityAttendanceSearch);
+    if (query.length < 3) return [];
+    if (participants.some(participant => normalizeParticipantSearch(participant.name) === query || normalizeParticipantSearch(participant.badgeName || '') === query)) return [];
+    return participants
+      .filter(participant => getParticipantSearchScore(participant, query) < 99)
+      .sort((a, b) => {
+        const scoreDiff = getParticipantSearchScore(a, query) - getParticipantSearchScore(b, query);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (a.badgeName || a.name).localeCompare(b.badgeName || b.name, 'pt-BR');
+      })
+      .slice(0, 8);
+  })();
+  const certificateParticipantSuggestions = (() => {
+    const query = normalizeParticipantSearch(certificateSearch);
+    if (query.length < 3) return [];
+    if (participants.some(participant => normalizeParticipantSearch(participant.name) === query || normalizeParticipantSearch(participant.badgeName || '') === query)) return [];
+    return participants
+      .filter(participant => getParticipantSearchScore(participant, query) < 99)
+      .sort((a, b) => {
+        const scoreDiff = getParticipantSearchScore(a, query) - getParticipantSearchScore(b, query);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (a.badgeName || a.name).localeCompare(b.badgeName || b.name, 'pt-BR');
+      })
+      .slice(0, 8);
+  })();
 
   return (
     <div className={`min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ? 'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
@@ -3475,6 +3880,423 @@ export default function App() {
                 apiCall={apiCall}
                 addToast={addToast}
               />
+            )}
+
+            {activeTab === 'atividades' && isUserAdmin && (
+              <div className="space-y-6">
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Atividades</p>
+                    <h2 className="text-2xl font-black text-slate-950 font-display">Atividades e palestras</h2>
+                    <p className="text-sm text-slate-500 mt-1">Cadastre a agenda do evento ativo e controle quais atividades recebem presença.</p>
+                  </div>
+                  <button
+                    onClick={resetActivityForm}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-950 text-white text-sm font-bold hover:bg-slate-800 transition"
+                  >
+                    <Plus size={16} />
+                    Nova atividade
+                  </button>
+                </div>
+
+                {!selectedEventId ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-900">
+                    Selecione um evento ativo para gerenciar atividades.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
+                    <form onSubmit={handleSaveActivity} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 shadow-sm">
+                      <div>
+                        <h3 className="text-base font-black text-slate-900">{activityForm.id ? 'Editar atividade' : 'Nova atividade'}</h3>
+                        <p className="text-xs text-slate-500 mt-1">Apenas administradores podem criar ou alterar atividades.</p>
+                      </div>
+                      <label className="block text-xs font-bold uppercase text-slate-500">
+                        Título
+                        <input value={activityForm.title} onChange={e => setActivityForm(prev => ({ ...prev, title: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="Inteligência Artificial nos Eventos" />
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="block text-xs font-bold uppercase text-slate-500">
+                          Sala
+                          <input value={activityForm.roomName} onChange={e => setActivityForm(prev => ({ ...prev, roomName: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="Auditório 1" />
+                        </label>
+                        <label className="block text-xs font-bold uppercase text-slate-500">
+                          Palestrante
+                          <input value={activityForm.speakerName} onChange={e => setActivityForm(prev => ({ ...prev, speakerName: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="João Silva" />
+                        </label>
+                      </div>
+                      <label className="block text-xs font-bold uppercase text-slate-500">
+                        Data
+                        <input type="date" value={activityForm.date} onChange={e => setActivityForm(prev => ({ ...prev, date: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" />
+                      </label>
+                      <div className="grid grid-cols-3 gap-3">
+                        <label className="block text-xs font-bold uppercase text-slate-500">
+                          Início
+                          <input type="time" value={activityForm.startTime} onChange={e => setActivityForm(prev => ({ ...prev, startTime: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" />
+                        </label>
+                        <label className="block text-xs font-bold uppercase text-slate-500">
+                          Fim
+                          <input type="time" value={activityForm.endTime} onChange={e => setActivityForm(prev => ({ ...prev, endTime: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" />
+                        </label>
+                        <label className="block text-xs font-bold uppercase text-slate-500">
+                          Carga
+                          <input type="number" min="0" step="0.5" value={activityForm.workloadHours} onChange={e => setActivityForm(prev => ({ ...prev, workloadHours: Number(e.target.value) }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" />
+                        </label>
+                      </div>
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-sm font-bold text-slate-700">
+                        <input type="checkbox" checked={activityForm.active} onChange={e => setActivityForm(prev => ({ ...prev, active: e.target.checked }))} />
+                        Atividade ativa
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="submit" className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 transition">
+                          {activityForm.id ? 'Salvar alterações' : 'Criar atividade'}
+                        </button>
+                        {activityForm.id && (
+                          <button type="button" onClick={resetActivityForm} className="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition">
+                            Cancelar
+                          </button>
+                        )}
+                      </div>
+                    </form>
+
+                    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                      <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-black text-slate-900">Atividades do evento</h3>
+                          <p className="text-xs text-slate-500">{activities.length} atividade(s) cadastrada(s)</p>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                            <tr>
+                              <th className="text-left p-4">Atividade</th>
+                              <th className="text-left p-4">Data e horário</th>
+                              <th className="text-left p-4">Carga</th>
+                              <th className="text-center p-4">Status</th>
+                              <th className="text-right p-4">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activities.length === 0 ? (
+                              <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-semibold">Nenhuma atividade cadastrada.</td></tr>
+                            ) : activities.map(activity => (
+                              <tr key={activity.id} className="border-t border-slate-100">
+                                <td className="p-4">
+                                  <p className="font-black text-slate-900">{fixMojibake(activity.title)}</p>
+                                  <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)}{activity.speakerName ? ` - ${fixMojibake(activity.speakerName)}` : ''}</p>
+                                </td>
+                                <td className="p-4 text-slate-700">
+                                  {activity.date ? new Date(`${activity.date}T00:00:00`).toLocaleDateString('pt-BR') : '-'} às {activity.startTime} - {activity.endTime}
+                                </td>
+                                <td className="p-4 font-semibold text-slate-700">{activity.workloadHours || 0}h</td>
+                                <td className="p-4 text-center">
+                                  <button
+                                    onClick={() => handleToggleActivity(activity)}
+                                    className={`inline-flex px-3 py-1 rounded-full text-xs font-black ${activity.active === false ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}
+                                  >
+                                    {activity.active === false ? 'Inativa' : 'Ativa'}
+                                  </button>
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex justify-end gap-2">
+                                    <button onClick={() => editActivity(activity)} className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200" title="Editar">
+                                      <Edit size={15} />
+                                    </button>
+                                    <button onClick={() => handleDeleteActivity(activity.id)} className="p-2 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100" title="Excluir">
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'presenca-atividade' && (
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Presença em Atividade</p>
+                  <h2 className="text-2xl font-black text-slate-950 font-display">Registro operacional de presença</h2>
+                  <p className="text-sm text-slate-500 mt-1">Selecione a atividade e leia o QR Code ou busque por nome/CPF.</p>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6">
+                  <form onSubmit={handleSubmitActivityAttendance} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
+                    <label className="block text-xs font-bold uppercase text-slate-500">
+                      Atividade
+                      <select value={activityAttendanceActivityId} onChange={e => { setActivityAttendanceActivityId(e.target.value); setActivityAttendanceFeedback(null); }} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-3 text-base normal-case text-slate-900">
+                        <option value="">Selecione uma atividade</option>
+                        {activeActivities.map(activity => (
+                          <option key={activity.id} value={activity.id}>
+                            {fixMojibake(activity.title)} - {fixMojibake(activity.roomName)} - {activity.startTime}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {selectedActivity && (
+                      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                        <p className="text-lg font-black text-blue-950">{fixMojibake(selectedActivity.title)}</p>
+                        <p className="text-sm text-blue-800 mt-1">{fixMojibake(selectedActivity.roomName)}{selectedActivity.speakerName ? ` - ${fixMojibake(selectedActivity.speakerName)}` : ''}</p>
+                        <p className="text-xs font-bold text-blue-700 mt-2">{selectedActivity.date} | {selectedActivity.startTime} - {selectedActivity.endTime} | {selectedActivity.workloadHours || 0}h</p>
+                      </div>
+                    )}
+
+                    <label className="block text-xs font-bold uppercase text-slate-500">
+                      Nome, CPF ou QR Code
+                      <div className="relative mt-1">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={22} />
+                        <input
+                          autoFocus
+                          value={activityAttendanceSearch}
+                          onChange={e => { setActivityAttendanceSearch(e.target.value); setActivityAttendanceFeedback(null); }}
+                          placeholder="Ler QR Code ou buscar participante"
+                          className="w-full rounded-xl border border-slate-200 py-4 pl-12 pr-4 text-lg font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        {activityParticipantSuggestions.length > 0 && (
+                          <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                            {activityParticipantSuggestions.map(participant => (
+                              <button
+                                key={participant.id}
+                                type="button"
+                                onClick={() => {
+                                  setActivityAttendanceSearch(participant.name);
+                                  setActivityAttendanceFeedback(null);
+                                }}
+                                className="w-full border-b border-slate-100 px-4 py-3 text-left last:border-b-0 hover:bg-blue-50 transition"
+                              >
+                                <p className="text-base font-black text-slate-900">{participant.badgeName || participant.name}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+
+                    <button type="submit" className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-black text-white hover:bg-blue-700 transition">
+                      Registrar presença
+                    </button>
+
+                    {activityAttendanceFeedback && (
+                      <div className={`rounded-xl border p-5 text-center ${
+                        activityAttendanceFeedback.type === 'success'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : activityAttendanceFeedback.type === 'warning'
+                            ? 'border-amber-200 bg-amber-50 text-amber-900'
+                            : 'border-rose-200 bg-rose-50 text-rose-900'
+                      }`}>
+                        <p className="text-xl font-black">{activityAttendanceFeedback.type === 'success' ? '✔' : activityAttendanceFeedback.type === 'warning' ? '⚠' : '✕'} {activityAttendanceFeedback.title}</p>
+                        <p className="text-sm font-semibold mt-2">{activityAttendanceFeedback.message}</p>
+                      </div>
+                    )}
+                  </form>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="font-black text-slate-900">Presenças registradas</h3>
+                        <p className="text-xs text-slate-500">{selectedActivityAttendances.length} registro(s) nesta atividade</p>
+                      </div>
+                      <ClipboardCheck className="text-slate-400" size={22} />
+                    </div>
+                    <div className="space-y-2 max-h-[520px] overflow-y-auto">
+                      {!activityAttendanceActivityId ? (
+                        <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Selecione uma atividade.</p>
+                      ) : selectedActivityAttendances.length === 0 ? (
+                        <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhuma presença registrada ainda.</p>
+                      ) : selectedActivityAttendances.map(att => (
+                        <div key={att.id} className="rounded-lg border border-slate-100 p-3">
+                          <p className="text-sm font-black text-slate-900">{att.participantName}</p>
+                          <p className="text-xs text-slate-500">{att.participantCpf || '-'} | {new Date(att.checkedAt).toLocaleString('pt-BR')}</p>
+                          <p className="text-[11px] text-slate-400 mt-1">Operador: {att.operatorName || 'Operador'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'certificados' && canIssueCertificates && (
+              <div className="space-y-6">
+                <div className="no-print">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Certificados</p>
+                  <h2 className="text-2xl font-black text-slate-950 font-display">Emissão de certificados</h2>
+                  <p className="text-sm text-slate-500 mt-1">Busque um participante e emita certificados com base nas presenças registradas em atividades.</p>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-[430px_1fr] gap-6">
+                  <div className="space-y-5 no-print">
+                    <form onSubmit={handleSearchCertificateParticipant} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                      <label className="block text-xs font-bold uppercase text-slate-500">
+                        Buscar participante
+                        <div className="relative mt-1">
+                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                          <input
+                            value={certificateSearch}
+                            onChange={e => {
+                              setCertificateSearch(e.target.value);
+                              setCertificateFeedback(null);
+                            }}
+                            placeholder="Nome, CPF ou QR Code"
+                            className="w-full rounded-xl border border-slate-200 py-3 pl-11 pr-4 text-base font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          {certificateParticipantSuggestions.length > 0 && (
+                            <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                              {certificateParticipantSuggestions.map(participant => (
+                                <button
+                                  key={participant.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setCertificateSearch(participant.name);
+                                    setCertificateFeedback(null);
+                                    void loadCertificateParticipant(participant.name);
+                                  }}
+                                  className="w-full border-b border-slate-100 px-4 py-3 text-left last:border-b-0 hover:bg-blue-50 transition"
+                                >
+                                  <p className="text-base font-black text-slate-900">{participant.badgeName || participant.name}</p>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                      <button type="submit" className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 transition">
+                        Buscar
+                      </button>
+                    </form>
+
+                    {certificateFeedback && (
+                      <div className={`rounded-xl border p-4 text-sm font-bold ${
+                        certificateFeedback.type === 'success'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : certificateFeedback.type === 'warning'
+                            ? 'border-amber-200 bg-amber-50 text-amber-900'
+                            : 'border-rose-200 bg-rose-50 text-rose-900'
+                      }`}>
+                        {certificateFeedback.message}
+                      </div>
+                    )}
+
+                    {certificateLookup && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
+                        <div>
+                          <p className="text-xs font-black uppercase text-slate-400">Participante</p>
+                          <h3 className="text-xl font-black text-slate-950">{certificateLookup.participant.name}</h3>
+                          <p className="text-sm text-slate-500">{certificateLookup.participant.cpf || '-'} | {certificateLookup.event.name}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-lg bg-slate-50 p-3">
+                            <p className="text-xs font-bold text-slate-500">Atividades</p>
+                            <p className="text-2xl font-black text-slate-950">{certificateLookup.attendedActivities.length}</p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 p-3">
+                            <p className="text-xs font-bold text-slate-500">Carga total</p>
+                            <p className="text-2xl font-black text-slate-950">{certificateLookup.totalHours}h</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleIssueCertificate('general')}
+                          disabled={certificateLookup.attendedActivities.length === 0}
+                          className="w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition"
+                        >
+                          Emitir certificado geral
+                        </button>
+
+                        <div>
+                          <p className="mb-2 text-xs font-black uppercase text-slate-400">Atividades frequentadas</p>
+                          <div className="space-y-2 max-h-[320px] overflow-y-auto">
+                            {certificateLookup.attendedActivities.length === 0 ? (
+                              <p className="rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-900">Participante não possui presença registrada.</p>
+                            ) : certificateLookup.attendedActivities.map(activity => (
+                              <div key={activity.id} className="rounded-lg border border-slate-100 p-3">
+                                <p className="text-sm font-black text-slate-900">{fixMojibake(activity.title)}</p>
+                                <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)} | {fixMojibake(activity.speakerName || 'Palestrante não informado')}</p>
+                                <div className="mt-3 flex items-center justify-between gap-3">
+                                  <span className="text-xs font-bold text-slate-600">{activity.workloadHours || 0}h</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleIssueCertificate('activity', activity.id)}
+                                    className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100 transition"
+                                  >
+                                    Emitir individual
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                    {!activeCertificate || !certificateParticipant || !certificateEvent ? (
+                      <div className="flex min-h-[520px] flex-col items-center justify-center text-center text-slate-400 no-print">
+                        <Award size={44} />
+                        <p className="mt-3 text-sm font-bold">A prévia do certificado aparecerá aqui após a emissão.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-3 no-print">
+                          <div>
+                            <p className="text-xs font-black uppercase text-slate-400">Prévia</p>
+                            <p className="text-sm font-bold text-slate-700">{activeCertificate.certificate.certificateCode}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={printCertificate}
+                            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700 transition"
+                          >
+                            <Printer size={16} />
+                            Imprimir
+                          </button>
+                        </div>
+
+                        <div className="certificate-print-area rounded-xl border-[10px] border-slate-100 bg-white px-8 py-12 text-center shadow-inner min-h-[520px] flex flex-col justify-center">
+                          <p className="text-xs font-black uppercase tracking-[0.35em] text-slate-400">Certificado</p>
+                          <h1 className="mt-5 text-4xl font-black text-slate-950 font-display">CREDENCIA</h1>
+                          <div className="mx-auto my-8 h-px w-28 bg-slate-300" />
+
+                          {activeCertificate.certificate.type === 'activity' && certificateActivity ? (
+                            <div className="space-y-4 text-slate-800">
+                              <p className="text-xl leading-relaxed">Certificamos que <b>{certificateParticipant.name}</b></p>
+                              <p className="text-xl leading-relaxed">participou da atividade</p>
+                              <p className="text-3xl font-black text-slate-950">{fixMojibake(certificateActivity.title)}</p>
+                              <p className="text-xl leading-relaxed">ministrada por</p>
+                              <p className="text-2xl font-black text-slate-950">{fixMojibake(certificateActivity.speakerName || 'Palestrante não informado')}</p>
+                              <p className="text-xl leading-relaxed">com carga horária de</p>
+                              <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-4 text-slate-800">
+                              <p className="text-xl leading-relaxed">Certificamos que <b>{certificateParticipant.name}</b></p>
+                              <p className="text-xl leading-relaxed">participou do evento</p>
+                              <p className="text-3xl font-black text-slate-950">{certificateEvent.name}</p>
+                              <p className="text-xl leading-relaxed">com carga horária total de</p>
+                              <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
+                            </div>
+                          )}
+
+                          <div className="mt-12 grid grid-cols-1 gap-2 text-xs font-bold text-slate-500">
+                            <p>Código: {activeCertificate.certificate.certificateCode}</p>
+                            <p>Emitido em {new Date(activeCertificate.certificate.issuedAt).toLocaleString('pt-BR')}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* --- TAB 5: CHAPELARIA (CLOAKROOM) --- */}
