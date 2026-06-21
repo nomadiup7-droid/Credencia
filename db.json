@@ -8523,6 +8523,95 @@
       "action": "REPRINT_BADGE",
       "id": "alog_lncyb14",
       "timestamp": "2026-06-19T20:21:13.249Z"
+    },
+    {
+      "eventId": "e_teovlts",
+      "userId": "admin_fernando",
+      "participantId": "p_6dy721g",
+      "activityId": "act_zxqymyq",
+      "action": "ACTIVITY_ATTENDANCE_REGISTERED",
+      "id": "alog_liy0nq1",
+      "timestamp": "2026-06-21T03:18:03.058Z"
+    },
+    {
+      "eventId": "e_teovlts",
+      "userId": "admin_fernando",
+      "participantId": "p_6dy721g",
+      "action": "CERTIFICATE_ISSUED",
+      "id": "alog_4wzp4xz",
+      "timestamp": "2026-06-21T03:20:58.758Z"
+    },
+    {
+      "eventId": "e_teovlts",
+      "userId": "admin_fernando",
+      "participantId": "p_6dy721g",
+      "action": "CERTIFICATE_ISSUED",
+      "id": "alog_i8h2xgw",
+      "timestamp": "2026-06-21T03:23:44.750Z"
+    },
+    {
+      "eventId": "e_teovlts",
+      "userId": "admin_fernando",
+      "participantId": "p_sm0dlta",
+      "activityId": "act_zxqymyq",
+      "action": "ACTIVITY_ATTENDANCE_REGISTERED",
+      "id": "alog_mtpvjx3",
+      "timestamp": "2026-06-21T03:25:48.954Z"
+    }
+  ],
+  "activities": [
+    {
+      "eventId": "e_teovlts",
+      "title": "oncologia",
+      "roomName": "sala 1",
+      "speakerName": "bernardo",
+      "date": "2026-06-23",
+      "startTime": "00:25",
+      "endTime": "00:30",
+      "workloadHours": 30,
+      "active": true,
+      "id": "act_zxqymyq",
+      "createdAt": "2026-06-21T03:17:22.035Z"
+    }
+  ],
+  "activityAttendances": [
+    {
+      "eventId": "e_teovlts",
+      "activityId": "act_zxqymyq",
+      "participantId": "p_6dy721g",
+      "checkedByUserId": "admin_fernando",
+      "id": "aa_3kwzs93",
+      "checkedAt": "2026-06-21T03:18:03.055Z"
+    },
+    {
+      "eventId": "e_teovlts",
+      "activityId": "act_zxqymyq",
+      "participantId": "p_sm0dlta",
+      "checkedByUserId": "admin_fernando",
+      "id": "aa_eux77dj",
+      "checkedAt": "2026-06-21T03:25:48.950Z"
+    }
+  ],
+  "certificates": [
+    {
+      "eventId": "e_teovlts",
+      "participantId": "p_6dy721g",
+      "type": "general",
+      "totalHours": 30,
+      "issuedByUserId": "admin_fernando",
+      "id": "cert_naqy1ve",
+      "certificateCode": "CERT-2026-000001",
+      "issuedAt": "2026-06-21T03:20:58.756Z"
+    },
+    {
+      "eventId": "e_teovlts",
+      "participantId": "p_6dy721g",
+      "type": "general",
+      "totalHours": 30,
+      "issuedByUserId": "admin_fernando",
+      "id": "cert_k78it8w",
+      "certificateCode": "CERT-2026-000002",
+      "issuedAt": "2026-06-21T03:23:44.747Z"
     }
   ],
   "participantFields": [
