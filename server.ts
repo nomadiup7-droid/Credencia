@@ -1552,6 +1552,43 @@ app.post('/api/events/:eventId/certificates', authenticateToken, requireCertific
   }
 });
 
+app.get('/api/events/:eventId/certificates', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const [certificates, participants, activities, users] = await Promise.all([
+      db.getCertificates(req.params.eventId),
+      db.getParticipants(req.params.eventId),
+      db.getActivities(req.params.eventId),
+      db.getUsers(user.organizationId)
+    ]);
+
+    const enriched = certificates.map(certificate => {
+      const participant = participants.find(item => item.id === certificate.participantId);
+      const activity = certificate.activityId ? activities.find(item => item.id === certificate.activityId) : undefined;
+      const operator = users.find(item => item.id === certificate.issuedByUserId);
+      return {
+        ...certificate,
+        participantName: participant?.name || 'Participante não encontrado',
+        participantCpf: participant?.cpf || '',
+        participantCategory: participant?.category || '',
+        activityTitle: activity?.title || '',
+        activitySpeakerName: activity?.speakerName || '',
+        operatorName: operator?.name || 'Operador'
+      };
+    });
+
+    res.json(enriched.reverse());
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao listar certificados' });
+  }
+});
+
 // Register action reprint
 app.post('/api/participants/:id/reprint', authenticateToken, async (req, res) => {
   const pId = req.params.id;

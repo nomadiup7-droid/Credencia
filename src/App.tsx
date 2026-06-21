@@ -121,6 +121,15 @@ interface CertificateLookupResult {
   certificates: Certificate[];
 }
 
+interface ReportCertificate extends Certificate {
+  participantName?: string;
+  participantCpf?: string;
+  participantCategory?: string;
+  activityTitle?: string;
+  activitySpeakerName?: string;
+  operatorName?: string;
+}
+
 interface ReportBrandConfig {
   showLogo: boolean;
   logoUrl: string;
@@ -364,6 +373,7 @@ export default function App() {
   const [actionLogs, setActionLogs] = useState<ReportActionLog[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activityAttendances, setActivityAttendances] = useState<ActivityAttendanceView[]>([]);
+  const [certificates, setCertificates] = useState<ReportCertificate[]>([]);
   const [loadingMain, setLoadingMain] = useState(false);
 
   // Filter / Search states
@@ -925,13 +935,14 @@ export default function App() {
     setLoadingMain(true);
     try {
       // Load current areas and access profiles for the event dynamically
-      const [areasData, profilesData, accessLogsData, actionLogsData, activitiesData, activityAttendancesData] = await Promise.all([
+      const [areasData, profilesData, accessLogsData, actionLogsData, activitiesData, activityAttendancesData, certificatesData] = await Promise.all([
         apiCall(`/api/areas?eventId=${eventId}`),
         apiCall(`/api/access-profiles?eventId=${eventId}`),
         apiCall('/api/access-control/logs').catch(() => []),
         apiCall(`/api/action-logs?eventId=${eventId}`).catch(() => []),
         apiCall(`/api/events/${eventId}/activities`).catch(() => []),
-        apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => [])
+        apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => []),
+        apiCall(`/api/events/${eventId}/certificates`).catch(() => [])
       ]);
       setAvailableAreas(areasData || []);
       setAccessProfiles(profilesData || []);
@@ -939,6 +950,7 @@ export default function App() {
       setActionLogs(Array.isArray(actionLogsData) ? actionLogsData : []);
       setActivities(Array.isArray(activitiesData) ? activitiesData : []);
       setActivityAttendances(Array.isArray(activityAttendancesData) ? activityAttendancesData : []);
+      setCertificates(Array.isArray(certificatesData) ? certificatesData : []);
 
       if (isUserAdmin || canViewReports) {
         // Parallelize fetches for speedy Operacao load times for admins
@@ -2308,6 +2320,7 @@ export default function App() {
         .filter(log => log.status === 'ALLOWED')
         .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Área'))];
       const deniedCount = participantAreaLogs.filter(log => log.status === 'DENIED').length;
+      const participantCertificates = certificates.filter(certificate => certificate.participantId === p.id);
 
       return {
         Nome: p.name,
@@ -2319,6 +2332,9 @@ export default function App() {
         'Horário do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
         'Acessos por Sala': allowedAreaNames.length > 0 ? allowedAreaNames.join(', ') : '-',
         'Acessos Negados': deniedCount,
+        'Certificados Emitidos': participantCertificates.length,
+        'Códigos dos Certificados': participantCertificates.map(certificate => certificate.certificateCode).join(', '),
+        'Horas em Certificados': participantCertificates.reduce((sum, certificate) => sum + (Number(certificate.totalHours) || 0), 0),
         'Operador Responsável': getReportCheckinOperator(p),
         'Código do Convite': p.ticketCode
       };
@@ -2465,6 +2481,24 @@ export default function App() {
   }, [availableAreas, reportAreaAccessLogs, reportParticipants]);
 
   const reportParticipantIds = useMemo(() => new Set(reportParticipants.map(participant => participant.id)), [reportParticipants]);
+
+  const reportCertificates = useMemo(() => {
+    return certificates.filter(certificate => reportParticipantIds.has(certificate.participantId));
+  }, [certificates, reportParticipantIds]);
+
+  const reportCertificateSummary = useMemo(() => {
+    const general = reportCertificates.filter(certificate => certificate.type === 'general').length;
+    const activity = reportCertificates.filter(certificate => certificate.type === 'activity').length;
+    const totalHours = reportCertificates.reduce((sum, certificate) => sum + (Number(certificate.totalHours) || 0), 0);
+    const participantCount = new Set(reportCertificates.map(certificate => certificate.participantId)).size;
+    return {
+      total: reportCertificates.length,
+      general,
+      activity,
+      participantCount,
+      totalHours
+    };
+  }, [reportCertificates]);
 
   const reportCloakroomItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -5296,6 +5330,90 @@ export default function App() {
                   <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
+                        <Award size={17} className="text-slate-500" />
+                        <span>Relatório de Certificados</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Participantes com certificados emitidos nos filtros atuais.
+                      </p>
+                    </div>
+                    <p className="text-xs font-bold text-slate-500">
+                      {reportCertificates.length} certificado(s) emitido(s)
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
+                    {[
+                      { title: 'Certificados', value: reportCertificateSummary.total, icon: Award, color: 'bg-blue-50 text-blue-700 border-blue-100' },
+                      { title: 'Participantes', value: reportCertificateSummary.participantCount, icon: Users, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+                      { title: 'Gerais', value: reportCertificateSummary.general, icon: FileText, color: 'bg-slate-50 text-slate-700 border-slate-100' },
+                      { title: 'Por atividade', value: reportCertificateSummary.activity, icon: BookOpen, color: 'bg-violet-50 text-violet-700 border-violet-100' },
+                      { title: 'Horas somadas', value: `${reportCertificateSummary.totalHours}h`, icon: Clock, color: 'bg-amber-50 text-amber-700 border-amber-100' }
+                    ].map(card => {
+                      const Icon = card.icon;
+                      return (
+                        <div key={card.title} className={`rounded-lg border p-4 ${card.color}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-wider opacity-80">{card.title}</p>
+                              <p className="text-2xl font-black mt-1">{card.value}</p>
+                            </div>
+                            <Icon size={22} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-100 rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                        <tr>
+                          <th className="text-left p-3">Código</th>
+                          <th className="text-left p-3">Participante</th>
+                          <th className="text-left p-3">Tipo</th>
+                          <th className="text-left p-3">Atividade</th>
+                          <th className="text-left p-3">Horas</th>
+                          <th className="text-left p-3">Emissão</th>
+                          <th className="text-left p-3">Operador</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportCertificates.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-6 text-center text-slate-500 font-semibold">
+                              Nenhum certificado emitido para os participantes filtrados.
+                            </td>
+                          </tr>
+                        ) : (
+                          reportCertificates.map(certificate => (
+                            <tr key={certificate.id} className="border-t border-slate-100">
+                              <td className="p-3 font-mono text-xs font-bold text-slate-700">{certificate.certificateCode}</td>
+                              <td className="p-3">
+                                <p className="font-bold text-slate-900">{certificate.participantName}</p>
+                                <p className="text-xs text-slate-500">{certificate.participantCpf || '-'}</p>
+                              </td>
+                              <td className="p-3">
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${certificate.type === 'general' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
+                                  {certificate.type === 'general' ? 'Geral' : 'Atividade'}
+                                </span>
+                              </td>
+                              <td className="p-3 text-slate-700">{certificate.type === 'activity' ? fixMojibake(certificate.activityTitle || '-') : '-'}</td>
+                              <td className="p-3 font-black text-slate-900">{certificate.totalHours}h</td>
+                              <td className="p-3 text-slate-600">{new Date(certificate.issuedAt).toLocaleString('pt-BR')}</td>
+                              <td className="p-3 text-slate-600">{certificate.operatorName || 'Operador'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <FolderLock size={17} className="text-slate-500" />
                         <span>Relatório da Chapelaria</span>
                       </h3>
@@ -5410,13 +5528,14 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Horário do check-in</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos por sala</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Certificados</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsável</th>
                         </tr>
                       </thead>
                       <tbody>
                         {reportParticipants.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="p-12 text-center text-slate-400">
+                            <td colSpan={8} className="p-12 text-center text-slate-400">
                               <Info className="mx-auto text-slate-300 mb-2" size={32} />
                               <p className="font-semibold text-slate-500">Nenhum participante nos filtros atuais.</p>
                             </td>
@@ -5424,6 +5543,7 @@ export default function App() {
                         ) : (
                           reportParticipants.map(p => {
                             const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
+                            const participantCertificates = reportCertificates.filter(certificate => certificate.participantId === p.id);
                             return (
                             <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
                               <td className="p-4">
@@ -5463,6 +5583,16 @@ export default function App() {
                                     )}
                                   </div>
                                 ) : '-'}
+                              </td>
+                              <td className="p-4 text-xs text-slate-600">
+                                {participantCertificates.length === 0 ? '-' : (
+                                  <div className="space-y-1">
+                                    <div className="font-black text-slate-900">{participantCertificates.length} emitido(s)</div>
+                                    <div className="font-mono text-[10px] text-slate-500">
+                                      {participantCertificates.map(certificate => certificate.certificateCode).join(', ')}
+                                    </div>
+                                  </div>
+                                )}
                               </td>
                               <td className="p-4 text-xs text-slate-600">
                                 {getReportCheckinOperator(p)}
@@ -5731,6 +5861,65 @@ export default function App() {
         </div>
 
         <div className="relative z-10 mb-6">
+          <h2 className="text-sm font-black uppercase border-b border-black pb-2 mb-3">Relatório de Certificados</h2>
+          <div className="grid grid-cols-5 gap-2 mb-4">
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Certificados</p>
+              <p className="text-lg font-black">{reportCertificateSummary.total}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Participantes</p>
+              <p className="text-lg font-black">{reportCertificateSummary.participantCount}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Gerais</p>
+              <p className="text-lg font-black">{reportCertificateSummary.general}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Atividades</p>
+              <p className="text-lg font-black">{reportCertificateSummary.activity}</p>
+            </div>
+            <div className="border border-zinc-300 rounded p-2">
+              <p className="text-[9px] uppercase font-bold text-zinc-500">Horas</p>
+              <p className="text-lg font-black">{reportCertificateSummary.totalHours}h</p>
+            </div>
+          </div>
+
+          <table className="w-full text-left text-[10px] text-slate-950 mb-6">
+            <thead>
+              <tr className="border-b border-black">
+                <th className="py-1">Código</th>
+                <th className="py-1">Participante</th>
+                <th className="py-1">Tipo</th>
+                <th className="py-1">Atividade</th>
+                <th className="py-1">Horas</th>
+                <th className="py-1">Emissão</th>
+                <th className="py-1 text-right">Operador</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportCertificates.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-3 text-center text-zinc-500">Nenhum certificado emitido nos filtros atuais.</td>
+                </tr>
+              ) : (
+                reportCertificates.map(certificate => (
+                  <tr key={certificate.id} className="border-b border-zinc-200">
+                    <td className="py-1 font-mono font-bold">{certificate.certificateCode}</td>
+                    <td className="py-1 font-semibold">{certificate.participantName}</td>
+                    <td className="py-1">{certificate.type === 'general' ? 'GERAL' : 'ATIVIDADE'}</td>
+                    <td className="py-1">{certificate.type === 'activity' ? fixMojibake(certificate.activityTitle || '-') : '-'}</td>
+                    <td className="py-1">{certificate.totalHours}h</td>
+                    <td className="py-1 font-mono">{new Date(certificate.issuedAt).toLocaleString('pt-BR')}</td>
+                    <td className="py-1 text-right">{certificate.operatorName || 'Operador'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="relative z-10 mb-6">
           <h2 className="text-sm font-black uppercase border-b border-black pb-2 mb-3">Relatório de Chapelaria</h2>
           <div className="grid grid-cols-5 gap-2 mb-4">
             <div className="border border-zinc-300 rounded p-2">
@@ -5800,12 +5989,14 @@ export default function App() {
               <th className="py-2">Status</th>
               <th className="py-2">Horário do check-in</th>
               <th className="py-2">Acessos por sala</th>
+              <th className="py-2">Certificados</th>
               <th className="py-2 text-right">Operador</th>
             </tr>
           </thead>
           <tbody>
             {reportParticipants.map(p => {
               const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
+              const participantCertificates = reportCertificates.filter(certificate => certificate.participantId === p.id);
               return (
                 <tr key={p.id} className="border-b border-zinc-200">
                   <td className="py-2 font-semibold">{p.name}</td>
@@ -5817,6 +6008,9 @@ export default function App() {
                     {areaAccess && areaAccess.total > 0
                       ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
                       : '-'}
+                  </td>
+                  <td className="py-2 font-mono">
+                    {participantCertificates.length > 0 ? participantCertificates.map(certificate => certificate.certificateCode).join(', ') : '-'}
                   </td>
                   <td className="py-2 text-right">{getReportCheckinOperator(p)}</td>
                 </tr>
