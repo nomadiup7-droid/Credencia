@@ -54,7 +54,7 @@ import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
-import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate } from './types';
+import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement } from './types';
 
 // Sleek CSS Color mapping & constants
 const CATEGORY_TAGS: Record<ParticipantCategory, { bg: string, text: string, border: string }> = {
@@ -148,6 +148,82 @@ const DEFAULT_REPORT_BRAND_CONFIG: ReportBrandConfig = {
 
 const REPORT_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
 const REPORT_IMAGE_FORMATS = 'PNG, JPG/JPEG, WebP, GIF e SVG';
+
+const DEFAULT_CERTIFICATE_TEMPLATE: CertificateTemplate = {
+  id: 'default',
+  eventId: '',
+  name: 'Template padrão',
+  orientation: 'landscape',
+  pageSize: 'A4',
+  backgroundImageUrl: '',
+  logoUrl: '',
+  elements: [
+    { id: 'participant_name', type: 'text', label: 'Nome do participante', placeholder: '{{participant.name}}', x: 16, y: 34, width: 68, height: 8, fontFamily: 'Arial', fontSize: 30, color: '#0f172a', bold: true, italic: false, align: 'center', order: 1 },
+    { id: 'event_name', type: 'text', label: 'Nome do evento', placeholder: '{{event.name}}', x: 16, y: 47, width: 68, height: 7, fontFamily: 'Arial', fontSize: 24, color: '#0f172a', bold: true, italic: false, align: 'center', order: 2 },
+    { id: 'activity_title', type: 'text', label: 'Nome da atividade', placeholder: '{{activity.title}}', x: 16, y: 58, width: 68, height: 6, fontFamily: 'Arial', fontSize: 20, color: '#334155', bold: true, italic: false, align: 'center', order: 3 },
+    { id: 'activity_speaker', type: 'text', label: 'Palestrante', placeholder: '{{activity.speakerName}}', x: 22, y: 67, width: 56, height: 5, fontFamily: 'Arial', fontSize: 16, color: '#475569', bold: false, italic: false, align: 'center', order: 4 },
+    { id: 'certificate_hours', type: 'text', label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas', fontSize: 22, order: 5 },
+    { id: 'certificate_code', type: 'text', label: 'Código do certificado', placeholder: '{{certificate.code}}', fontSize: 12, order: 6 },
+    { id: 'certificate_issued_at', type: 'text', label: 'Data de emissão', placeholder: '{{certificate.issuedAt}}', fontSize: 12, order: 7 }
+  ],
+  createdAt: '',
+  updatedAt: ''
+};
+
+const CERTIFICATE_ELEMENT_PRESETS = [
+  { label: 'Texto livre', placeholder: 'Texto livre' },
+  { label: 'Nome participante', placeholder: '{{participant.name}}' },
+  { label: 'Evento', placeholder: '{{event.name}}' },
+  { label: 'Atividade', placeholder: '{{activity.title}}' },
+  { label: 'Palestrante', placeholder: '{{activity.speakerName}}' },
+  { label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas' },
+  { label: 'Data', placeholder: '{{certificate.issuedAt}}' },
+  { label: 'Código do certificado', placeholder: '{{certificate.code}}' }
+];
+
+const getCertificateElementDefaults = (element: Partial<CertificateTemplateElement>, index: number): CertificateTemplateElement => {
+  const fallbackPositions = [
+    { x: 16, y: 34, width: 68, height: 8, fontSize: 30, align: 'center' as const, bold: true },
+    { x: 16, y: 47, width: 68, height: 7, fontSize: 24, align: 'center' as const, bold: true },
+    { x: 16, y: 58, width: 68, height: 6, fontSize: 20, align: 'center' as const, bold: true },
+    { x: 22, y: 67, width: 56, height: 5, fontSize: 16, align: 'center' as const, bold: false },
+    { x: 32, y: 75, width: 36, height: 6, fontSize: 20, align: 'center' as const, bold: true },
+    { x: 8, y: 91, width: 34, height: 4, fontSize: 11, align: 'left' as const, bold: true },
+    { x: 58, y: 91, width: 34, height: 4, fontSize: 11, align: 'right' as const, bold: true }
+  ];
+  const fallback = fallbackPositions[index] || { x: 20, y: 20, width: 40, height: 8, fontSize: 16, align: 'center' as const, bold: false };
+  const type = element.type || 'text';
+
+  return {
+    id: element.id || `ctel_${Math.random().toString(36).slice(2, 9)}`,
+    type,
+    label: element.label || (type === 'image' ? 'Imagem' : 'Texto'),
+    placeholder: element.placeholder || element.text || '',
+    text: element.text || '',
+    imageUrl: element.imageUrl || '',
+    x: Number.isFinite(element.x) ? element.x : fallback.x,
+    y: Number.isFinite(element.y) ? element.y : fallback.y,
+    width: Number.isFinite(element.width) ? element.width : fallback.width,
+    height: Number.isFinite(element.height) ? element.height : (type === 'image' ? 14 : fallback.height),
+    fontFamily: element.fontFamily || 'Arial',
+    fontSize: Number.isFinite(element.fontSize) ? element.fontSize : fallback.fontSize,
+    color: element.color || '#0f172a',
+    bold: element.bold !== undefined ? element.bold : fallback.bold,
+    italic: element.italic === true,
+    align: element.align || fallback.align,
+    order: Number.isFinite(element.order) ? element.order : index + 1
+  };
+};
+
+const normalizeCertificateTemplate = (template?: Partial<CertificateTemplate>, eventId = ''): CertificateTemplate => ({
+  ...DEFAULT_CERTIFICATE_TEMPLATE,
+  ...template,
+  eventId: template?.eventId || eventId,
+  elements: (Array.isArray(template?.elements) && template.elements.length > 0
+    ? template.elements
+    : DEFAULT_CERTIFICATE_TEMPLATE.elements
+  ).map(getCertificateElementDefaults)
+});
 
 const DEFAULT_CLOAKROOM_LABEL_CONFIG: CloakroomLabelConfig = {
   showEventName: false,
@@ -252,6 +328,30 @@ const escapeCertificateHtml = (value?: string) => fixMojibake(value)
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#039;');
+
+const replaceCertificatePlaceholders = (
+  value: string,
+  participant: Participant,
+  event: Event,
+  certificate: Certificate,
+  activity?: CertificateActivityView
+) => {
+  const replacements: Record<string, string> = {
+    '{{participant.name}}': participant.name || '',
+    '{{event.name}}': event.name || '',
+    '{{activity.title}}': activity?.title || '',
+    '{{activity.speakerName}}': activity?.speakerName || '',
+    '{{activity.workloadHours}}': String(activity?.workloadHours || ''),
+    '{{certificate.totalHours}}': String(certificate.totalHours || 0),
+    '{{certificate.code}}': certificate.certificateCode || '',
+    '{{certificate.issuedAt}}': certificate.issuedAt ? new Date(certificate.issuedAt).toLocaleString('pt-BR') : ''
+  };
+
+  return Object.entries(replacements).reduce(
+    (text, [placeholder, replacement]) => text.split(placeholder).join(fixMojibake(replacement)),
+    value || ''
+  );
+};
 
 const normalizeParticipantSearch = (value?: string) => fixMojibake(value || '')
   .toLowerCase()
@@ -432,6 +532,10 @@ export default function App() {
   const [certificateLookup, setCertificateLookup] = useState<CertificateLookupResult | null>(null);
   const [certificateFeedback, setCertificateFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [activeCertificate, setActiveCertificate] = useState<{ certificate: Certificate; activity?: CertificateActivityView } | null>(null);
+  const [certificateTemplate, setCertificateTemplate] = useState<CertificateTemplate>(DEFAULT_CERTIFICATE_TEMPLATE);
+  const [savingCertificateTemplate, setSavingCertificateTemplate] = useState(false);
+  const [selectedCertificateElementId, setSelectedCertificateElementId] = useState<string>('');
+  const certificateCanvasRef = useRef<HTMLDivElement | null>(null);
 
   // Badge Visualizer state
   const [activeBadgeParticipant, setActiveBadgeParticipant] = useState<Participant | null>(null);
@@ -527,6 +631,182 @@ export default function App() {
       throw e;
     }
   };
+
+  const loadCertificateTemplate = async (eventId: string) => {
+    if (!eventId || !canIssueCertificates) {
+      setCertificateTemplate(DEFAULT_CERTIFICATE_TEMPLATE);
+      return;
+    }
+
+    try {
+      const template = await apiCall(`/api/events/${eventId}/certificate-template`);
+      setCertificateTemplate(normalizeCertificateTemplate(template, eventId));
+    } catch (error) {
+      setCertificateTemplate(normalizeCertificateTemplate(undefined, eventId));
+    }
+  };
+
+  const saveCertificateTemplate = async () => {
+    if (!selectedEventId) {
+      addToast('Selecione um evento ativo primeiro.', 'error');
+      return;
+    }
+
+    setSavingCertificateTemplate(true);
+    try {
+      const saved = await apiCall(`/api/events/${selectedEventId}/certificate-template`, {
+        method: 'PUT',
+        body: JSON.stringify(normalizeCertificateTemplate(certificateTemplate, selectedEventId))
+      });
+      setCertificateTemplate(normalizeCertificateTemplate(saved, selectedEventId));
+      addToast('Template de certificado salvo com sucesso.', 'success');
+    } catch (error) {
+      // apiCall already shows the error toast
+    } finally {
+      setSavingCertificateTemplate(false);
+    }
+  };
+
+  const handleCertificateTemplateImageUpload = (file: File | undefined, target: 'logoUrl' | 'backgroundImageUrl') => {
+    if (!file) return;
+
+    const supportedTypes = REPORT_IMAGE_ACCEPT.split(',');
+    if (!supportedTypes.includes(file.type)) {
+      addToast(`Formato não suportado. Use: ${REPORT_IMAGE_FORMATS}.`, 'error');
+      return;
+    }
+
+    const maxSizeMb = 2;
+    if (file.size > maxSizeMb * 1024 * 1024) {
+      addToast(`Imagem muito grande. Use um arquivo de até ${maxSizeMb} MB.`, 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        addToast('Não foi possível carregar a imagem.', 'error');
+        return;
+      }
+
+      setCertificateTemplate(prev => ({ ...prev, [target]: result }));
+      addToast('Imagem carregada com sucesso.', 'success');
+    };
+    reader.onerror = () => addToast('Erro ao ler a imagem enviada.', 'error');
+    reader.readAsDataURL(file);
+  };
+
+  const updateCertificateElement = (elementId: string, updates: Partial<CertificateTemplateElement>) => {
+    setCertificateTemplate(prev => ({
+      ...prev,
+      elements: prev.elements.map((element, index) =>
+        element.id === elementId ? getCertificateElementDefaults({ ...element, ...updates }, index) : element
+      )
+    }));
+  };
+
+  const addCertificateElement = (preset: { label: string; placeholder: string }, type: 'text' | 'image' = 'text') => {
+    const id = `ctel_${Math.random().toString(36).slice(2, 9)}`;
+    const element = getCertificateElementDefaults({
+      id,
+      type,
+      label: preset.label,
+      placeholder: preset.placeholder,
+      text: type === 'text' ? preset.placeholder : '',
+      imageUrl: type === 'image' ? (preset.label === 'Logo' ? certificateTemplate.logoUrl : '') : '',
+      x: type === 'image' ? 38 : 24,
+      y: type === 'image' ? 12 : 24,
+      width: type === 'image' ? 24 : 52,
+      height: type === 'image' ? 14 : 7,
+      order: certificateTemplate.elements.length + 1
+    }, certificateTemplate.elements.length);
+
+    setCertificateTemplate(prev => ({ ...prev, elements: [...prev.elements, element] }));
+    setSelectedCertificateElementId(id);
+  };
+
+  const duplicateCertificateTemplate = () => {
+    setCertificateTemplate(prev => ({
+      ...prev,
+      id: `ctpl_${Math.random().toString(36).slice(2, 9)}`,
+      name: `${prev.name || 'Template'} - cópia`,
+      elements: prev.elements.map((element, index) => ({
+        ...element,
+        id: `ctel_${Math.random().toString(36).slice(2, 9)}`,
+        x: Math.min((element.x || 0) + 2, 92),
+        y: Math.min((element.y || 0) + 2, 92),
+        order: index + 1
+      }))
+    }));
+    addToast('Template duplicado localmente. Clique em salvar para gravar.', 'info');
+  };
+
+  const restoreDefaultCertificateTemplate = () => {
+    setCertificateTemplate(normalizeCertificateTemplate({
+      ...DEFAULT_CERTIFICATE_TEMPLATE,
+      eventId: selectedEventId,
+      logoUrl: certificateTemplate.logoUrl,
+      backgroundImageUrl: certificateTemplate.backgroundImageUrl
+    }, selectedEventId));
+    setSelectedCertificateElementId('');
+  };
+
+  const handleCertificateElementPointerDown = (
+    event: React.MouseEvent<HTMLDivElement>,
+    element: CertificateTemplateElement,
+    mode: 'move' | 'resize'
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedCertificateElementId(element.id);
+
+    const canvas = certificateCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const start = {
+      x: element.x || 0,
+      y: element.y || 0,
+      width: element.width || 20,
+      height: element.height || 8
+    };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = ((moveEvent.clientX - startX) / rect.width) * 100;
+      const deltaY = ((moveEvent.clientY - startY) / rect.height) * 100;
+      if (mode === 'resize') {
+        updateCertificateElement(element.id, {
+          width: Math.min(100 - start.x, Math.max(4, start.width + deltaX)),
+          height: Math.min(100 - start.y, Math.max(3, start.height + deltaY))
+        });
+      } else {
+        updateCertificateElement(element.id, {
+          x: Math.min(100 - start.width, Math.max(0, start.x + deltaX)),
+          y: Math.min(100 - start.height, Math.max(0, start.y + deltaY))
+        });
+      }
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  useEffect(() => {
+    if (!selectedEventId || !canIssueCertificates) {
+      setCertificateTemplate(DEFAULT_CERTIFICATE_TEMPLATE);
+      return;
+    }
+
+    void loadCertificateTemplate(selectedEventId);
+  }, [selectedEventId, canIssueCertificates]);
 
   // Perform Application Authentication
   const handleLogin = async (e: React.FormEvent) => {
@@ -1338,6 +1618,9 @@ export default function App() {
         })
       });
       const certificate: Certificate = result.certificate;
+      if (result.template) {
+        setCertificateTemplate(normalizeCertificateTemplate(result.template, selectedEventId));
+      }
       const activity = activityId ? certificateLookup.attendedActivities.find(item => item.id === activityId) : undefined;
       setCertificateLookup(prev => prev ? ({ ...prev, certificates: [certificate, ...(prev.certificates || [])] }) : prev);
       setActiveCertificate({ certificate, activity });
@@ -1352,6 +1635,22 @@ export default function App() {
     const participant = certificateLookup.participant;
     const event = certificateLookup.event;
     const activity = activeCertificate.activity || certificateLookup.attendedActivities.find(item => item.id === activeCertificate.certificate.activityId);
+    const certificate = activeCertificate.certificate;
+    const template = certificateTemplate || DEFAULT_CERTIFICATE_TEMPLATE;
+    const pageSize = template.pageSize || 'A4';
+    const orientation = template.orientation || 'landscape';
+    const dynamicElements = (template.elements || DEFAULT_CERTIFICATE_TEMPLATE.elements)
+      .slice()
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+      .map((element, index) => {
+        const normalized = getCertificateElementDefaults(element, index);
+        if (normalized.type === 'image') {
+          return `<div class="field" style="left:${normalized.x}%; top:${normalized.y}%; width:${normalized.width}%; height:${normalized.height}%;">${normalized.imageUrl ? `<img src="${normalized.imageUrl}" alt="${escapeCertificateHtml(normalized.label)}" />` : ''}</div>`;
+        }
+        const value = replaceCertificatePlaceholders(normalized.placeholder || normalized.text || '', participant, event, certificate, activity);
+        return `<div class="field" style="left:${normalized.x}%; top:${normalized.y}%; width:${normalized.width}%; height:${normalized.height}%; color:${normalized.color}; font-family:${normalized.fontFamily}; font-size:${normalized.fontSize}px; font-weight:${normalized.bold ? 900 : 500}; font-style:${normalized.italic ? 'italic' : 'normal'}; text-align:${normalized.align}; justify-content:${normalized.align === 'left' ? 'flex-start' : normalized.align === 'right' ? 'flex-end' : 'center'};">${escapeCertificateHtml(value)}</div>`;
+      })
+      .join('');
     const isActivity = activeCertificate.certificate.type === 'activity' && activity;
     const certificateBody = isActivity
       ? `
@@ -1378,28 +1677,38 @@ export default function App() {
         <head>
           <title>Certificado ${activeCertificate.certificate.certificateCode}</title>
           <style>
-            @page { size: A4 landscape; margin: 14mm; }
+            @page { size: ${pageSize} ${orientation}; margin: 14mm; }
             * { box-sizing: border-box; }
             body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; background: #fff; }
-            .certificate { min-height: calc(100vh - 28mm); border: 12px solid #e5e7eb; padding: 52px; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+            .certificate { position: relative; min-height: calc(100vh - 28mm); border: 12px solid #e5e7eb; padding: 52px; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow: hidden; ${template.backgroundImageUrl ? `background-image: url("${template.backgroundImageUrl}"); background-size: cover; background-position: center;` : ''} }
+            .certificate::before { content: ""; position: absolute; inset: 0; background: rgba(255,255,255,0.78); z-index: 0; }
+            .content { position: relative; z-index: 1; }
+            .logo { max-height: 90px; max-width: 240px; object-fit: contain; margin: 0 auto 20px; display: block; }
             .label { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.34em; color: #64748b; }
             h1 { margin: 22px 0 6px; font-size: 44px; }
             h2 { margin: 8px 0; font-size: 32px; }
             h3 { margin: 8px 0; font-size: 26px; }
             p { margin: 10px 0; font-size: 22px; line-height: 1.45; }
             .line { width: 140px; height: 1px; background: #cbd5e1; margin: 26px auto; }
+            .dynamic { position: absolute; inset: 0; z-index: 2; }
+            .field { position: absolute; display: flex; align-items: center; overflow: hidden; line-height: 1.15; }
+            .field img { width: 100%; height: 100%; object-fit: contain; }
             .meta { margin-top: 42px; font-size: 12px; font-weight: 700; color: #64748b; }
           </style>
         </head>
         <body>
           <section class="certificate">
+            <div class="content">
+            ${template.logoUrl ? `<img src="${template.logoUrl}" class="logo" alt="Logo" />` : ''}
             <div class="label">Certificado</div>
-            <h1>CREDENCIA</h1>
+            <h1>${escapeCertificateHtml(template.name || 'CREDENCIA')}</h1>
             <div class="line"></div>
-            ${certificateBody}
+            ${template.elements?.length ? '' : certificateBody}
+            <div class="dynamic">${dynamicElements}</div>
             <div class="meta">
               <div>Código: ${activeCertificate.certificate.certificateCode}</div>
               <div>Emitido em ${new Date(activeCertificate.certificate.issuedAt).toLocaleString('pt-BR')}</div>
+            </div>
             </div>
           </section>
           <script>
@@ -2871,6 +3180,47 @@ export default function App() {
   const certificateEvent = certificateLookup?.event || currentEvent;
   const certificateActivity = activeCertificate?.activity
     || certificateLookup?.attendedActivities.find(activity => activity.id === activeCertificate?.certificate.activityId);
+  const selectedCertificateElement = certificateTemplate.elements.find(element => element.id === selectedCertificateElementId) || null;
+  const certificatePreviewParticipant = certificateParticipant || participants[0] || ({
+    id: 'preview',
+    eventId: selectedEventId,
+    name: 'Nome do participante',
+    email: '',
+    cpf: '00000000000',
+    category: 'Participante',
+    company: '',
+    ticketCode: 'PREVIEW',
+    checkedIn: false,
+    createdAt: new Date().toISOString()
+  } as Participant);
+  const certificatePreviewEvent = certificateEvent || currentEvent || ({
+    id: selectedEventId || 'preview',
+    organizationId: currentUser?.organizationId || 'org1',
+    name: 'Nome do evento',
+    date: new Date().toISOString(),
+    location: '',
+    capacity: 0,
+    createdAt: new Date().toISOString()
+  } as Event);
+  const certificatePreviewCertificate = activeCertificate?.certificate || ({
+    id: 'preview',
+    eventId: selectedEventId || '',
+    participantId: certificatePreviewParticipant.id,
+    type: 'general',
+    totalHours: certificateLookup?.totalHours || 0,
+    certificateCode: 'CERT-2026-000001',
+    issuedAt: new Date().toISOString(),
+    issuedByUserId: currentUser?.id || ''
+  } as Certificate);
+  const certificateDynamicPreview = activeCertificate && certificateParticipant && certificateEvent
+    ? (certificateTemplate.elements || DEFAULT_CERTIFICATE_TEMPLATE.elements)
+        .slice()
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map(element => ({
+          ...element,
+          value: replaceCertificatePlaceholders(element.placeholder, certificateParticipant, certificateEvent, activeCertificate.certificate, certificateActivity)
+        }))
+    : [];
   const activityParticipantSuggestions = (() => {
     const query = normalizeParticipantSearch(activityAttendanceSearch);
     if (query.length < 3) return [];
@@ -4165,6 +4515,287 @@ export default function App() {
                   <p className="text-sm text-slate-500 mt-1">Busque um participante e emita certificados com base nas presenças registradas em atividades.</p>
                 </div>
 
+                {isUserAdmin && (
+                  <div className="no-print rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-400">Template de Certificado</p>
+                        <h3 className="text-lg font-black text-slate-950">Configuração por evento</h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Configure a base visual do certificado. O editor visual ficará preparado para uma próxima etapa.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={saveCertificateTemplate}
+                        disabled={savingCertificateTemplate}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-black text-white hover:bg-slate-800 disabled:bg-slate-300 transition"
+                      >
+                        <Check size={16} />
+                        {savingCertificateTemplate ? 'Salvando...' : 'Salvar template'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <label className="block text-xs font-bold uppercase text-slate-500">
+                        Nome do template
+                        <input
+                          value={certificateTemplate.name}
+                          onChange={e => setCertificateTemplate(prev => ({ ...prev, name: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </label>
+                      <label className="block text-xs font-bold uppercase text-slate-500">
+                        Orientação
+                        <select
+                          value={certificateTemplate.orientation}
+                          onChange={e => setCertificateTemplate(prev => ({ ...prev, orientation: e.target.value as CertificateTemplate['orientation'] }))}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="landscape">Paisagem</option>
+                          <option value="portrait">Retrato</option>
+                        </select>
+                      </label>
+                      <label className="block text-xs font-bold uppercase text-slate-500">
+                        Tamanho
+                        <select
+                          value={certificateTemplate.pageSize}
+                          onChange={e => setCertificateTemplate(prev => ({ ...prev, pageSize: e.target.value as CertificateTemplate['pageSize'] }))}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="A4">A4</option>
+                          <option value="A5">A5</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold uppercase text-slate-500">Logo</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            value={certificateTemplate.logoUrl}
+                            onChange={e => setCertificateTemplate(prev => ({ ...prev, logoUrl: e.target.value }))}
+                            placeholder="URL da logo"
+                            className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-200 transition">
+                            <Upload size={15} />
+                            Upload
+                            <input
+                              type="file"
+                              accept={REPORT_IMAGE_ACCEPT}
+                              className="hidden"
+                              onChange={event => {
+                                handleCertificateTemplateImageUpload(event.target.files?.[0], 'logoUrl');
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold uppercase text-slate-500">Imagem de fundo</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            value={certificateTemplate.backgroundImageUrl}
+                            onChange={e => setCertificateTemplate(prev => ({ ...prev, backgroundImageUrl: e.target.value }))}
+                            placeholder="URL do fundo"
+                            className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-200 transition">
+                            <Upload size={15} />
+                            Upload
+                            <input
+                              type="file"
+                              accept={REPORT_IMAGE_ACCEPT}
+                              className="hidden"
+                              onChange={event => {
+                                handleCertificateTemplateImageUpload(event.target.files?.[0], 'backgroundImageUrl');
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <p className="text-xs font-black uppercase text-slate-500">Placeholders disponíveis</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {DEFAULT_CERTIFICATE_TEMPLATE.elements.map(element => (
+                          <span key={element.id} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-mono font-bold text-slate-600 border border-slate-200">
+                            {element.placeholder}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-400">Formatos de imagem suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
+                    </div>
+                  </div>
+                )}
+
+                {isUserAdmin && (
+                  <div className="no-print grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+                      <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Editor visual</p>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={duplicateCertificateTemplate} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700 border border-slate-200">Duplicar</button>
+                          <button type="button" onClick={restoreDefaultCertificateTemplate} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700 border border-slate-200">Restaurar padrão</button>
+                          <button type="button" onClick={printCertificate} disabled={!activeCertificate} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:bg-slate-300">Imprimir teste</button>
+                        </div>
+                      </div>
+
+                      <div
+                        ref={certificateCanvasRef}
+                        onMouseDown={() => setSelectedCertificateElementId('')}
+                        className={`relative mx-auto overflow-hidden rounded-lg border border-slate-300 bg-white shadow-inner ${certificateTemplate.orientation === 'portrait' ? 'aspect-[0.707/1] max-w-[520px]' : 'aspect-[1.414/1] w-full max-w-[900px]'}`}
+                        style={certificateTemplate.backgroundImageUrl ? { backgroundImage: `url(${certificateTemplate.backgroundImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+                      >
+                        <div className="absolute inset-0 bg-white/75" />
+                        {certificateTemplate.elements.map((element, index) => {
+                          const normalized = getCertificateElementDefaults(element, index);
+                          const isSelected = normalized.id === selectedCertificateElementId;
+                          const value = normalized.type === 'image'
+                            ? ''
+                            : replaceCertificatePlaceholders(normalized.placeholder || normalized.text || '', certificatePreviewParticipant, certificatePreviewEvent, certificatePreviewCertificate, certificateActivity);
+                          return (
+                            <div
+                              key={normalized.id}
+                              onMouseDown={event => handleCertificateElementPointerDown(event, normalized, 'move')}
+                              className={`absolute cursor-move rounded border-2 bg-white/20 px-1 py-0.5 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-transparent hover:border-blue-300'}`}
+                              style={{
+                                left: `${normalized.x}%`,
+                                top: `${normalized.y}%`,
+                                width: `${normalized.width}%`,
+                                height: `${normalized.height}%`,
+                                color: normalized.color,
+                                fontFamily: normalized.fontFamily,
+                                fontSize: `${Math.max(8, Math.min(normalized.fontSize || 14, 34))}px`,
+                                fontWeight: normalized.bold ? 900 : 500,
+                                fontStyle: normalized.italic ? 'italic' : 'normal',
+                                textAlign: normalized.align,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: normalized.align === 'left' ? 'flex-start' : normalized.align === 'right' ? 'flex-end' : 'center'
+                              }}
+                            >
+                              {normalized.type === 'image'
+                                ? (normalized.imageUrl ? <img src={normalized.imageUrl} alt={normalized.label} className="h-full w-full object-contain" /> : <span className="text-xs text-slate-400">Imagem</span>)
+                                : <span className="line-clamp-2">{value}</span>}
+                              {isSelected && (
+                                <button
+                                  type="button"
+                                  onMouseDown={event => handleCertificateElementPointerDown(event, normalized, 'resize')}
+                                  className="absolute -bottom-2 -right-2 h-4 w-4 rounded-full border border-white bg-blue-600"
+                                  title="Redimensionar"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {CERTIFICATE_ELEMENT_PRESETS.map(preset => (
+                          <button key={preset.label} type="button" onClick={() => addCertificateElement(preset)} className="rounded-lg bg-white px-3 py-2 text-[11px] font-black text-slate-700 border border-slate-200 hover:bg-blue-50">+ {preset.label}</button>
+                        ))}
+                        <button type="button" onClick={() => addCertificateElement({ label: 'Logo', placeholder: '' }, 'image')} className="rounded-lg bg-white px-3 py-2 text-[11px] font-black text-slate-700 border border-slate-200 hover:bg-blue-50">+ Logo</button>
+                        <button type="button" onClick={() => addCertificateElement({ label: 'Assinatura', placeholder: '' }, 'image')} className="rounded-lg bg-white px-3 py-2 text-[11px] font-black text-slate-700 border border-slate-200 hover:bg-blue-50">+ Assinatura</button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500">Painel lateral</p>
+                      {!selectedCertificateElement ? (
+                        <p className="mt-3 rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Selecione um elemento no certificado para editar.</p>
+                      ) : (
+                        <div className="mt-3 space-y-3">
+                          <label className="block text-xs font-bold uppercase text-slate-500">
+                            Elemento
+                            <input value={selectedCertificateElement.label} onChange={e => updateCertificateElement(selectedCertificateElement.id, { label: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
+                          </label>
+                          {selectedCertificateElement.type === 'text' ? (
+                            <label className="block text-xs font-bold uppercase text-slate-500">
+                              Texto / Placeholder
+                              <textarea value={selectedCertificateElement.placeholder} onChange={e => updateCertificateElement(selectedCertificateElement.id, { placeholder: e.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
+                            </label>
+                          ) : (
+                            <label className="block text-xs font-bold uppercase text-slate-500">
+                              URL da imagem
+                              <input value={selectedCertificateElement.imageUrl || ''} onChange={e => updateCertificateElement(selectedCertificateElement.id, { imageUrl: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
+                            </label>
+                          )}
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              ['X', 'x'], ['Y', 'y'], ['Largura', 'width'], ['Altura', 'height']
+                            ].map(([label, key]) => (
+                              <label key={key} className="block text-xs font-bold uppercase text-slate-500">
+                                {label}
+                                <input type="number" value={(selectedCertificateElement as any)[key] || 0} onChange={e => updateCertificateElement(selectedCertificateElement.id, { [key]: Number(e.target.value) } as any)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
+                              </label>
+                            ))}
+                          </div>
+                          {selectedCertificateElement.type === 'text' && (
+                            <>
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="block text-xs font-bold uppercase text-slate-500">
+                                  Fonte
+                                  <select value={selectedCertificateElement.fontFamily || 'Arial'} onChange={e => updateCertificateElement(selectedCertificateElement.id, { fontFamily: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900">
+                                    <option>Arial</option>
+                                    <option>Georgia</option>
+                                    <option>Times New Roman</option>
+                                    <option>Verdana</option>
+                                  </select>
+                                </label>
+                                <label className="block text-xs font-bold uppercase text-slate-500">
+                                  Tamanho
+                                  <input type="number" value={selectedCertificateElement.fontSize || 14} onChange={e => updateCertificateElement(selectedCertificateElement.id, { fontSize: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
+                                </label>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="block text-xs font-bold uppercase text-slate-500">
+                                  Cor
+                                  <input type="color" value={selectedCertificateElement.color || '#0f172a'} onChange={e => updateCertificateElement(selectedCertificateElement.id, { color: e.target.value })} className="mt-1 h-10 w-full rounded-lg border border-slate-200" />
+                                </label>
+                                <label className="block text-xs font-bold uppercase text-slate-500">
+                                  Alinhamento
+                                  <select value={selectedCertificateElement.align || 'center'} onChange={e => updateCertificateElement(selectedCertificateElement.id, { align: e.target.value as any })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900">
+                                    <option value="left">Esquerda</option>
+                                    <option value="center">Centro</option>
+                                    <option value="right">Direita</option>
+                                  </select>
+                                </label>
+                              </div>
+                              <div className="flex gap-2">
+                                <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-600">
+                                  <input type="checkbox" checked={selectedCertificateElement.bold === true} onChange={e => updateCertificateElement(selectedCertificateElement.id, { bold: e.target.checked })} />
+                                  Negrito
+                                </label>
+                                <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-600">
+                                  <input type="checkbox" checked={selectedCertificateElement.italic === true} onChange={e => updateCertificateElement(selectedCertificateElement.id, { italic: e.target.checked })} />
+                                  Itálico
+                                </label>
+                              </div>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCertificateTemplate(prev => ({ ...prev, elements: prev.elements.filter(element => element.id !== selectedCertificateElement.id) }));
+                              setSelectedCertificateElementId('');
+                            }}
+                            className="w-full rounded-lg bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100"
+                          >
+                            Remover elemento
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 xl:grid-cols-[430px_1fr] gap-6">
                   <div className="space-y-5 no-print">
                     <form onSubmit={handleSearchCertificateParticipant} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
@@ -4296,9 +4927,21 @@ export default function App() {
                           </button>
                         </div>
 
-                        <div className="certificate-print-area rounded-xl border-[10px] border-slate-100 bg-white px-8 py-12 text-center shadow-inner min-h-[520px] flex flex-col justify-center">
+                        <div
+                          className={`certificate-print-area relative overflow-hidden rounded-xl border-[10px] border-slate-100 bg-white px-8 py-12 text-center shadow-inner min-h-[520px] flex flex-col justify-center ${certificateTemplate.orientation === 'portrait' ? 'max-w-[560px] mx-auto' : ''}`}
+                          style={certificateTemplate.backgroundImageUrl ? {
+                            backgroundImage: `url(${certificateTemplate.backgroundImageUrl})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center'
+                          } : undefined}
+                        >
+                          <div className="absolute inset-0 bg-white/80" />
+                          <div className="relative z-10">
+                          {certificateTemplate.logoUrl && (
+                            <img src={certificateTemplate.logoUrl} alt="Logo do certificado" className="mx-auto mb-5 max-h-20 max-w-[220px] object-contain" />
+                          )}
                           <p className="text-xs font-black uppercase tracking-[0.35em] text-slate-400">Certificado</p>
-                          <h1 className="mt-5 text-4xl font-black text-slate-950 font-display">CREDENCIA</h1>
+                          <h1 className="mt-5 text-4xl font-black text-slate-950 font-display">{certificateTemplate.name || 'CREDENCIA'}</h1>
                           <div className="mx-auto my-8 h-px w-28 bg-slate-300" />
 
                           {activeCertificate.certificate.type === 'activity' && certificateActivity ? (
@@ -4324,6 +4967,14 @@ export default function App() {
                           <div className="mt-12 grid grid-cols-1 gap-2 text-xs font-bold text-slate-500">
                             <p>Código: {activeCertificate.certificate.certificateCode}</p>
                             <p>Emitido em {new Date(activeCertificate.certificate.issuedAt).toLocaleString('pt-BR')}</p>
+                          </div>
+                          <div className="mt-8 grid grid-cols-1 gap-1 text-sm font-bold text-slate-600">
+                            {certificateDynamicPreview.map(element => (
+                              <p key={element.id} style={{ fontSize: `${Math.max(Math.min(element.fontSize || 14, 22), 10)}px` }}>
+                                {element.value}
+                              </p>
+                            ))}
+                          </div>
                           </div>
                         </div>
                       </div>

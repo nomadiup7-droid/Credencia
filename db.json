@@ -8614,6 +8614,77 @@
       "issuedAt": "2026-06-21T03:23:44.747Z"
     }
   ],
+  "certificateTemplates": [
+    {
+      "id": "ctpl_hhhx19k",
+      "eventId": "e_teovlts",
+      "name": "Template padrão",
+      "orientation": "landscape",
+      "pageSize": "A4",
+      "backgroundImageUrl": "",
+      "logoUrl": "",
+      "elements": [
+        {
+          "id": "ctel_participant",
+          "type": "text",
+          "label": "Nome do participante",
+          "placeholder": "{{participant.name}}",
+          "fontSize": 30,
+          "order": 1
+        },
+        {
+          "id": "ctel_event",
+          "type": "text",
+          "label": "Nome do evento",
+          "placeholder": "{{event.name}}",
+          "fontSize": 26,
+          "order": 2
+        },
+        {
+          "id": "ctel_activity",
+          "type": "text",
+          "label": "Nome da atividade",
+          "placeholder": "{{activity.title}}",
+          "fontSize": 24,
+          "order": 3
+        },
+        {
+          "id": "ctel_speaker",
+          "type": "text",
+          "label": "Palestrante",
+          "placeholder": "{{activity.speakerName}}",
+          "fontSize": 20,
+          "order": 4
+        },
+        {
+          "id": "ctel_hours",
+          "type": "text",
+          "label": "Carga horária",
+          "placeholder": "{{certificate.totalHours}} horas",
+          "fontSize": 22,
+          "order": 5
+        },
+        {
+          "id": "ctel_code",
+          "type": "text",
+          "label": "Código do certificado",
+          "placeholder": "{{certificate.code}}",
+          "fontSize": 12,
+          "order": 6
+        },
+        {
+          "id": "ctel_issued",
+          "type": "text",
+          "label": "Data de emissão",
+          "placeholder": "{{certificate.issuedAt}}",
+          "fontSize": 12,
+          "order": 7
+        }
+      ],
+      "createdAt": "2026-06-21T20:38:48.588Z",
+      "updatedAt": "2026-06-21T20:38:48.588Z"
+    }
+  ],
   "participantFields": [
     {
       "id": "f_name",

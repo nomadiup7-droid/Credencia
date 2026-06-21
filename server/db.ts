@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate } from '../src/types';
+import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate } from '../src/types';
 
 // Load environment variables early
 dotenv.config();
@@ -24,6 +24,7 @@ interface DBSchema {
   activities?: Activity[];
   activityAttendances?: ActivityAttendance[];
   certificates?: Certificate[];
+  certificateTemplates?: CertificateTemplate[];
   participantFields?: ParticipantField[];
   areas?: Area[];
   areaAccessLogs?: AreaAccessLog[];
@@ -271,6 +272,7 @@ class Database {
       activities: [],
       activityAttendances: [],
       certificates: [],
+      certificateTemplates: [],
       participantFields: DEFAULT_PARTICIPANT_FIELDS,
       areas: [
         { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
@@ -339,6 +341,15 @@ class Database {
           })),
           activityAttendances: parsed.activityAttendances || [],
           certificates: parsed.certificates || [],
+          certificateTemplates: (parsed.certificateTemplates || []).map((template: any) => ({
+            ...template,
+            name: fixMojibake(template.name),
+            orientation: template.orientation === 'portrait' ? 'portrait' : 'landscape',
+            pageSize: template.pageSize === 'A5' ? 'A5' : 'A4',
+            backgroundImageUrl: template.backgroundImageUrl || '',
+            logoUrl: template.logoUrl || '',
+            elements: Array.isArray(template.elements) ? template.elements : []
+          })),
           participantFields: parsed.participantFields || DEFAULT_PARTICIPANT_FIELDS,
           areas: (parsed.areas || [
             { id: 'a1', name: 'Sala', color: '#00E545' },
@@ -532,6 +543,7 @@ class Database {
     this.data.activities = (this.data.activities || []).filter(activity => activity.eventId !== id);
     this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.eventId !== id);
     this.data.certificates = (this.data.certificates || []).filter(cert => cert.eventId !== id);
+    this.data.certificateTemplates = (this.data.certificateTemplates || []).filter(template => template.eventId !== id);
     this.data.participants = this.data.participants.filter(p => p.eventId !== id);
     this.data.cloakroom = this.data.cloakroom.filter(c => c.eventId !== id);
     this.saveLocal();
@@ -936,6 +948,69 @@ class Database {
     this.data.certificates.push(newCertificate);
     this.saveLocal();
     return newCertificate;
+  }
+
+  private createDefaultCertificateTemplate(eventId: string): CertificateTemplate {
+    const now = new Date().toISOString();
+    return {
+      id: 'ctpl_' + Math.random().toString(36).substring(2, 9),
+      eventId,
+      name: 'Template padrão',
+      orientation: 'landscape',
+      pageSize: 'A4',
+      backgroundImageUrl: '',
+      logoUrl: '',
+      elements: [
+        { id: 'ctel_participant', type: 'text', label: 'Nome do participante', placeholder: '{{participant.name}}', fontSize: 30, order: 1 },
+        { id: 'ctel_event', type: 'text', label: 'Nome do evento', placeholder: '{{event.name}}', fontSize: 26, order: 2 },
+        { id: 'ctel_activity', type: 'text', label: 'Nome da atividade', placeholder: '{{activity.title}}', fontSize: 24, order: 3 },
+        { id: 'ctel_speaker', type: 'text', label: 'Palestrante', placeholder: '{{activity.speakerName}}', fontSize: 20, order: 4 },
+        { id: 'ctel_hours', type: 'text', label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas', fontSize: 22, order: 5 },
+        { id: 'ctel_code', type: 'text', label: 'Código do certificado', placeholder: '{{certificate.code}}', fontSize: 12, order: 6 },
+        { id: 'ctel_issued', type: 'text', label: 'Data de emissão', placeholder: '{{certificate.issuedAt}}', fontSize: 12, order: 7 }
+      ],
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  async getCertificateTemplate(eventId: string): Promise<CertificateTemplate> {
+    if (!this.data.certificateTemplates) {
+      this.data.certificateTemplates = [];
+    }
+
+    let template = this.data.certificateTemplates.find(item => item.eventId === eventId);
+    if (!template) {
+      template = this.createDefaultCertificateTemplate(eventId);
+      this.data.certificateTemplates.push(template);
+      this.saveLocal();
+    }
+
+    return template;
+  }
+
+  async saveCertificateTemplate(eventId: string, input: Partial<CertificateTemplate>): Promise<CertificateTemplate> {
+    if (!this.data.certificateTemplates) {
+      this.data.certificateTemplates = [];
+    }
+
+    const existing = await this.getCertificateTemplate(eventId);
+    const updated: CertificateTemplate = {
+      ...existing,
+      name: String(input.name || existing.name || 'Template padrão').trim() || 'Template padrão',
+      orientation: input.orientation === 'portrait' ? 'portrait' : 'landscape',
+      pageSize: input.pageSize === 'A5' ? 'A5' : 'A4',
+      backgroundImageUrl: String(input.backgroundImageUrl || ''),
+      logoUrl: String(input.logoUrl || ''),
+      elements: Array.isArray(input.elements) && input.elements.length > 0 ? input.elements : existing.elements,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.data.certificateTemplates = this.data.certificateTemplates.map(template =>
+      template.id === existing.id ? updated : template
+    );
+    this.saveLocal();
+    return updated;
   }
 
   // --- Participant Fields CRUD ---

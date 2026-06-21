@@ -241,6 +241,42 @@ export interface Certificate {
   issuedByUserId: string;
 }
 
+export type CertificateTemplateOrientation = 'landscape' | 'portrait';
+export type CertificateTemplatePageSize = 'A4' | 'A5';
+
+export interface CertificateTemplateElement {
+  id: string;
+  type: 'text' | 'image';
+  label: string;
+  placeholder: string;
+  text?: string;
+  imageUrl?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  fontFamily?: string;
+  fontSize?: number;
+  color?: string;
+  bold?: boolean;
+  italic?: boolean;
+  align?: 'left' | 'center' | 'right';
+  order?: number;
+}
+
+export interface CertificateTemplate {
+  id: string;
+  eventId: string;
+  name: string;
+  orientation: CertificateTemplateOrientation;
+  pageSize: CertificateTemplatePageSize;
+  backgroundImageUrl: string;
+  logoUrl: string;
+  elements: CertificateTemplateElement[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ParticipantField {
   id: string;
   name: string; // e.g., "Cargo", "Telefone", "Alimentação"

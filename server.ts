@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction } from './src/types';
+import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction, CertificateTemplate } from './src/types';
 import checkInRouter from './routes/checkin';
 
 const app = express();
@@ -169,6 +169,32 @@ const requireCertificatePermission = async (req: express.Request, res: express.R
 
   if (!user || !eventId || !(await canIssueCertificatesForEvent(user, eventId))) {
     res.status(403).json({ error: 'Usuário sem permissão para emitir certificados neste evento' });
+    return;
+  }
+
+  next();
+};
+
+const requireCertificateTemplateAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  const eventId = req.params.eventId;
+  const globalRole = String(user?.role || '').toUpperCase();
+
+  if (!user || !eventId) {
+    res.status(403).json({ error: 'Usuário sem permissão para configurar template de certificado' });
+    return;
+  }
+
+  const event = await db.getEventById(eventId);
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+    return;
+  }
+
+  const eventLink = await db.getEventUser(eventId, user.id);
+  const isAdmin = globalRole === 'ADMIN' || user.role === 'admin' || (eventLink?.active === true && eventLink.role === 'ADMIN');
+  if (!isAdmin) {
+    res.status(403).json({ error: 'Apenas ADMIN pode configurar template de certificado' });
     return;
   }
 
@@ -1486,6 +1512,40 @@ app.get('/api/events/:eventId/certificates/participant', authenticateToken, requ
   }
 });
 
+app.get('/api/events/:eventId/certificate-template', authenticateToken, requireCertificatePermission, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    const template = await db.getCertificateTemplate(req.params.eventId);
+    res.json(template);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao carregar template de certificado' });
+  }
+});
+
+app.put('/api/events/:eventId/certificate-template', authenticateToken, requireCertificateTemplateAdmin, async (req, res) => {
+  try {
+    const input = req.body || {};
+    const templateInput: Partial<CertificateTemplate> = {
+      name: input.name,
+      orientation: input.orientation === 'portrait' ? 'portrait' : 'landscape',
+      pageSize: input.pageSize === 'A5' ? 'A5' : 'A4',
+      backgroundImageUrl: typeof input.backgroundImageUrl === 'string' ? input.backgroundImageUrl : '',
+      logoUrl: typeof input.logoUrl === 'string' ? input.logoUrl : '',
+      elements: Array.isArray(input.elements) ? input.elements : undefined
+    };
+    const template = await db.saveCertificateTemplate(req.params.eventId, templateInput);
+    res.json(template);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao salvar template de certificado' });
+  }
+});
+
 app.post('/api/events/:eventId/certificates', authenticateToken, requireCertificatePermission, async (req, res) => {
   try {
     const user = (req as any).user;
@@ -1546,7 +1606,8 @@ app.post('/api/events/:eventId/certificates', authenticateToken, requireCertific
       action: 'CERTIFICATE_ISSUED'
     });
 
-    res.status(201).json({ certificate });
+    const template = await db.getCertificateTemplate(req.params.eventId);
+    res.status(201).json({ certificate, template });
   } catch (error: any) {
     res.status(500).json({ error: 'Erro ao emitir certificado' });
   }
