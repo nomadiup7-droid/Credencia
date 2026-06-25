@@ -1639,6 +1639,7 @@ export default function App() {
     const template = certificateTemplate || DEFAULT_CERTIFICATE_TEMPLATE;
     const pageSize = template.pageSize || 'A4';
     const orientation = template.orientation || 'landscape';
+    const hasVisualTemplate = Array.isArray(template.elements) && template.elements.length > 0;
     const dynamicElements = (template.elements || DEFAULT_CERTIFICATE_TEMPLATE.elements)
       .slice()
       .sort((a, b) => (a.order || 0) - (b.order || 0))
@@ -1680,9 +1681,10 @@ export default function App() {
             @page { size: ${pageSize} ${orientation}; margin: 14mm; }
             * { box-sizing: border-box; }
             body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; background: #fff; }
-            .certificate { position: relative; min-height: calc(100vh - 28mm); border: 12px solid #e5e7eb; padding: 52px; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow: hidden; ${template.backgroundImageUrl ? `background-image: url("${template.backgroundImageUrl}"); background-size: cover; background-position: center;` : ''} }
+            .certificate { position: relative; min-height: calc(100vh - 28mm); border: ${hasVisualTemplate ? '0' : '12px solid #e5e7eb'}; padding: ${hasVisualTemplate ? '0' : '52px'}; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow: hidden; ${template.backgroundImageUrl ? `background-image: url("${template.backgroundImageUrl}"); background-size: cover; background-position: center;` : ''} }
             .certificate::before { content: ""; position: absolute; inset: 0; background: rgba(255,255,255,0.78); z-index: 0; }
-            .content { position: relative; z-index: 1; }
+            .content { position: absolute; inset: 0; z-index: 1; }
+            .fallback { position: relative; z-index: 1; height: 100%; padding: 52px; display: flex; flex-direction: column; justify-content: center; text-align: center; }
             .logo { max-height: 90px; max-width: 240px; object-fit: contain; margin: 0 auto 20px; display: block; }
             .label { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.34em; color: #64748b; }
             h1 { margin: 22px 0 6px; font-size: 44px; }
@@ -1694,6 +1696,7 @@ export default function App() {
             .field { position: absolute; display: flex; align-items: center; overflow: hidden; line-height: 1.15; }
             .field img { width: 100%; height: 100%; object-fit: contain; }
             .meta { margin-top: 42px; font-size: 12px; font-weight: 700; color: #64748b; }
+            ${hasVisualTemplate ? '.label, h1, .line, .meta, .logo { display: none !important; }' : ''}
           </style>
         </head>
         <body>
@@ -4936,7 +4939,36 @@ export default function App() {
                           } : undefined}
                         >
                           <div className="absolute inset-0 bg-white/80" />
-                          <div className="relative z-10">
+                          {certificateTemplate.elements.map((element, index) => {
+                            const normalized = getCertificateElementDefaults(element, index);
+                            const value = normalized.type === 'image'
+                              ? ''
+                              : replaceCertificatePlaceholders(normalized.placeholder || normalized.text || '', certificateParticipant, certificateEvent, activeCertificate.certificate, certificateActivity);
+                            return (
+                              <div
+                                key={normalized.id}
+                                className="absolute z-20 flex items-center overflow-hidden leading-tight"
+                                style={{
+                                  left: `${normalized.x}%`,
+                                  top: `${normalized.y}%`,
+                                  width: `${normalized.width}%`,
+                                  height: `${normalized.height}%`,
+                                  color: normalized.color,
+                                  fontFamily: normalized.fontFamily,
+                                  fontSize: `${Math.max(8, Math.min(normalized.fontSize || 14, 34))}px`,
+                                  fontWeight: normalized.bold ? 900 : 500,
+                                  fontStyle: normalized.italic ? 'italic' : 'normal',
+                                  textAlign: normalized.align,
+                                  justifyContent: normalized.align === 'left' ? 'flex-start' : normalized.align === 'right' ? 'flex-end' : 'center'
+                                }}
+                              >
+                                {normalized.type === 'image'
+                                  ? (normalized.imageUrl ? <img src={normalized.imageUrl} alt={normalized.label} className="h-full w-full object-contain" /> : null)
+                                  : <span>{value}</span>}
+                              </div>
+                            );
+                          })}
+                          <div className={`${certificateTemplate.elements.length > 0 ? 'hidden' : 'relative z-10'}`}>
                           {certificateTemplate.logoUrl && (
                             <img src={certificateTemplate.logoUrl} alt="Logo do certificado" className="mx-auto mb-5 max-h-20 max-w-[220px] object-contain" />
                           )}

@@ -1240,28 +1240,28 @@ export default function CheckinPage({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]"
+              className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[96vh]"
             >
               {/* Header */}
-              <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between select-none">
-                <div className="flex items-center gap-2">
-                  <UserPlus className="text-blue-400" size={18} />
+              <div className="px-9 py-6 bg-slate-900 text-white flex items-center justify-between select-none">
+                <div className="flex items-center gap-3">
+                  <UserPlus className="text-blue-400" size={22} />
                   <div>
-                    <h3 className="font-extrabold text-xs uppercase tracking-wider font-display">Novo Cadastro (Formulário Dinâmico)</h3>
-                    <p className="text-[10px] text-slate-400">Emissão de credencial e credenciamento imediato</p>
+                    <h3 className="font-extrabold text-sm uppercase tracking-wider font-display">Novo Cadastro (Formulário Dinâmico)</h3>
+                    <p className="text-xs text-slate-400">Emissão de credencial e credenciamento imediato</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsRegisterModalOpen(false)}
                   className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition"
                 >
-                  <X size={18} />
+                  <X size={22} />
                 </button>
               </div>
 
               {/* Dynamic form inputs container */}
-              <form onSubmit={handleRegisterSubmit} className="p-6 space-y-4 overflow-y-auto">
-                <div className="grid grid-cols-1 gap-4">
+              <form onSubmit={handleRegisterSubmit} className="p-9 space-y-6 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {isFieldsLoading ? (
                     <div className="text-center py-6 text-xs text-slate-400 flex items-center justify-center gap-2">
                       <RefreshCw className="animate-spin" size={14} />
@@ -1281,8 +1281,8 @@ export default function CheckinPage({
                       else if (f.id === 'f_company') fieldKey = 'company';
 
                       return (
-                        <div key={f.id} className="space-y-1">
-                          <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider font-display">
+                        <div key={f.id} className="space-y-1.5">
+                          <label className="block text-[11px] font-black uppercase text-slate-500 tracking-wider font-display">
                             {f.name} {f.required && <span className="text-rose-500">*</span>}
                           </label>
 
@@ -1290,21 +1290,21 @@ export default function CheckinPage({
                             <select
                               value={dynamicFormValues[fieldKey] || ''}
                               onChange={e => setDynamicFormValues(prev => ({ ...prev, [fieldKey]: e.target.value }))}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition cursor-pointer"
+                              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition cursor-pointer"
                             >
                               {(f.options || []).map(opt => (
                                 <option key={opt} value={opt}>{opt}</option>
                               ))}
                             </select>
                           ) : f.type === 'checkbox' ? (
-                            <label className="flex items-center gap-2 cursor-pointer select-none py-1">
+                            <label className="flex items-center gap-2 cursor-pointer select-none py-2">
                               <input
                                 type="checkbox"
                                 checked={!!dynamicFormValues[fieldKey]}
                                 onChange={e => setDynamicFormValues(prev => ({ ...prev, [fieldKey]: e.target.checked }))}
                                 className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
                               />
-                              <span className="text-xs text-slate-600 font-semibold">{f.name}</span>
+                              <span className="text-sm text-slate-600 font-semibold">{f.name}</span>
                             </label>
                           ) : (
                             <input
@@ -1313,7 +1313,7 @@ export default function CheckinPage({
                               value={dynamicFormValues[fieldKey] || ''}
                               onChange={e => setDynamicFormValues(prev => ({ ...prev, [fieldKey]: e.target.value }))}
                               placeholder={`Informe o ${f.name.toLowerCase()}`}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                             />
                           )}
                         </div>
@@ -1323,18 +1323,18 @@ export default function CheckinPage({
                 </div>
 
                 {/* Footer buttons */}
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3 shrink-0">
+                <div className="pt-5 border-t border-slate-100 flex items-center justify-end gap-3 shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsRegisterModalOpen(false)}
-                    className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-bold transition cursor-pointer"
+                    className="px-5 py-3 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-sm font-bold transition cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmittingNewUser || isFieldsLoading}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 transition cursor-pointer active:scale-98"
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-xl text-sm font-bold shadow-md flex items-center gap-2 transition cursor-pointer active:scale-98"
                   >
                     {isSubmittingNewUser ? (
                       <RefreshCw className="animate-spin" size={13} />
