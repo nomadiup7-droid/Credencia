@@ -52,6 +52,7 @@ const authenticateToken = async (req: express.Request, res: express.Response, ne
     name: user.name, 
     email: user.email, 
     role: user.role, 
+    permissions: user.permissions || [],
     organizationId: user.organizationId || 'org1' 
   };
   next();
@@ -75,6 +76,87 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   operator: ['CAN_CHECKIN', 'CAN_REPRINT'],
   CHECKIN: ['CAN_CHECKIN'],
   CHECKIN_CADASTRO: ['CAN_CHECKIN', 'CAN_CREATE_PARTICIPANT', 'CAN_REPRINT']
+};
+
+const SYSTEM_PERMISSIONS = [
+  'events.view', 'events.create', 'events.edit', 'events.delete', 'events.configure',
+  'participants.view', 'participants.create', 'participants.edit', 'participants.delete', 'participants.import', 'participants.export',
+  'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
+  'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows', 'access.manageAreas',
+  'cloakroom.checkin', 'cloakroom.checkout', 'cloakroom.reprint',
+  'certificates.issue', 'certificates.manageActivities', 'certificates.editTemplate',
+  'print.configureLabels', 'print.configureBadges', 'print.labels', 'print.badges',
+  'reports.view', 'reports.exportExcel', 'reports.exportPdf',
+  'operators.create', 'operators.edit', 'operators.delete', 'operators.managePermissions',
+  'settings.general', 'settings.customFields', 'settings.importTemplates', 'settings.labelConfig', 'settings.badgeConfig', 'settings.certificateTemplates', 'settings.integrations', 'settings.backup'
+] as const;
+
+const ALL_SYSTEM_PERMISSIONS = [...SYSTEM_PERMISSIONS];
+
+const uniquePermissions = (permissions?: string[]) =>
+  [...new Set((permissions || []).filter(permission => ALL_SYSTEM_PERMISSIONS.includes(permission as any)))];
+
+const permissionsForRole = (role?: string): string[] => {
+  const normalized = String(role || '').toUpperCase();
+  if (normalized === 'ADMIN' || role === 'admin') return ALL_SYSTEM_PERMISSIONS;
+  if (normalized === 'SUPERVISOR') {
+    return uniquePermissions([
+      'events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'participants.export',
+      'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
+      'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows', 'access.manageAreas',
+      'certificates.issue', 'certificates.manageActivities',
+      'reports.view', 'reports.exportExcel'
+    ]);
+  }
+  if (normalized === 'CHECKIN_CADASTRO') {
+    return uniquePermissions([
+      'events.view', 'participants.view', 'participants.create', 'participants.import',
+      'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
+      'certificates.issue'
+    ]);
+  }
+  if (normalized === 'RELATORIO' || normalized === 'VISUALIZADOR') {
+    return uniquePermissions(['events.view', 'participants.view', 'reports.view', 'reports.exportExcel', 'reports.exportPdf']);
+  }
+  if (normalized === 'CHECKIN' || normalized === 'ATENDENTE' || normalized === 'OPERATOR' || normalized === 'OPERADOR') {
+    return uniquePermissions(['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint']);
+  }
+  return [];
+};
+
+const resolveEventPermissions = async (user: any, eventId?: string): Promise<string[]> => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return ALL_SYSTEM_PERMISSIONS;
+
+  if (eventId) {
+    const eventLink = await db.getEventUser(eventId, user.id);
+    if (eventLink?.active) {
+      return uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role));
+    }
+  }
+
+  return uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role));
+};
+
+const hasEventPermission = async (user: any, eventId: string | undefined, permission: string) =>
+  (await resolveEventPermissions(user, eventId)).includes(permission);
+
+const canManageUsers = async (user: any, eventId?: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+  return hasEventPermission(user, eventId, 'operators.managePermissions');
+};
+
+const requireUserManagementPermission = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  const eventId = req.params.eventId;
+
+  if (!user || !(await canManageUsers(user, eventId))) {
+    res.status(403).json({ error: 'Acesso negado para gerenciar operadores e permissões' });
+    return;
+  }
+
+  next();
 };
 
 const verifyPermission = (permission: string) => {
@@ -127,6 +209,8 @@ const writeAreaAccessLog = async (log: any) => {
 const canCreateParticipantForEvent = async (user: any, eventId: string) => {
   const globalRole = String(user?.role || '').toUpperCase();
   if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+  if (await hasEventPermission(user, eventId, 'participants.create')) return true;
+  if (await hasEventPermission(user, eventId, 'checkin.createParticipant')) return true;
 
   const activeLinks = (await db.getEventUsers())
     .filter(link => link.userId === user.id && link.active);
@@ -154,6 +238,7 @@ const requireParticipantCreatePermission = async (req: express.Request, res: exp
 const canIssueCertificatesForEvent = async (user: any, eventId: string) => {
   const globalRole = String(user?.role || '').toUpperCase();
   if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+  if (await hasEventPermission(user, eventId, 'certificates.issue')) return true;
 
   const eventLink = await db.getEventUser(eventId, user.id);
   if (eventLink?.active) {
@@ -193,7 +278,8 @@ const requireCertificateTemplateAdmin = async (req: express.Request, res: expres
 
   const eventLink = await db.getEventUser(eventId, user.id);
   const isAdmin = globalRole === 'ADMIN' || user.role === 'admin' || (eventLink?.active === true && eventLink.role === 'ADMIN');
-  if (!isAdmin) {
+  const canEditTemplate = isAdmin || await hasEventPermission(user, eventId, 'certificates.editTemplate');
+  if (!canEditTemplate) {
     res.status(403).json({ error: 'Apenas ADMIN pode configurar template de certificado' });
     return;
   }
@@ -205,6 +291,7 @@ const canManageAccessAreasForEvent = async (user: any, eventId?: string) => {
   const globalRole = String(user?.role || '').toUpperCase();
   if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
   if (!eventId) return false;
+  if (await hasEventPermission(user, eventId, 'access.manageAreas')) return true;
 
   const eventLink = await db.getEventUser(eventId, user.id);
   return eventLink?.active === true && eventLink.role === 'ADMIN';
@@ -291,6 +378,7 @@ app.post('/api/auth/login', async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      permissions: uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)),
       organizationId: user.organizationId || 'org1',
       organizationName: org ? org.name : 'Organização'
     }
@@ -313,7 +401,7 @@ app.post('/api/auth/login-pin', async (req, res) => {
 
   const org = await db.getOrganizationById(user.organizationId || 'org1');
   const token = `credencia-token-${user.id}-${user.role}-${user.email}`;
-  const permissions = ROLE_PERMISSIONS[user.role] || [];
+  const permissions = uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role));
 
   res.json({
     token,
@@ -335,6 +423,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   res.json({ 
     user: {
       ...remoteUser,
+      permissions: await resolveEventPermissions(remoteUser),
       organizationName: org ? org.name : 'Organização'
     } 
   });
@@ -403,15 +492,17 @@ app.post('/api/auth/signup', async (req, res) => {
 
 // --- USER MANAGEMENT ENDPOINTS ---
 
-// Get all users (restricted to administrators)
-app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
+// Get all users (restricted to user managers)
+app.get('/api/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
   try {
-    const rawUsers = await db.getUsers();
+    const requester = (req as any).user;
+    const rawUsers = await db.getUsers(requester.organizationId);
     const users = rawUsers.map(u => ({
       id: u.id,
       name: u.name,
       email: u.email,
       role: u.role,
+      permissions: uniquePermissions(u.permissions?.length ? u.permissions : permissionsForRole(u.role)),
       createdAt: u.createdAt
     }));
     res.json(users);
@@ -421,9 +512,9 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-// Admin manually creates a system user
-app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
-  const { name, email, password, role } = req.body;
+// User manager manually creates a system user
+app.post('/api/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
+  const { name, email, password, role, permissions } = req.body;
   if (!name || !email || !password || !role) {
     res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     return;
@@ -441,6 +532,7 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     email,
     passwordHash: password,
     role: role as UserRole,
+    permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
     organizationId: user.organizationId || 'org1'
   });
 
@@ -449,6 +541,7 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     name: createdUser.name,
     email: createdUser.email,
     role: createdUser.role,
+    permissions: uniquePermissions(createdUser.permissions?.length ? createdUser.permissions : permissionsForRole(createdUser.role)),
     createdAt: createdUser.createdAt
   });
 });
@@ -457,14 +550,15 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const requester = (req as any).user;
   const targetId = req.params.id;
+  const canManageTarget = await canManageUsers(requester);
 
-  // Authorization check: User can only update themselves, unless they are Admin.
-  if (requester.role !== 'admin' && requester.id !== targetId) {
+  // Authorization check: User can only update themselves, unless they can manage users.
+  if (!canManageTarget && requester.id !== targetId) {
     res.status(403).json({ error: 'Acesso negado. Você só pode atualizar seus próprios dados ou login.' });
     return;
   }
 
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, permissions } = req.body;
   const user = await db.getUserById(targetId);
   if (!user) {
     res.status(404).json({ error: 'Usuário não encontrado' });
@@ -484,10 +578,12 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   if (name) updates.name = name;
   if (email) updates.email = email;
   if (password) updates.passwordHash = password;
-  // Only Admin can change another user's role
-  const isReqAdmin = String(requester.role || '').toUpperCase() === 'ADMIN' || requester.role === 'admin';
-  if (role && isReqAdmin) {
+  // Only managers can change another user's role and permissions.
+  if (role && canManageTarget) {
     updates.role = role as UserRole;
+  }
+  if (Array.isArray(permissions) && canManageTarget) {
+    updates.permissions = uniquePermissions(permissions);
   }
 
   const updatedUser = await db.updateUser(targetId, updates);
@@ -501,12 +597,13 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     name: updatedUser.name,
     email: updatedUser.email,
     role: updatedUser.role,
+    permissions: uniquePermissions(updatedUser.permissions?.length ? updatedUser.permissions : permissionsForRole(updatedUser.role)),
     createdAt: updatedUser.createdAt
   });
 });
 
 // Delete user account (restricted to Admin, and users can't delete themselves)
-app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/users/:id', authenticateToken, requireUserManagementPermission, async (req, res) => {
   const requester = (req as any).user;
   const targetId = req.params.id;
 
@@ -527,7 +624,7 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
 // --- EVENT USER LINKS ---
 const EVENT_USER_ROLES: EventUserRole[] = ['ADMIN', 'CHECKIN_CADASTRO', 'CHECKIN', 'RELATORIO'];
 
-app.get('/api/events/:eventId/users', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/events/:eventId/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
   const user = (req as any).user;
   const event = await db.getEventById(req.params.eventId);
   if (!event || event.organizationId !== user.organizationId) {
@@ -536,12 +633,15 @@ app.get('/api/events/:eventId/users', authenticateToken, requireAdmin, async (re
   }
 
   const links = await db.getEventUsers(req.params.eventId);
-  res.json(links);
+  res.json(links.map(link => ({
+    ...link,
+    permissions: uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
+  })));
 });
 
-app.post('/api/events/:eventId/users', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/events/:eventId/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
   const requester = (req as any).user;
-  const { userId, role, active } = req.body;
+  const { userId, role, active, permissions } = req.body;
   const eventId = req.params.eventId;
 
   const event = await db.getEventById(eventId);
@@ -565,6 +665,7 @@ app.post('/api/events/:eventId/users', authenticateToken, requireAdmin, async (r
   if (existing) {
     const updated = await db.updateEventUser(existing.id, {
       role,
+      permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
       active: active !== false
     });
     res.json(updated);
@@ -575,14 +676,15 @@ app.post('/api/events/:eventId/users', authenticateToken, requireAdmin, async (r
     eventId,
     userId,
     role,
+    permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
     active: active !== false
   });
   res.status(201).json(created);
 });
 
-app.put('/api/events/:eventId/users/:linkId', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/events/:eventId/users/:linkId', authenticateToken, requireUserManagementPermission, async (req, res) => {
   const requester = (req as any).user;
-  const { role, active } = req.body;
+  const { role, active, permissions } = req.body;
   const eventId = req.params.eventId;
 
   const event = await db.getEventById(eventId);
@@ -599,12 +701,13 @@ app.put('/api/events/:eventId/users/:linkId', authenticateToken, requireAdmin, a
 
   const updated = await db.updateEventUser(link.id, {
     ...(role ? { role } : {}),
+    ...(Array.isArray(permissions) ? { permissions: uniquePermissions(permissions) } : {}),
     ...(active !== undefined ? { active: Boolean(active) } : {})
   });
   res.json(updated);
 });
 
-app.delete('/api/events/:eventId/users/:linkId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/events/:eventId/users/:linkId', authenticateToken, requireUserManagementPermission, async (req, res) => {
   const requester = (req as any).user;
   const eventId = req.params.eventId;
   const event = await db.getEventById(eventId);
@@ -627,19 +730,35 @@ app.get('/api/events', authenticateToken, async (req, res) => {
     const isAdmin = String(user.role || '').toUpperCase() === 'ADMIN' || user.role === 'admin';
 
     if (isAdmin) {
-      res.json(events.map(event => ({ ...event, currentUserRole: 'ADMIN' })));
+      res.json(events.map(event => ({
+        ...event,
+        currentUserRole: 'ADMIN',
+        currentUserPermissions: ALL_SYSTEM_PERMISSIONS
+      })));
       return;
     }
 
     const activeLinks = (await db.getEventUsers())
       .filter(link => link.userId === user.id && link.active);
     const roleByEventId = new Map(activeLinks.map(link => [link.eventId, link.role]));
+    const permissionsByEventId = new Map(activeLinks.map(link => [
+      link.eventId,
+      uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
+    ]));
     const linkedEvents = events
       .filter(event => roleByEventId.has(event.id))
-      .map(event => ({ ...event, currentUserRole: roleByEventId.get(event.id) }));
+      .map(event => ({
+        ...event,
+        currentUserRole: roleByEventId.get(event.id),
+        currentUserPermissions: permissionsByEventId.get(event.id)
+      }));
 
     // Preserves existing operators while event-user links are still being configured.
-    res.json(linkedEvents.length > 0 ? linkedEvents : events.map(event => ({ ...event, currentUserRole: user.role })));
+    res.json(linkedEvents.length > 0 ? linkedEvents : events.map(event => ({
+      ...event,
+      currentUserRole: user.role,
+      currentUserPermissions: uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role))
+    })));
   } catch (error: any) {
     console.error('Error in GET /api/events:', error);
     res.status(500).json({ error: 'Erro de servidor ao carregar eventos' });
@@ -656,7 +775,7 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
     }
     const isAdmin = String(user.role || '').toUpperCase() === 'ADMIN' || user.role === 'admin';
     if (isAdmin) {
-      res.json({ ...event, currentUserRole: 'ADMIN' });
+      res.json({ ...event, currentUserRole: 'ADMIN', currentUserPermissions: ALL_SYSTEM_PERMISSIONS });
       return;
     }
 
@@ -668,7 +787,13 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
       return;
     }
 
-    res.json({ ...event, currentUserRole: eventLink?.role || user.role });
+    res.json({
+      ...event,
+      currentUserRole: eventLink?.role || user.role,
+      currentUserPermissions: eventLink?.active
+        ? uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role))
+        : uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role))
+    });
   } catch (error: any) {
     console.error('Error in GET /api/events/:id:', error);
     res.status(500).json({ error: 'Erro de servidor ao obter evento' });

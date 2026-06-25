@@ -98,6 +98,228 @@ const IMPORT_TARGET_OPTIONS: Array<{ value: ImportTargetField; label: string }> 
 const DEFAULT_IMPORT_FIELD_ORDER: ImportTargetField[] = ['name', 'cpf', 'email', 'company', 'category', 'ticketCode', 'areas', 'profile'];
 const IMPORT_TEMPLATES_STORAGE_KEY = 'credencia_import_templates';
 
+interface PermissionDefinition {
+  id: string;
+  label: string;
+}
+
+interface PermissionGroupDefinition {
+  id: string;
+  title: string;
+  icon: React.ElementType;
+  permissions: PermissionDefinition[];
+}
+
+const PERMISSION_GROUPS: PermissionGroupDefinition[] = [
+  {
+    id: 'events',
+    title: 'Eventos',
+    icon: Calendar,
+    permissions: [
+      { id: 'events.view', label: 'Visualizar eventos' },
+      { id: 'events.create', label: 'Criar eventos' },
+      { id: 'events.edit', label: 'Editar eventos' },
+      { id: 'events.delete', label: 'Excluir eventos' },
+      { id: 'events.configure', label: 'Configurar eventos' }
+    ]
+  },
+  {
+    id: 'participants',
+    title: 'Participantes',
+    icon: Users,
+    permissions: [
+      { id: 'participants.view', label: 'Visualizar participantes' },
+      { id: 'participants.create', label: 'Cadastrar participantes' },
+      { id: 'participants.edit', label: 'Editar participantes' },
+      { id: 'participants.delete', label: 'Excluir participantes' },
+      { id: 'participants.import', label: 'Importar participantes' },
+      { id: 'participants.export', label: 'Exportar participantes' }
+    ]
+  },
+  {
+    id: 'checkin',
+    title: 'Check-in',
+    icon: CheckCircle2,
+    permissions: [
+      { id: 'checkin.access', label: 'Acessar tela de Check-in' },
+      { id: 'checkin.perform', label: 'Fazer Check-in' },
+      { id: 'checkin.reprint', label: 'Reimprimir credencial' },
+      { id: 'checkin.createParticipant', label: 'Cadastrar participante durante o Check-in' }
+    ]
+  },
+  {
+    id: 'access',
+    title: 'Controle de Acesso',
+    icon: ShieldCheck,
+    permissions: [
+      { id: 'access.scanQr', label: 'Scanner QR Code' },
+      { id: 'access.rooms', label: 'Controle de Salas' },
+      { id: 'access.restaurants', label: 'Controle de Restaurantes' },
+      { id: 'access.shows', label: 'Controle de Shows' },
+      { id: 'access.manageAreas', label: 'Gerenciar Areas' }
+    ]
+  },
+  {
+    id: 'cloakroom',
+    title: 'Chapelaria',
+    icon: FolderLock,
+    permissions: [
+      { id: 'cloakroom.checkin', label: 'Registrar entrada' },
+      { id: 'cloakroom.checkout', label: 'Registrar retirada' },
+      { id: 'cloakroom.reprint', label: 'Reimprimir etiquetas' }
+    ]
+  },
+  {
+    id: 'certificates',
+    title: 'Certificados',
+    icon: Award,
+    permissions: [
+      { id: 'certificates.issue', label: 'Emitir certificados' },
+      { id: 'certificates.manageActivities', label: 'Gerenciar atividades' },
+      { id: 'certificates.editTemplate', label: 'Editar template de certificado' }
+    ]
+  },
+  {
+    id: 'print',
+    title: 'Impressao',
+    icon: Printer,
+    permissions: [
+      { id: 'print.configureLabels', label: 'Configurar etiquetas' },
+      { id: 'print.configureBadges', label: 'Configurar crachas' },
+      { id: 'print.labels', label: 'Imprimir etiquetas' },
+      { id: 'print.badges', label: 'Imprimir crachas' }
+    ]
+  },
+  {
+    id: 'reports',
+    title: 'Relatorios',
+    icon: Download,
+    permissions: [
+      { id: 'reports.view', label: 'Visualizar relatorios' },
+      { id: 'reports.exportExcel', label: 'Exportar Excel' },
+      { id: 'reports.exportPdf', label: 'Exportar PDF' }
+    ]
+  },
+  {
+    id: 'operators',
+    title: 'Operadores',
+    icon: UserCheck,
+    permissions: [
+      { id: 'operators.create', label: 'Criar operadores' },
+      { id: 'operators.edit', label: 'Editar operadores' },
+      { id: 'operators.delete', label: 'Excluir operadores' },
+      { id: 'operators.managePermissions', label: 'Gerenciar permissoes' }
+    ]
+  },
+  {
+    id: 'settings',
+    title: 'Configuracoes',
+    icon: Settings,
+    permissions: [
+      { id: 'settings.general', label: 'Configuracoes gerais' },
+      { id: 'settings.customFields', label: 'Campos personalizados' },
+      { id: 'settings.importTemplates', label: 'Modelos de importacao' },
+      { id: 'settings.labelConfig', label: 'Configuracao de etiquetas' },
+      { id: 'settings.badgeConfig', label: 'Configuracao de crachas' },
+      { id: 'settings.certificateTemplates', label: 'Templates de certificados' },
+      { id: 'settings.integrations', label: 'Integracoes' },
+      { id: 'settings.backup', label: 'Backup' }
+    ]
+  }
+];
+
+const ALL_PERMISSION_IDS = PERMISSION_GROUPS.flatMap(group => group.permissions.map(permission => permission.id));
+
+const normalizePermissions = (permissions?: string[]) =>
+  [...new Set((permissions || []).filter(permission => ALL_PERMISSION_IDS.includes(permission)))];
+
+const legacyPermissionsForRole = (role?: string): string[] => {
+  const normalized = String(role || '').toUpperCase();
+  if (normalized === 'ADMIN' || role === 'admin') return ALL_PERMISSION_IDS;
+  if (normalized === 'SUPERVISOR') {
+    return normalizePermissions([
+      'events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'participants.export',
+      'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
+      'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows', 'access.manageAreas',
+      'certificates.issue', 'certificates.manageActivities',
+      'reports.view', 'reports.exportExcel'
+    ]);
+  }
+  if (normalized === 'CHECKIN_CADASTRO') {
+    return normalizePermissions([
+      'events.view', 'participants.view', 'participants.create', 'participants.import',
+      'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
+      'certificates.issue'
+    ]);
+  }
+  if (normalized === 'RELATORIO' || normalized === 'VISUALIZADOR') {
+    return normalizePermissions(['events.view', 'participants.view', 'reports.view', 'reports.exportExcel', 'reports.exportPdf']);
+  }
+  if (normalized === 'CHECKIN' || normalized === 'ATENDENTE' || normalized === 'OPERATOR' || normalized === 'OPERADOR') {
+    return normalizePermissions(['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint']);
+  }
+  return [];
+};
+
+const PERMISSION_PRESETS: Record<string, { label: string; role: UserRole; eventRole: EventUserRole; permissions: string[] }> = {
+  ADMIN: { label: 'Administrador', role: 'ADMIN', eventRole: 'ADMIN', permissions: ALL_PERMISSION_IDS },
+  RECEPCAO: {
+    label: 'Recepcao',
+    role: 'OPERADOR',
+    eventRole: 'CHECKIN_CADASTRO',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant', 'print.labels', 'print.badges'])
+  },
+  CHECKIN: {
+    label: 'Check-in',
+    role: 'OPERADOR',
+    eventRole: 'CHECKIN',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint'])
+  },
+  CHAPELARIA: {
+    label: 'Chapelaria',
+    role: 'OPERADOR',
+    eventRole: 'CHECKIN',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'cloakroom.checkin', 'cloakroom.checkout', 'cloakroom.reprint'])
+  },
+  SCANNER: {
+    label: 'Scanner',
+    role: 'OPERADOR',
+    eventRole: 'CHECKIN',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows'])
+  },
+  CERTIFICADOS: {
+    label: 'Certificados',
+    role: 'OPERADOR',
+    eventRole: 'CHECKIN_CADASTRO',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'certificates.issue', 'certificates.manageActivities', 'certificates.editTemplate'])
+  },
+  RELATORIOS: {
+    label: 'Relatorios',
+    role: 'VISUALIZADOR',
+    eventRole: 'RELATORIO',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'reports.view', 'reports.exportExcel', 'reports.exportPdf'])
+  },
+  SECRETARIA: {
+    label: 'Secretaria',
+    role: 'OPERADOR',
+    eventRole: 'CHECKIN_CADASTRO',
+    permissions: normalizePermissions(['events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'participants.export', 'checkin.access', 'reports.view', 'reports.exportExcel', 'certificates.issue', 'settings.importTemplates'])
+  },
+  ORGANIZACAO: {
+    label: 'Organizacao',
+    role: 'OPERADOR',
+    eventRole: 'ADMIN',
+    permissions: normalizePermissions(ALL_PERMISSION_IDS.filter(permission => !['events.delete', 'operators.delete', 'settings.backup', 'settings.integrations'].includes(permission)))
+  }
+};
+
+const formatUserRoleLabel = (role?: string) => {
+  const normalized = String(role || '').toUpperCase();
+  if (normalized === 'ADMIN' || role === 'admin') return 'Administrador';
+  if (normalized === 'VISUALIZADOR' || normalized === 'RELATORIO') return 'Visualizador';
+  return 'Operador';
+};
+
 interface ReportAreaAccessLog {
   id: string;
   participantId: string;
@@ -416,14 +638,20 @@ export default function App() {
   const [token, setToken] = useState<string | null>(() => readStoredToken());
   const [currentUser, setCurrentUser] = useState<User | null>(() => readStoredUser());
   const [currentEventRole, setCurrentEventRole] = useState<string>('');
+  const [currentEventPermissions, setCurrentEventPermissions] = useState<string[]>(() => normalizePermissions(readStoredUser()?.permissions || []));
 
   const userRole = String(currentUser?.role || '').toUpperCase();
   const eventRole = String(currentEventRole || currentUser?.role || '').toUpperCase();
+  const effectivePermissions = currentEventPermissions.length
+    ? currentEventPermissions
+    : normalizePermissions(currentUser?.permissions?.length ? currentUser.permissions : legacyPermissionsForRole(currentEventRole || currentUser?.role));
+  const hasSystemPermission = (permission: string) => effectivePermissions.includes(permission);
   const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin' || eventRole === 'ADMIN';
-  const canCreateParticipants = isUserAdmin || eventRole === 'CHECKIN_CADASTRO';
-  const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO';
-  const canManageParticipants = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'CHECKIN_CADASTRO';
-  const canViewReports = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'RELATORIO';
+  const canManageOperators = isUserAdmin || hasSystemPermission('operators.managePermissions');
+  const canCreateParticipants = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('participants.create') || hasSystemPermission('checkin.createParticipant');
+  const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('certificates.issue');
+  const canManageParticipants = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('participants.view') || hasSystemPermission('participants.edit');
+  const canViewReports = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'RELATORIO' || hasSystemPermission('reports.view');
   const isFernandoAdmin = String(currentUser?.email || '').toLowerCase() === 'fernando@credencia.com';
 
   // Login Form States
@@ -449,6 +677,7 @@ export default function App() {
     eventId: '',
     userId: '',
     role: 'CHECKIN' as EventUserRole,
+    permissions: legacyPermissionsForRole('CHECKIN'),
     active: true
   });
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
@@ -458,11 +687,21 @@ export default function App() {
     name: '',
     email: '',
     password: '',
-    role: 'CHECKIN' as UserRole,
+    role: 'OPERADOR' as UserRole,
+    permissions: PERMISSION_PRESETS.CHECKIN.permissions,
     eventId: '',
     eventRole: 'CHECKIN' as EventUserRole,
+    eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
     eventActive: true
   });
+  const [permissionSearch, setPermissionSearch] = useState('');
+  const [eventPermissionSearch, setEventPermissionSearch] = useState('');
+  const [openPermissionGroups, setOpenPermissionGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(PERMISSION_GROUPS.map(group => [group.id, group.id === 'events' || group.id === 'participants' || group.id === 'checkin']))
+  );
+  const [openEventPermissionGroups, setOpenEventPermissionGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(PERMISSION_GROUPS.map(group => [group.id, group.id === 'events' || group.id === 'participants' || group.id === 'checkin']))
+  );
 
   // Active Event
   const [events, setEvents] = useState<Event[]>([]);
@@ -1010,9 +1249,83 @@ export default function App() {
     } catch (err) {}
   };
 
+  const setPermissionCollection = (
+    source: string[],
+    permissions: string[],
+    checked: boolean
+  ) => {
+    const current = new Set(source);
+    permissions.forEach(permission => checked ? current.add(permission) : current.delete(permission));
+    return normalizePermissions([...current]);
+  };
+
+  const applyUserPermissionPreset = (presetKey: string) => {
+    const preset = PERMISSION_PRESETS[presetKey];
+    if (!preset) return;
+    setUserForm(prev => ({
+      ...prev,
+      role: preset.role,
+      permissions: preset.permissions,
+      eventRole: preset.eventRole,
+      eventPermissions: preset.permissions
+    }));
+  };
+
+  const applyEventUserPermissionPreset = (presetKey: string) => {
+    const preset = PERMISSION_PRESETS[presetKey];
+    if (!preset) return;
+    setEventUserForm(prev => ({
+      ...prev,
+      role: preset.eventRole,
+      permissions: preset.permissions
+    }));
+  };
+
+  const toggleUserPermission = (permission: string, checked: boolean) => {
+    setUserForm(prev => ({
+      ...prev,
+      permissions: setPermissionCollection(prev.permissions, [permission], checked)
+    }));
+  };
+
+  const toggleUserPermissionGroup = (permissions: string[], checked: boolean) => {
+    setUserForm(prev => ({
+      ...prev,
+      permissions: setPermissionCollection(prev.permissions, permissions, checked)
+    }));
+  };
+
+  const toggleEventPermission = (permission: string, checked: boolean) => {
+    setUserForm(prev => ({
+      ...prev,
+      eventPermissions: setPermissionCollection(prev.eventPermissions, [permission], checked)
+    }));
+  };
+
+  const toggleEventPermissionGroup = (permissions: string[], checked: boolean) => {
+    setUserForm(prev => ({
+      ...prev,
+      eventPermissions: setPermissionCollection(prev.eventPermissions, permissions, checked)
+    }));
+  };
+
+  const toggleEventUserFormPermission = (permission: string, checked: boolean) => {
+    setEventUserForm(prev => ({
+      ...prev,
+      permissions: setPermissionCollection(prev.permissions, [permission], checked)
+    }));
+  };
+
+  const toggleEventUserFormPermissionGroup = (permissions: string[], checked: boolean) => {
+    setEventUserForm(prev => ({
+      ...prev,
+      permissions: setPermissionCollection(prev.permissions, permissions, checked)
+    }));
+  };
+
   // Load and cache all users for administrator management
   const loadUsers = async () => {
-    if (!isUserAdmin) return;
+    if (!canManageOperators) return;
     setIsLoadingUsers(true);
     try {
       const data = await apiCall('/api/users');
@@ -1025,7 +1338,7 @@ export default function App() {
   };
 
   const loadEventUsers = async (eventId: string) => {
-    if (!isUserAdmin || !eventId) {
+    if (!canManageOperators || !eventId) {
       setEventUsers([]);
       return;
     }
@@ -1050,6 +1363,7 @@ export default function App() {
         body: JSON.stringify({
           userId: eventUserForm.userId,
           role: eventUserForm.role,
+          permissions: eventUserForm.permissions,
           active: eventUserForm.active
         })
       });
@@ -1099,6 +1413,7 @@ export default function App() {
           name: userForm.name,
           email: userForm.email,
           role: userForm.role,
+          permissions: userForm.permissions,
           ...(userForm.password ? { password: userForm.password } : {})
         })
       });
@@ -1117,6 +1432,7 @@ export default function App() {
           body: JSON.stringify({
             userId: saved.id,
             role: userForm.eventRole,
+            permissions: userForm.eventPermissions.length ? userForm.eventPermissions : userForm.permissions,
             active: userForm.eventActive
           })
         });
@@ -1137,9 +1453,11 @@ export default function App() {
         name: '',
         email: '',
         password: '',
-        role: 'CHECKIN',
+        role: 'OPERADOR',
+        permissions: PERMISSION_PRESETS.CHECKIN.permissions,
         eventId: '',
         eventRole: 'CHECKIN',
+        eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
         eventActive: true
       });
     } catch (err) {}
@@ -1162,13 +1480,13 @@ export default function App() {
 
   // Load user management lists on tab change
   useEffect(() => {
-    if (activeTab === 'usuarios' && isUserAdmin && token) {
+    if (activeTab === 'usuarios' && canManageOperators && token) {
       loadUsers();
       if (selectedEventId) {
         loadEventUsers(selectedEventId);
       }
     }
-  }, [activeTab, isUserAdmin, token, selectedEventId]);
+  }, [activeTab, canManageOperators, token, selectedEventId]);
 
   useEffect(() => {
     if (!eventUserForm.eventId && selectedEventId) {
@@ -1187,7 +1505,6 @@ export default function App() {
       ? [
           'dashboard',
           'eventos',
-          'usuarios',
           'participantes',
           'campos',
           'checkin',
@@ -1205,6 +1522,7 @@ export default function App() {
         ]
       : ['eventos-ativos', 'checkin', 'presenca-atividade'];
 
+    if (canManageOperators) allowedTabs.push('usuarios');
     if (isUserAdmin || canManageParticipants) allowedTabs.push('participantes');
     if (isUserAdmin || canViewReports) allowedTabs.push('relatorios');
     if (canIssueCertificates) allowedTabs.push('certificados');
@@ -1212,7 +1530,7 @@ export default function App() {
     if (!allowedTabs.includes(activeTab)) {
       setActiveTab(isUserAdmin ? 'dashboard' : 'checkin');
     }
-  }, [currentUser, isUserAdmin, canManageParticipants, canViewReports, canIssueCertificates, activeTab]);
+  }, [currentUser, isUserAdmin, canManageOperators, canManageParticipants, canViewReports, canIssueCertificates, activeTab]);
 
   // --- Fetch Operations ---
   const loadEvents = async () => {
@@ -1314,6 +1632,7 @@ export default function App() {
     if (!currentEvent) return;
     const eventRole = currentEvent.currentUserRole || currentUser?.role || '';
     setCurrentEventRole(eventRole);
+    setCurrentEventPermissions(normalizePermissions(currentEvent.currentUserPermissions?.length ? currentEvent.currentUserPermissions : currentUser?.permissions || legacyPermissionsForRole(eventRole || currentUser?.role)));
     localStorage.setItem(CURRENT_EVENT_ID_STORAGE_KEY, currentEvent.id);
     localStorage.setItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY, currentEvent.id);
     if (eventRole) {
@@ -3043,6 +3362,99 @@ export default function App() {
   };
 
   // --- Layout components Render helpers ---
+  const renderPermissionAccordion = ({
+    selected,
+    search,
+    openGroups,
+    onToggleOpen,
+    onTogglePermission,
+    onToggleGroup
+  }: {
+    selected: string[];
+    search: string;
+    openGroups: Record<string, boolean>;
+    onToggleOpen: (groupId: string) => void;
+    onTogglePermission: (permission: string, checked: boolean) => void;
+    onToggleGroup: (permissions: string[], checked: boolean) => void;
+  }) => {
+    const normalizedSearch = search.trim().toLowerCase();
+    const filteredGroups = PERMISSION_GROUPS
+      .map(group => ({
+        ...group,
+        permissions: group.permissions.filter(permission =>
+          !normalizedSearch ||
+          permission.label.toLowerCase().includes(normalizedSearch) ||
+          group.title.toLowerCase().includes(normalizedSearch)
+        )
+      }))
+      .filter(group => group.permissions.length > 0);
+
+    return (
+      <div className="space-y-2">
+        {filteredGroups.map(group => {
+          const Icon = group.icon;
+          const groupPermissionIds = group.permissions.map(permission => permission.id);
+          const selectedCount = groupPermissionIds.filter(permission => selected.includes(permission)).length;
+          const isOpen = normalizedSearch ? true : openGroups[group.id] !== false;
+
+          return (
+            <div key={group.id} className="border border-slate-200 rounded-xl bg-white overflow-hidden">
+              <button
+                type="button"
+                onClick={() => onToggleOpen(group.id)}
+                className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition cursor-pointer"
+              >
+                <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                  <Icon size={16} className="text-blue-600" />
+                  {group.title}
+                </span>
+                <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                  {selectedCount}/{groupPermissionIds.length}
+                  <ChevronRight size={15} className={`transition ${isOpen ? 'rotate-90' : ''}`} />
+                </span>
+              </button>
+
+              {isOpen && (
+                <div className="border-t border-slate-100 p-3 space-y-3 bg-slate-50/50">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onToggleGroup(groupPermissionIds, true)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 text-[11px] font-bold hover:bg-emerald-100 transition cursor-pointer"
+                    >
+                      Marcar todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onToggleGroup(groupPermissionIds, false)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-bold hover:bg-slate-200 transition cursor-pointer"
+                    >
+                      Desmarcar todos
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {group.permissions.map(permission => (
+                      <label key={permission.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer hover:border-blue-200 hover:bg-blue-50/40 transition">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(permission.id)}
+                          onChange={event => onTogglePermission(permission.id, event.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {permission.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (!token || !currentUser) {
     return (
       <div className="min-h-screen bg-[#f7f7f2] text-slate-900 flex items-center justify-center p-6">
@@ -3318,7 +3730,7 @@ export default function App() {
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
     ...(isUserAdmin ? [{ id: 'dashboard' as const, label: 'Painel Geral', icon: BarChart3 }] : []),
     ...(isUserAdmin ? [{ id: 'eventos' as const, label: 'Eventos', icon: Calendar }] : []),
-    ...(isUserAdmin ? [{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
+    ...(canManageOperators ? [{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
     ...(canManageParticipants || isUserAdmin ? [{ id: 'participantes' as const, label: 'Participantes', icon: Users }] : []),
     ...(isUserAdmin ? [{ id: 'campos' as const, label: 'Campos de Cadastro', icon: FileText }] : []),
     { id: 'checkin' as const, label: 'Check-in', icon: QrCode },
@@ -3576,7 +3988,7 @@ export default function App() {
                       </p>
                     </div>
 
-                    <form onSubmit={handleSaveEventUser} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2 w-full lg:max-w-4xl">
+                    <form onSubmit={handleSaveEventUser} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-2 w-full lg:max-w-5xl">
                       <select
                         value={eventUserForm.eventId}
                         onChange={e => {
@@ -3613,6 +4025,20 @@ export default function App() {
                         ))}
                       </select>
 
+                      <select
+                        defaultValue=""
+                        onChange={e => {
+                          applyEventUserPermissionPreset(e.target.value);
+                          e.target.value = '';
+                        }}
+                        className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        <option value="">Aplicar perfil</option>
+                        {Object.entries(PERMISSION_PRESETS).map(([key, preset]) => (
+                          <option key={key} value={key}>{preset.label}</option>
+                        ))}
+                      </select>
+
                       <label className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer select-none">
                         <input
                           type="checkbox"
@@ -3630,6 +4056,44 @@ export default function App() {
                         Vincular
                       </button>
                     </form>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-end gap-3">
+                      <div className="flex-1">
+                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Permissões do vínculo</label>
+                        <input
+                          type="search"
+                          value={eventPermissionSearch}
+                          onChange={e => setEventPermissionSearch(e.target.value)}
+                          placeholder="Buscar permissão para este evento"
+                          className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEventUserForm(prev => ({ ...prev, permissions: ALL_PERMISSION_IDS }))}
+                        className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                      >
+                        Marcar todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEventUserForm(prev => ({ ...prev, permissions: [] }))}
+                        className="px-3 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition cursor-pointer"
+                      >
+                        Desmarcar todas
+                      </button>
+                    </div>
+
+                    {renderPermissionAccordion({
+                      selected: eventUserForm.permissions,
+                      search: eventPermissionSearch,
+                      openGroups: openEventPermissionGroups,
+                      onToggleOpen: groupId => setOpenEventPermissionGroups(prev => ({ ...prev, [groupId]: !prev[groupId] })),
+                      onTogglePermission: toggleEventUserFormPermission,
+                      onToggleGroup: toggleEventUserFormPermissionGroup
+                    })}
                   </div>
 
                   <div className="mt-4 overflow-x-auto border border-slate-100 rounded-xl">
@@ -3664,7 +4128,8 @@ export default function App() {
                                   {linkedUser?.name || 'Usuário removido'}
                                 </td>
                                 <td className="p-3 text-xs text-slate-600">
-                                  {eventUserRoleLabels[link.role] || link.role}
+                                  <div className="font-semibold">{eventUserRoleLabels[link.role] || link.role}</div>
+                                  <div className="text-[11px] text-slate-400">{normalizePermissions(link.permissions?.length ? link.permissions : legacyPermissionsForRole(link.role)).length} permissões</div>
                                 </td>
                                 <td className="p-3 text-center">
                                   <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -3675,6 +4140,19 @@ export default function App() {
                                 </td>
                                 <td className="p-3">
                                   <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEventUserForm({
+                                        eventId: link.eventId,
+                                        userId: link.userId,
+                                        role: link.role,
+                                        permissions: normalizePermissions(link.permissions?.length ? link.permissions : legacyPermissionsForRole(link.role)),
+                                        active: link.active
+                                      })}
+                                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-700 border border-blue-100 text-xs font-bold transition cursor-pointer"
+                                    >
+                                      Editar
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => handleToggleEventUser(link)}
@@ -6524,9 +7002,11 @@ export default function App() {
                         name: '',
                         email: '',
                         password: '',
-                        role: 'CHECKIN',
+                        role: 'OPERADOR',
+                        permissions: PERMISSION_PRESETS.CHECKIN.permissions,
                         eventId: selectedEventId || '',
                         eventRole: 'CHECKIN',
+                        eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
                         eventActive: true
                       });
                       setIsUserModalOpen(true);
@@ -6550,7 +7030,7 @@ export default function App() {
                         <tr className="bg-slate-50 border-b border-slate-100">
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome Completo</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">E-mail de Login</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Nível de Acesso</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Perfil</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Registro</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
                         </tr>
@@ -6595,8 +7075,10 @@ export default function App() {
                                         email: u.email,
                                         password: '',
                                         role: u.role,
+                                        permissions: normalizePermissions(u.permissions?.length ? u.permissions : legacyPermissionsForRole(u.role)),
                                         eventId: '',
                                         eventRole: 'CHECKIN',
+                                        eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
                                         eventActive: true
                                       });
                                       setIsUserModalOpen(true);
@@ -7369,7 +7851,7 @@ export default function App() {
       {/* 6. GERENCIAMENTO DE OPERADORES/ADMINISTRADORES MODAL */}
       {isUserModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
+          <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-1">
               {userForm.id ? 'Editar Dados do Operador' : 'Adicionar Novo Operador'}
             </h3>
@@ -7417,17 +7899,76 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nível de Acesso</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Perfil Base</label>
                 <select
                   value={userForm.role}
                   onChange={e => setUserForm(prev => ({ ...prev, role: e.target.value as UserRole }))}
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
                 >
-                  <option value="ADMIN">Administrador - Acesso total</option>
-                  <option value="SUPERVISOR">Operador Nível 1 - Check-in, cadastro e relatórios</option>
-                  <option value="CHECKIN_CADASTRO">Operador Nível 2 - Check-in e cadastro</option>
-                  <option value="CHECKIN">Operador Nível 3 - Apenas check-in</option>
+                  <option value="ADMIN">Administrador</option>
+                  <option value="OPERADOR">Operador</option>
+                  <option value="VISUALIZADOR">Visualizador</option>
                 </select>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-[220px_1fr_auto_auto] gap-3 items-end">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Aplicar Perfil</label>
+                    <select
+                      defaultValue=""
+                      onChange={e => {
+                        applyUserPermissionPreset(e.target.value);
+                        e.target.value = '';
+                      }}
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value="">Selecionar perfil</option>
+                      {Object.entries(PERMISSION_PRESETS).map(([key, preset]) => (
+                        <option key={key} value={key}>{preset.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Pesquisar permissão</label>
+                    <input
+                      type="search"
+                      value={permissionSearch}
+                      onChange={e => setPermissionSearch(e.target.value)}
+                      placeholder="Buscar por módulo ou permissão"
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUserForm(prev => ({ ...prev, permissions: ALL_PERMISSION_IDS }))}
+                    className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                  >
+                    Marcar todas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserForm(prev => ({ ...prev, permissions: [] }))}
+                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer"
+                  >
+                    Desmarcar todas
+                  </button>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+                    <ShieldCheck size={16} className="text-blue-600" />
+                    Permissões do Sistema
+                  </h4>
+                  {renderPermissionAccordion({
+                    selected: userForm.permissions,
+                    search: permissionSearch,
+                    openGroups: openPermissionGroups,
+                    onToggleOpen: groupId => setOpenPermissionGroups(prev => ({ ...prev, [groupId]: !prev[groupId] })),
+                    onTogglePermission: toggleUserPermission,
+                    onToggleGroup: toggleUserPermissionGroup
+                  })}
+                </div>
               </div>
 
               
@@ -7471,6 +8012,46 @@ export default function App() {
                     />
                     Vínculo ativo neste evento
                   </label>
+
+                  {userForm.eventId && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Pesquisar permissão do evento</label>
+                          <input
+                            type="search"
+                            value={eventPermissionSearch}
+                            onChange={e => setEventPermissionSearch(e.target.value)}
+                            placeholder="Buscar permissão neste evento"
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setUserForm(prev => ({ ...prev, eventPermissions: ALL_PERMISSION_IDS }))}
+                          className="px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-xs font-bold hover:bg-emerald-100 transition cursor-pointer"
+                        >
+                          Marcar todas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUserForm(prev => ({ ...prev, eventPermissions: [] }))}
+                          className="px-3 py-2 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-200 transition cursor-pointer"
+                        >
+                          Desmarcar todas
+                        </button>
+                      </div>
+
+                      {renderPermissionAccordion({
+                        selected: userForm.eventPermissions,
+                        search: eventPermissionSearch,
+                        openGroups: openEventPermissionGroups,
+                        onToggleOpen: groupId => setOpenEventPermissionGroups(prev => ({ ...prev, [groupId]: !prev[groupId] })),
+                        onTogglePermission: toggleEventPermission,
+                        onToggleGroup: toggleEventPermissionGroup
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

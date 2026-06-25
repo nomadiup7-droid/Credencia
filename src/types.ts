@@ -1,6 +1,6 @@
 // Definition of types for the Accreditation & Check-in System
 
-export type UserRole = 'ADMIN' | 'CHECKIN' | 'CHECKIN_CADASTRO' | 'admin' | 'operator' | 'SUPERVISOR' | 'ATENDENTE';
+export type UserRole = 'ADMIN' | 'OPERADOR' | 'VISUALIZADOR' | 'CHECKIN' | 'CHECKIN_CADASTRO' | 'admin' | 'operator' | 'SUPERVISOR' | 'ATENDENTE';
 export type EventUserRole = 'ADMIN' | 'CHECKIN_CADASTRO' | 'CHECKIN' | 'RELATORIO';
 
 export interface Organization {
@@ -26,6 +26,7 @@ export interface EventUser {
   userId: string;
   role: EventUserRole;
   active: boolean;
+  permissions?: string[];
 }
 
 export interface CheckinScreenConfig {
@@ -74,6 +75,7 @@ export interface Event {
   cloakroomLabelConfig?: CloakroomLabelConfig;
   organizationId: string;
   currentUserRole?: EventUserRole | UserRole;
+  currentUserPermissions?: string[];
 }
 
 export type ParticipantCategory = 'VIP' | 'Palestrante' | 'Expositor' | 'Participante' | 'Staff';
