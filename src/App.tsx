@@ -71,6 +71,33 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
+type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'category' | 'ticketCode' | 'areas' | 'profile' | 'ignore';
+
+interface ImportTemplate {
+  id: string;
+  name: string;
+  eventId?: string;
+  global: boolean;
+  mapping: Record<string, ImportTargetField>;
+  fieldOrder: ImportTargetField[];
+  updatedAt: string;
+}
+
+const IMPORT_TARGET_OPTIONS: Array<{ value: ImportTargetField; label: string }> = [
+  { value: 'name', label: 'Nome' },
+  { value: 'cpf', label: 'CPF' },
+  { value: 'email', label: 'Email' },
+  { value: 'company', label: 'Empresa' },
+  { value: 'category', label: 'Categoria' },
+  { value: 'ticketCode', label: 'Codigo QR / Codigo do ingresso' },
+  { value: 'areas', label: 'Area de acesso' },
+  { value: 'profile', label: 'Perfil de acesso' },
+  { value: 'ignore', label: 'Ignorar coluna' }
+];
+
+const DEFAULT_IMPORT_FIELD_ORDER: ImportTargetField[] = ['name', 'cpf', 'email', 'company', 'category', 'ticketCode', 'areas', 'profile'];
+const IMPORT_TEMPLATES_STORAGE_KEY = 'credencia_import_templates';
+
 interface ReportAreaAccessLog {
   id: string;
   participantId: string;
@@ -551,6 +578,15 @@ export default function App() {
   const [isImportPreviewModalOpen, setIsImportPreviewModalOpen] = useState(false);
   const [importRows, setImportRows] = useState<any[]>([]);
   const [importFileName, setImportFileName] = useState('');
+  const [importStep, setImportStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importRawRows, setImportRawRows] = useState<any[]>([]);
+  const [importColumnMapping, setImportColumnMapping] = useState<Record<string, ImportTargetField>>({});
+  const [importFieldOrder, setImportFieldOrder] = useState<ImportTargetField[]>(DEFAULT_IMPORT_FIELD_ORDER);
+  const [importTemplates, setImportTemplates] = useState<ImportTemplate[]>([]);
+  const [importTemplateName, setImportTemplateName] = useState('');
+  const [importTemplateGlobal, setImportTemplateGlobal] = useState(false);
+  const [editingImportTemplateId, setEditingImportTemplateId] = useState('');
   const [importFileIsLoading, setImportFileIsLoading] = useState(false);
   const [isImportingInProgress, setIsImportingInProgress] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -2372,167 +2408,290 @@ export default function App() {
     return true;
   };
 
-  const processUploadedFile = (file: File) => {
-    if (!canCreateParticipants) {
-      addToast('Usuário sem permissão para importar participantes neste evento.', 'error');
+  const normalizeImportText = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+  const guessImportTarget = (header: string): ImportTargetField => {
+    const normalized = normalizeImportText(header);
+    if (['nome', 'name', 'participante', 'participant'].includes(normalized)) return 'name';
+    if (['cpf', 'c p f', 'documento', 'identidade', 'cpf cnpj'].includes(normalized)) return 'cpf';
+    if (['email', 'e mail', 'mail'].includes(normalized)) return 'email';
+    if (['empresa', 'company', 'corporação', 'corporacao', 'organizacao', 'organizacao', 'org', 'trabalho'].includes(normalized)) return 'company';
+    if (['categoria', 'category', 'grupo'].includes(normalized)) return 'category';
+    if (['codigo qr', 'qr code', 'codigo do ingresso', 'ingresso', 'ticket', 'ticket code', 'ticketcode', 'codigo'].includes(normalized)) return 'ticketCode';
+    if (['area', 'areas', 'area de acesso', 'areas de acesso', 'acesso', 'acessos', 'allowed areas'].includes(normalized)) return 'areas';
+    if (['perfil', 'tipo', 'profile', 'access profile', 'perfil de acesso'].includes(normalized)) return 'profile';
+    return 'ignore';
+  };
+
+  const loadImportTemplates = () => {
+    try {
+      const stored = localStorage.getItem(IMPORT_TEMPLATES_STORAGE_KEY);
+      setImportTemplates(stored ? JSON.parse(stored) : []);
+    } catch (error) {
+      console.warn('Unable to load import templates', error);
+      setImportTemplates([]);
+    }
+  };
+
+  const resetImportWizard = () => {
+    setImportStep(1);
+    setImportRows([]);
+    setImportFileName('');
+    setImportHeaders([]);
+    setImportRawRows([]);
+    setImportColumnMapping({});
+    setImportFieldOrder(DEFAULT_IMPORT_FIELD_ORDER);
+    setImportTemplateName('');
+    setImportTemplateGlobal(false);
+    setEditingImportTemplateId('');
+  };
+
+  const getMappedValue = (row: any, target: ImportTargetField, mapping = importColumnMapping) => {
+    const header = importHeaders.find(item => mapping[item] === target);
+    if (!header) return undefined;
+    return row[header];
+  };
+
+  const applyImportTemplate = (template: ImportTemplate, editMode = false) => {
+    setImportColumnMapping(prev => {
+      const next = { ...prev };
+      importHeaders.forEach(header => {
+        if (template.mapping[header]) {
+          next[header] = template.mapping[header];
+        }
+      });
+      return next;
+    });
+    setImportFieldOrder(template.fieldOrder && template.fieldOrder.length > 0 ? template.fieldOrder : DEFAULT_IMPORT_FIELD_ORDER);
+    if (editMode) {
+      setImportTemplateName(template.name);
+      setImportTemplateGlobal(template.global);
+      setEditingImportTemplateId(template.id);
+    } else {
+      setEditingImportTemplateId('');
+    }
+    addToast(`Modelo "${template.name}" aplicado.`, 'info');
+  };
+
+  const saveImportTemplate = () => {
+    const name = importTemplateName.trim();
+    if (!name) {
+      addToast('Informe um nome para salvar o modelo.', 'error');
       return;
     }
-    if (!file || !selectedEventId) return;
-    
+    const template: ImportTemplate = {
+      id: editingImportTemplateId || `tpl_${Date.now().toString(36)}`,
+      name,
+      eventId: importTemplateGlobal ? undefined : selectedEventId,
+      global: importTemplateGlobal,
+      mapping: importColumnMapping,
+      fieldOrder: importFieldOrder,
+      updatedAt: new Date().toISOString()
+    };
+    const next = editingImportTemplateId
+      ? importTemplates.map(item => item.id === editingImportTemplateId ? template : item)
+      : [...importTemplates, template];
+    setImportTemplates(next);
+    localStorage.setItem(IMPORT_TEMPLATES_STORAGE_KEY, JSON.stringify(next));
+    setEditingImportTemplateId(template.id);
+    addToast('Modelo de importacao salvo.', 'success');
+  };
+
+  const deleteImportTemplate = (templateId: string) => {
+    const next = importTemplates.filter(item => item.id !== templateId);
+    setImportTemplates(next);
+    localStorage.setItem(IMPORT_TEMPLATES_STORAGE_KEY, JSON.stringify(next));
+    if (editingImportTemplateId === templateId) {
+      setEditingImportTemplateId('');
+      setImportTemplateName('');
+    }
+  };
+
+  const duplicateImportTemplate = (template: ImportTemplate) => {
+    const duplicated: ImportTemplate = {
+      ...template,
+      id: `tpl_${Date.now().toString(36)}`,
+      name: `${template.name} - copia`,
+      updatedAt: new Date().toISOString()
+    };
+    const next = [...importTemplates, duplicated];
+    setImportTemplates(next);
+    localStorage.setItem(IMPORT_TEMPLATES_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const moveImportField = (field: ImportTargetField, direction: -1 | 1) => {
+    setImportFieldOrder(prev => {
+      const index = prev.indexOf(field);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const next = [...prev];
+      next[index] = prev[targetIndex];
+      next[targetIndex] = field;
+      return next;
+    });
+  };
+
+  const buildImportPreviewRows = () => {
+    const seenCPFsInSheet = new Set<string>();
+    const seenTicketsInSheet = new Set<string>();
+
+    const validatedList = importRawRows.map((row: any, idx) => {
+      const rawNome = getMappedValue(row, 'name');
+      const rawEmail = getMappedValue(row, 'email');
+      const rawCpf = getMappedValue(row, 'cpf');
+      const rawCategory = getMappedValue(row, 'category');
+      const rawCompany = getMappedValue(row, 'company');
+      const rawTicketCode = getMappedValue(row, 'ticketCode');
+      const rawProfile = getMappedValue(row, 'profile');
+      const rawAreas = getMappedValue(row, 'areas');
+
+      const nome = rawNome !== undefined ? String(rawNome).trim() : '';
+      const email = rawEmail !== undefined ? String(rawEmail).trim() : '';
+      const originalCpf = rawCpf !== undefined ? String(rawCpf).trim() : '';
+      const cleanCpf = originalCpf.replace(/\D/g, '');
+      const category = rawCategory !== undefined ? String(rawCategory).trim() : 'Participante';
+      const company = rawCompany !== undefined ? String(rawCompany).trim() : '';
+      const ticketCode = rawTicketCode !== undefined ? String(rawTicketCode).trim() : '';
+      const profile = rawProfile !== undefined ? String(rawProfile).trim() : '';
+      const areasText = rawAreas !== undefined ? String(rawAreas).trim() : '';
+      const errors: string[] = [];
+
+      if (!nome) errors.push('Nome e obrigatorio');
+
+      if (originalCpf) {
+        if (!validateCPF(cleanCpf)) {
+          errors.push('CPF invalido');
+        } else {
+          if (seenCPFsInSheet.has(cleanCpf)) errors.push('CPF duplicado na planilha');
+          else seenCPFsInSheet.add(cleanCpf);
+          if (participants.some(p => p.cpf.replace(/\D/g, '') === cleanCpf)) {
+            errors.push('CPF ja cadastrado neste evento');
+          }
+        }
+      }
+
+      if (ticketCode) {
+        const ticketKey = ticketCode.toLowerCase();
+        if (seenTicketsInSheet.has(ticketKey)) errors.push('Codigo duplicado na planilha');
+        else seenTicketsInSheet.add(ticketKey);
+        if (participants.some(p => String(p.ticketCode || '').toLowerCase() === ticketKey)) {
+          errors.push('Codigo ja cadastrado neste evento');
+        }
+      }
+
+      let resolvedAreaIds: string[] = [];
+      let resolvedAreaNames: string[] = [];
+
+      if (profile) {
+        const matchedProfile = accessProfiles.find(ap => ap.name.toLowerCase() === profile.toLowerCase());
+        if (!matchedProfile) {
+          errors.push(`Perfil de acesso "${profile}" nao encontrado no sistema`);
+        } else {
+          const profileAreaIds = Array.isArray(matchedProfile.area_ids) ? matchedProfile.area_ids : [];
+          resolvedAreaIds = [...new Set([...resolvedAreaIds, ...profileAreaIds])];
+          const profileAreaNames = profileAreaIds
+            .map(areaId => availableAreas.find(area => area.id === areaId)?.name)
+            .filter(Boolean) as string[];
+          resolvedAreaNames = [...new Set([...resolvedAreaNames, ...profileAreaNames])];
+        }
+      }
+
+      if (areasText) {
+        areasText.split(/[;,]+/).map(s => s.trim()).filter(Boolean).forEach(item => {
+          const matchedArea = availableAreas.find(a =>
+            a.id.toLowerCase() === item.toLowerCase() ||
+            a.name.toLowerCase() === item.toLowerCase()
+          );
+          if (!matchedArea) {
+            errors.push(`Area "${item}" nao cadastrada no evento`);
+          } else {
+            if (!resolvedAreaIds.includes(matchedArea.id)) resolvedAreaIds.push(matchedArea.id);
+            if (!resolvedAreaNames.includes(matchedArea.name)) resolvedAreaNames.push(matchedArea.name);
+          }
+        });
+      }
+
+      return {
+        rowNumber: idx + 1,
+        originalData: row,
+        nome,
+        email,
+        cpf: cleanCpf || originalCpf,
+        category,
+        company,
+        ticketCode,
+        profile,
+        areasText,
+        resolvedAreaIds,
+        resolvedAreaNames,
+        errors,
+        isValid: errors.length === 0
+      };
+    });
+
+    setImportRows(validatedList);
+    setImportStep(4);
+  };
+
+  const processUploadedFile = (file: File) => {
+    if (!canCreateParticipants) {
+      addToast('Usuario sem permissao para importar participantes neste evento.', 'error');
+      return;
+    }
+
+    loadImportTemplates();
+    resetImportWizard();
     setImportFileName(file.name);
     setImportFileIsLoading(true);
-    
+
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
-        const arrayBuffer = event.target?.result as ArrayBuffer;
-        if (!arrayBuffer) {
-          addToast('Não foi possível ler o arquivo.', 'error');
-          setImportFileIsLoading(false);
-          return;
-        }
-        
-        const data = new Uint8Array(arrayBuffer);
+        const data = event.target?.result;
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
-        if (!worksheet) {
-          addToast('Nenhuma planilha encontrada no arquivo.', 'error');
+        const rawRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        if (!rawRows || rawRows.length === 0) {
+          addToast('A planilha esta vazia ou nao possui dados legiveis.', 'error');
           setImportFileIsLoading(false);
           return;
         }
 
-        const rawRows = XLSX.utils.sheet_to_json(worksheet);
-
-        if (rawRows.length === 0) {
-          addToast('A planilha enviada está vazia ou sem linhas de dados.', 'error');
+        const headers = Object.keys(rawRows[0] || {});
+        if (headers.length === 0) {
+          addToast('Nao foi possivel ler os cabecalhos da planilha.', 'error');
           setImportFileIsLoading(false);
           return;
         }
 
-        const seenCPFsInSheet = new Set<string>();
+        const inferredMapping = headers.reduce<Record<string, ImportTargetField>>((acc, header) => {
+          acc[header] = guessImportTarget(header);
+          return acc;
+        }, {});
 
-        const validatedList = rawRows.map((row: any, idx) => {
-          const keys = Object.keys(row);
-          const findValue = (possibleNames: string[]) => {
-            const match = keys.find(k => 
-              possibleNames.some(pName => k.toLowerCase().trim() === pName.toLowerCase())
-            );
-            return match !== undefined ? row[match] : undefined;
-          };
-
-          const rawNome = findValue(['nome', 'name', 'nome completo', 'nome_completo', 'full name', 'fullname', 'membro']);
-          const rawEmail = findValue(['email', 'e-mail', 'mail', 'endereço de e-mail', 'correio']);
-          const rawCpf = findValue(['cpf', 'c.p.f.', 'documento', 'identidade', 'cpf/cnpj']);
-          const rawCategory = findValue(['categoria', 'category', 'grupo']);
-          const rawCompany = findValue(['empresa', 'company', 'corporação', 'corporacao', 'org', 'organização', 'organizacao', 'trabalho']);
-          const rawProfile = findValue(['perfil', 'tipo', 'type', 'profile', 'accessprofile', 'access_profile']);
-          const rawAreas = findValue(['areas', 'acessos', 'area', 'acesso', 'salas', 'sala', 'allowed_areas', 'allowedareas']);
-
-          const nome = rawNome !== undefined ? String(rawNome).trim() : '';
-          const email = rawEmail !== undefined ? String(rawEmail).trim() : '';
-          const originalCpf = rawCpf !== undefined ? String(rawCpf).trim() : '';
-          const cleanCpf = originalCpf.replace(/\D/g, '');
-          const category = rawCategory !== undefined ? String(rawCategory).trim() : 'Participante';
-          const company = rawCompany !== undefined ? String(rawCompany).trim() : '';
-          const profile = rawProfile !== undefined ? String(rawProfile).trim() : '';
-          const areasText = rawAreas !== undefined ? String(rawAreas).trim() : '';
-
-          const errors: string[] = [];
-
-          // 1. Validar Nome obrigatório
-          if (!nome) {
-            errors.push('Nome é obrigatório');
-          }
-
-          // 2. Validar CPF e formato válido (apenas se fornecido)
-          if (originalCpf) {
-            if (!validateCPF(cleanCpf)) {
-              errors.push('CPF inválido');
-            } else {
-              // 3. Validar duplicidade dentro do próprio arquivo importado
-              if (seenCPFsInSheet.has(cleanCpf)) {
-                errors.push(`CPF duplicado na planilha`);
-              } else {
-                seenCPFsInSheet.add(cleanCpf);
-              }
-
-              // 4. Validar se CPF já está cadastrado no sistema para este evento
-              const isResident = participants.some(p => p.cpf.replace(/\D/g, '') === cleanCpf);
-              if (isResident) {
-                errors.push('CPF já cadastrado neste evento');
-              }
-            }
-          }
-          let resolvedAreaIds: string[] = [];
-          let resolvedAreaNames: string[] = [];
-
-          // 5. Validar se perfil/tipo existe no banco (caso usado)
-          if (profile) {
-            const matchedProfile = accessProfiles.find(ap => ap.name.toLowerCase() === profile.toLowerCase());
-            if (!matchedProfile) {
-              errors.push(`Perfil de acesso "${profile}" não encontrado no sistema`);
-            } else {
-              const profileAreaIds = Array.isArray(matchedProfile.area_ids) ? matchedProfile.area_ids : [];
-              resolvedAreaIds = [...new Set([...resolvedAreaIds, ...profileAreaIds])];
-              const profileAreaNames = profileAreaIds
-                .map(areaId => availableAreas.find(area => area.id === areaId)?.name)
-                .filter(Boolean) as string[];
-              resolvedAreaNames = [...new Set([...resolvedAreaNames, ...profileAreaNames])];
-            }
-          }
-
-          // 6. Validar se as areas existem (caso usadas)
-          if (areasText) {
-            const parsedItems = areasText.split(/[;,]+/).map(s => s.trim()).filter(Boolean);
-            parsedItems.forEach(item => {
-              const matchedArea = availableAreas.find(a => 
-                a.id.toLowerCase() === item.toLowerCase() || 
-                a.name.toLowerCase() === item.toLowerCase()
-              );
-              if (!matchedArea) {
-                errors.push(`Área "${item}" não cadastrada no evento`);
-              } else {
-                if (!resolvedAreaIds.includes(matchedArea.id)) {
-                  resolvedAreaIds.push(matchedArea.id);
-                }
-                if (!resolvedAreaNames.includes(matchedArea.name)) {
-                  resolvedAreaNames.push(matchedArea.name);
-                }
-              }
-            });
-          }
-
-          return {
-            rowNumber: idx + 1,
-            originalData: row,
-            nome,
-            email,
-            cpf: cleanCpf || originalCpf,
-            category,
-            company,
-            profile,
-            areasText,
-            resolvedAreaIds,
-            resolvedAreaNames,
-            errors,
-            isValid: errors.length === 0
-          };
-        });
-
-        setImportRows(validatedList);
+        setImportHeaders(headers);
+        setImportRawRows(rawRows);
+        setImportColumnMapping(inferredMapping);
+        setImportFieldOrder(DEFAULT_IMPORT_FIELD_ORDER);
+        setImportRows([]);
+        setImportStep(2);
         setIsImportPreviewModalOpen(true);
-      } catch (err) {
-        console.error('Error processing sheet:', err);
-        addToast('Erro ao interpretar estrutura ou conteúdo do arquivo carregado.', 'error');
+      } catch (error) {
+        console.error(error);
+        addToast('Erro ao ler arquivo. Verifique se e um Excel/CSV valido.', 'error');
       } finally {
         setImportFileIsLoading(false);
       }
     };
     reader.readAsArrayBuffer(file);
   };
-
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedEventId) return;
@@ -2560,6 +2719,9 @@ export default function App() {
         item['cpf'] = row.cpf;
         item['categoria'] = row.category;
         item['empresa'] = row.company;
+        if (row.ticketCode) {
+          item['ticketCode'] = row.ticketCode;
+        }
         
         if (row.profile) {
           item['perfil'] = row.profile;
@@ -2584,11 +2746,11 @@ export default function App() {
       );
       
       setIsImportPreviewModalOpen(false);
-      setImportRows([]);
-      setImportFileName('');
+      resetImportWizard();
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
       console.error('Error conducting batch import:', err);
+      setImportStep(4);
       addToast(err.message || 'Erro durante a gravação dos dados da planilha no banco de dados.', 'error');
     } finally {
       setIsImportingInProgress(false);
@@ -7338,16 +7500,15 @@ export default function App() {
         </div>
       )}
 
-      {/* 7. IMPORT PREVIEW & VALIDATION MODAL */}
+      {/* 7. IMPORT WIZARD MODAL */}
       {isImportPreviewModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in animate-duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
+          <div className="bg-white rounded-2xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-5 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-800 font-display flex items-center gap-2">
                   <FileText className="text-emerald-600" size={22} />
-                  <span>Importar Participantes (Preview & Validação)</span>
+                  <span>Assistente de Importacao de Participantes</span>
                 </h3>
                 <p className="text-slate-500 text-xs mt-0.5">
                   Arquivo carregado: <strong className="text-slate-700">{importFileName}</strong>
@@ -7357,8 +7518,7 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setIsImportPreviewModalOpen(false);
-                  setImportRows([]);
-                  setImportFileName('');
+                  resetImportWizard();
                 }}
                 className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition cursor-pointer"
               >
@@ -7366,202 +7526,336 @@ export default function App() {
               </button>
             </div>
 
-            {/* Resume Banner */}
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
-                <span className="text-xs text-slate-400 font-medium block">Total de Linhas</span>
-                <span className="text-xl font-bold text-slate-800">{importRows.length}</span>
-              </div>
-              
-              <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-emerald-600/70 font-medium block">Válidas para Importação</span>
-                  <span className="text-xl font-bold text-emerald-600">
-                    {importRows.filter(r => r.isValid).length}
-                  </span>
-                </div>
-                <CheckCircle2 className="text-emerald-500" size={24} />
-              </div>
-
-              <div className="bg-white p-3 rounded-xl border border-rose-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-rose-600/70 font-medium block">Linhas com Erros</span>
-                  <span className="text-xl font-bold text-rose-600">
-                    {importRows.filter(r => !r.isValid).length}
-                  </span>
-                </div>
-                <XCircle className="text-rose-500" size={24} />
-              </div>
-
-              <div className="flex items-center">
-                {importRows.some(r => !r.isValid) ? (
-                  <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
-                    <AlertTriangle className="text-amber-500 shrink-0" size={16} />
-                    <span>
-                      <strong>Correção necessária</strong>: Existem erros na planilha. Corrija o arquivo e tente novamente.
-                    </span>
+            <div className="px-6 py-3 bg-white border-b border-slate-100">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                {[
+                  { step: 1, label: 'Arquivo' },
+                  { step: 2, label: 'Mapear' },
+                  { step: 3, label: 'Ordenar' },
+                  { step: 4, label: 'Validar' },
+                  { step: 5, label: 'Importar' }
+                ].map(item => (
+                  <div
+                    key={item.step}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold border ${
+                      importStep >= item.step
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                    }`}
+                  >
+                    <span className="font-mono mr-1">{item.step}</span>
+                    {item.label}
                   </div>
-                ) : (
-                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
-                    <Sparkles className="text-emerald-500 shrink-0" size={16} />
-                    <span>
-                      <strong>Tudo limpo!</strong> Todos os participantes são válidos e prontos para admissão.
-                    </span>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
 
-            {/* Modal Body: Scrollable Table */}
             <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30">
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-                <div className="max-h-[45vh] overflow-y-auto">
-                  <table className="w-full text-left border-collapse text-sm">
-                    <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
-                      <tr>
-                        <th className="py-3 px-4 w-12 text-center">#</th>
-                        <th className="py-3 px-4">Nome</th>
-                        <th className="py-3 px-4">CPF</th>
-                        <th className="py-3 px-4">Tipo/Perfil</th>
-                        <th className="py-3 px-4">Áreas</th>
-                        <th className="py-3 px-4">Status & Diagnóstico</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {importRows.map((row) => {
-                        const rowBgClass = row.isValid 
-                          ? 'bg-emerald-50/20 hover:bg-emerald-50/45 text-slate-800 transition' 
-                          : 'bg-rose-50/20 hover:bg-rose-50/45 text-slate-800 transition';
-                        
-                        return (
-                          <tr key={row.rowNumber} className={rowBgClass}>
-                            <td className="py-3 px-4 text-center font-mono text-xs text-slate-400">
-                              {row.rowNumber}
-                            </td>
-                            
-                            <td className="py-3 px-4 font-semibold text-slate-800">
-                              {row.nome || <span className="text-rose-400 italic font-normal">Ausente</span>}
-                            </td>
-                            
-                            <td className="py-3 px-4 font-mono text-xs text-slate-700">
-                              {row.cpf ? (
-                                row.cpf.length === 11 
-                                  ? row.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")
-                                  : row.cpf
-                              ) : (
-                                <span className="text-rose-400 italic">Ausente</span>
-                              )}
-                            </td>
+              {importStep === 2 && (
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm">Mapear colunas</h4>
+                        <p className="text-xs text-slate-500">{importRawRows.length} linhas encontradas. A ordem da planilha nao importa.</p>
+                      </div>
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 text-slate-600 hover:bg-white rounded-lg text-xs font-semibold cursor-pointer transition">
+                        <Upload size={14} />
+                        <span>Trocar arquivo</span>
+                        <input type="file" accept=".xlsx, .xls, .csv" onChange={handleExcelUpload} className="hidden" />
+                      </label>
+                    </div>
+                    <div className="divide-y divide-slate-100 max-h-[52vh] overflow-y-auto">
+                      {importHeaders.map(header => (
+                        <div key={header} className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-3 p-3 items-center">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-800">{header}</div>
+                            <div className="text-xs text-slate-400 truncate">
+                              Exemplo: {String(importRawRows[0]?.[header] ?? '-')}
+                            </div>
+                          </div>
+                          <select
+                            value={importColumnMapping[header] || 'ignore'}
+                            onChange={(e) => setImportColumnMapping(prev => ({
+                              ...prev,
+                              [header]: e.target.value as ImportTargetField
+                            }))}
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
+                          >
+                            {IMPORT_TARGET_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-                            <td className="py-3 px-4">
-                              {row.profile ? (
-                                <span className="inline-block px-2.5 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-                                  {row.profile}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-xs italic">Nenhum</span>
-                              )}
-                            </td>
-
-                            <td className="py-3 px-4 text-xs">
-                              <div className="flex flex-wrap gap-1 max-w-[200px]">
-                                {row.resolvedAreaNames?.length > 0 ? (
-                                  row.resolvedAreaNames.map((a: string, i: number) => (
-                                    <span key={i} className="inline-block px-1.5 py-0.5 rounded text-xxs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                                      {a}
-                                    </span>
-                                  ))
-                                ) : row.areasText ? (
-                                  <span className="text-rose-500 font-medium">{row.areasText} (Inválida)</span>
-                                ) : (
-                                  <span className="text-slate-400 italic">Padrão</span>
-                                )}
+                  <div className="space-y-4">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                      <h4 className="font-bold text-slate-800 text-sm mb-3">Modelos de importacao</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {importTemplates.filter(tpl => tpl.global || tpl.eventId === selectedEventId).length === 0 ? (
+                          <p className="text-xs text-slate-400">Nenhum modelo salvo para usar neste evento.</p>
+                        ) : (
+                          importTemplates.filter(tpl => tpl.global || tpl.eventId === selectedEventId).map(tpl => (
+                            <div key={tpl.id} className="p-2 border border-slate-100 rounded-lg bg-slate-50">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-slate-700 truncate">{tpl.name}</div>
+                                  <div className="text-[11px] text-slate-400">{tpl.global ? 'Global' : 'Evento atual'}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => applyImportTemplate(tpl)}
+                                  className="px-2 py-1 text-[11px] font-bold rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
+                                >
+                                  Usar
+                                </button>
                               </div>
-                            </td>
+                              <div className="flex gap-1 mt-2">
+                                <button type="button" onClick={() => applyImportTemplate(tpl, true)} className="px-2 py-1 text-[11px] rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">Editar</button>
+                                <button type="button" onClick={() => duplicateImportTemplate(tpl)} className="px-2 py-1 text-[11px] rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">Duplicar</button>
+                                <button type="button" onClick={() => deleteImportTemplate(tpl.id)} className="px-2 py-1 text-[11px] rounded-md bg-white border border-rose-100 text-rose-600 hover:bg-rose-50">Excluir</button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
 
-                            <td className="py-3 px-4">
-                              {row.isValid ? (
-                                <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">
-                                  <Check className="text-emerald-500" size={14} />
-                                  <span>Válido</span>
-                                </div>
-                              ) : (
-                                <div className="space-y-0.5 text-xs">
-                                  {row.errors.map((err: string, i: number) => (
-                                    <div key={i} className="flex items-center gap-1.5 text-rose-600 font-semibold">
-                                      <span className="w-1.5 h-1.5 bg-rose-500 rounded-full shrink-0"></span>
-                                      <span>{err}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                      <h4 className="font-bold text-slate-800 text-sm mb-3">{editingImportTemplateId ? 'Editar modelo' : 'Salvar modelo'}</h4>
+                      <input
+                        type="text"
+                        value={importTemplateName}
+                        onChange={(e) => setImportTemplateName(e.target.value)}
+                        placeholder="Nome do modelo"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm mb-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
+                      />
+                      <label className="flex items-center gap-2 text-xs text-slate-600 mb-3">
+                        <input
+                          type="checkbox"
+                          checked={importTemplateGlobal}
+                          onChange={(e) => setImportTemplateGlobal(e.target.checked)}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        Disponivel para todos os eventos
+                      </label>
+                      <button
+                        type="button"
+                        onClick={saveImportTemplate}
+                        className="w-full px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 text-sm font-bold"
+                      >
+                        {editingImportTemplateId ? 'Salvar alteracoes' : 'Salvar modelo'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {importStep === 3 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <h4 className="font-bold text-slate-800 text-sm">Ordenar campos do preview</h4>
+                    <p className="text-xs text-slate-500">Essa ordem vale apenas para esta importacao.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {importFieldOrder.filter(field => field !== 'ignore' && importHeaders.some(header => importColumnMapping[header] === field)).map((field, index, visibleFields) => (
+                      <div key={field} className="flex items-center justify-between gap-3 p-3">
+                        <div className="flex items-center gap-3">
+                          <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 text-xs font-mono flex items-center justify-center">{index + 1}</span>
+                          <div>
+                            <div className="text-sm font-bold text-slate-800">{IMPORT_TARGET_OPTIONS.find(opt => opt.value === field)?.label || field}</div>
+                            <div className="text-xs text-slate-400">
+                              Colunas: {importHeaders.filter(header => importColumnMapping[header] === field).join(', ')}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button type="button" disabled={index === 0} onClick={() => moveImportField(field, -1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">↑</button>
+                          <button type="button" disabled={index === visibleFields.length - 1} onClick={() => moveImportField(field, 1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">↓</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {importStep === 4 && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
+                      <span className="text-xs text-slate-400 font-medium block">Total de Linhas</span>
+                      <span className="text-xl font-bold text-slate-800">{importRows.length}</span>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-xs flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-emerald-600/70 font-medium block">Validas</span>
+                        <span className="text-xl font-bold text-emerald-600">{importRows.filter(r => r.isValid).length}</span>
+                      </div>
+                      <CheckCircle2 className="text-emerald-500" size={24} />
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-rose-100 shadow-xs flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-rose-600/70 font-medium block">Com Erros</span>
+                        <span className="text-xl font-bold text-rose-600">{importRows.filter(r => !r.isValid).length}</span>
+                      </div>
+                      <XCircle className="text-rose-500" size={24} />
+                    </div>
+                    <div className="flex items-center">
+                      {importRows.some(r => !r.isValid) ? (
+                        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
+                          <AlertTriangle className="text-amber-500 shrink-0" size={16} />
+                          <span>Corrija os erros antes de importar.</span>
+                        </div>
+                      ) : (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
+                          <Sparkles className="text-emerald-500 shrink-0" size={16} />
+                          <span>Linhas prontas para importacao.</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                    <div className="max-h-[45vh] overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-sm">
+                        <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
+                          <tr>
+                            <th className="py-3 px-4 w-12 text-center">#</th>
+                            {importFieldOrder.filter(field => field !== 'ignore' && importHeaders.some(header => importColumnMapping[header] === field)).map(field => (
+                              <th key={field} className="py-3 px-4">{IMPORT_TARGET_OPTIONS.find(opt => opt.value === field)?.label || field}</th>
+                            ))}
+                            <th className="py-3 px-4">Status & Diagnostico</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {importRows.map((row) => {
+                            const rowBgClass = row.isValid
+                              ? 'bg-emerald-50/20 hover:bg-emerald-50/45 text-slate-800 transition'
+                              : 'bg-rose-50/20 hover:bg-rose-50/45 text-slate-800 transition';
+                            const previewValues: Record<ImportTargetField, React.ReactNode> = {
+                              name: row.nome || <span className="text-rose-400 italic font-normal">Ausente</span>,
+                              cpf: row.cpf || <span className="text-slate-400 italic">Vazio</span>,
+                              email: row.email || <span className="text-slate-400 italic">Vazio</span>,
+                              company: row.company || <span className="text-slate-400 italic">Vazio</span>,
+                              category: row.category || <span className="text-slate-400 italic">Vazio</span>,
+                              ticketCode: row.ticketCode || <span className="text-slate-400 italic">Gerar novo</span>,
+                              areas: row.resolvedAreaNames?.length ? row.resolvedAreaNames.join(', ') : (row.areasText || <span className="text-slate-400 italic">Padrao</span>),
+                              profile: row.profile || <span className="text-slate-400 italic">Nenhum</span>,
+                              ignore: ''
+                            };
 
-              {/* Instant Re-upload zone inside the modal footer */}
-              <div className="mt-4 p-4 border border-slate-200 border-dashed rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50">
-                <div className="text-xs text-slate-500">
-                  Quer substituir a planilha atual? Arraste outro arquivo aqui ou faça o upload manual.
-                </div>
-                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-705 hover:bg-slate-50 hover:text-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition">
-                  <Upload size={14} />
-                  <span>Enviar outra planilha</span>
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    onChange={handleExcelUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+                            return (
+                              <tr key={row.rowNumber} className={rowBgClass}>
+                                <td className="py-3 px-4 text-center font-mono text-xs text-slate-400">{row.rowNumber}</td>
+                                {importFieldOrder.filter(field => field !== 'ignore' && importHeaders.some(header => importColumnMapping[header] === field)).map(field => (
+                                  <td key={field} className="py-3 px-4 text-xs text-slate-700">{previewValues[field]}</td>
+                                ))}
+                                <td className="py-3 px-4">
+                                  {row.isValid ? (
+                                    <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">
+                                      <Check className="text-emerald-500" size={14} />
+                                      <span>Valido</span>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-0.5 text-xs">
+                                      {row.errors.map((err: string, i: number) => (
+                                        <div key={i} className="flex items-center gap-1.5 text-rose-600 font-semibold">
+                                          <span className="w-1.5 h-1.5 bg-rose-500 rounded-full shrink-0"></span>
+                                          <span>{err}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => {
                   setIsImportPreviewModalOpen(false);
-                  setImportRows([]);
-                  setImportFileName('');
+                  resetImportWizard();
                 }}
                 className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-semibold transition cursor-pointer"
               >
                 Cancelar
               </button>
-              
-              <button
-                type="button"
-                disabled={importRows.some(row => !row.isValid) || importRows.length === 0 || isImportingInProgress}
-                onClick={confirmBatchImport}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition shadow-sm ${
-                  importRows.some(row => !row.isValid) || importRows.length === 0 || isImportingInProgress
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-550/10 cursor-pointer'
-                }`}
-              >
-                {isImportingInProgress ? (
-                  <>
-                    <RefreshCw className="animate-spin" size={16} />
-                    <span>Processando Importação...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 size={16} />
-                    <span>Confirmar Importação de {importRows.length} Linhas</span>
-                  </>
+
+              <div className="flex items-center gap-2">
+                {importStep > 2 && importStep < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setImportStep(prev => (prev === 4 ? 3 : 2))}
+                    className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-semibold transition cursor-pointer"
+                  >
+                    Voltar
+                  </button>
                 )}
-              </button>
+
+                {importStep < 4 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (importStep === 2) {
+                        if (!Object.values(importColumnMapping).includes('name')) {
+                          addToast('Mapeie uma coluna como Nome antes de continuar.', 'error');
+                          return;
+                        }
+                        setImportStep(3);
+                        return;
+                      }
+                      buildImportPreviewRows();
+                    }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition shadow-sm bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                  >
+                    <span>Continuar</span>
+                    <ChevronRight size={16} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={importRows.some(row => !row.isValid) || importRows.length === 0 || isImportingInProgress}
+                    onClick={() => {
+                      setImportStep(5);
+                      confirmBatchImport();
+                    }}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition shadow-sm ${
+                      importRows.some(row => !row.isValid) || importRows.length === 0 || isImportingInProgress
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-550/10 cursor-pointer'
+                    }`}
+                  >
+                    {isImportingInProgress ? (
+                      <>
+                        <RefreshCw className="animate-spin" size={16} />
+                        <span>Processando Importacao...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={16} />
+                        <span>Confirmar Importacao de {importRows.length} Linhas</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
+
 
     </div>
   );

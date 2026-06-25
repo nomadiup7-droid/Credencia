@@ -889,6 +889,8 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
     const cpf = String(findValue(['cpf', 'c.p.f.', 'documento', 'identidade', 'cpf/cnpj']) || '').replace(/\D/g, '');
     const company = String(findValue(['empresa', 'company', 'corporação', 'corporacao', 'org', 'organização', 'organizacao', 'trabalho']) || '').trim();
     
+    const ticketCode = String(findValue(['ticketCode', 'ticket_code', 'codigo qr', 'qr code', 'codigo do ingresso', 'ingresso', 'ticket', 'codigo']) || '').trim();
+
     // Normalize Category access
     const categoryRaw = String(findValue(['categoria', 'category', 'grupo']) || 'Participante').trim();
     let category: ParticipantCategory = 'Participante';
@@ -954,6 +956,7 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
       cpf,
       category,
       company,
+      ...(ticketCode ? { ticketCode } : {}),
       allowedAreaIds: allowedAreas,
       allowedAreas
     };
