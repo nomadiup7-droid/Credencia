@@ -283,6 +283,7 @@ function toCamel(obj: any): any {
     if (key === 'returned_by_user_id') camelKey = 'returnedByUserId';
     if (key === 'returned_by_name') camelKey = 'returnedByName';
     if (key === 'field_order') camelKey = 'order';
+    if (key === 'show_qr_code') camelKey = 'showQRCode';
 
     if (['layout_config', 'checkin_screen_config', 'cloakroom_label_config', 'elements'].includes(key)) {
       newObj[camelKey] = obj[key];
@@ -319,6 +320,7 @@ function toSnake(obj: any): any {
     if (key === 'returnedByUserId') snakeKey = 'returned_by_user_id';
     if (key === 'returnedByName') snakeKey = 'returned_by_name';
     if (key === 'order') snakeKey = 'field_order';
+    if (key === 'showQRCode') snakeKey = 'show_qr_code';
 
     if (['layoutConfig', 'checkinScreenConfig', 'cloakroomLabelConfig', 'elements'].includes(key)) {
       newObj[snakeKey] = obj[key];
