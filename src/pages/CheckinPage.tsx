@@ -256,13 +256,21 @@ export default function CheckinPage({
       const badgeName = normalizeQuery(participant.badgeName || '');
       const firstName = normalizeQuery(participant.name.split(/\s+/)[0] || '');
       const badgeFirstName = normalizeQuery((participant.badgeName || '').split(/\s+/)[0] || '');
+      const ticketCode = normalizeQuery(participant.ticketCode || '');
+      const cpf = normalizeQuery(participant.cpf || '');
+      const email = normalizeQuery(participant.email || '');
 
-      if (firstName.startsWith(query)) return 0;
-      if (badgeFirstName.startsWith(query)) return 1;
-      if (name.startsWith(query)) return 2;
-      if (badgeName.startsWith(query)) return 3;
-      if (name.includes(query)) return 4;
-      if (badgeName.includes(query)) return 5;
+      if (ticketCode === query) return 0;
+      if (cpf === query) return 1;
+      if (firstName.startsWith(query)) return 2;
+      if (badgeFirstName.startsWith(query)) return 3;
+      if (name.startsWith(query)) return 4;
+      if (badgeName.startsWith(query)) return 5;
+      if (ticketCode.includes(query)) return 6;
+      if (cpf.includes(query)) return 7;
+      if (email.startsWith(query)) return 8;
+      if (name.includes(query)) return 9;
+      if (badgeName.includes(query)) return 10;
       return 99;
     };
 
