@@ -346,7 +346,30 @@ export default function CheckinMobilePage({
                   <X size={18} />
                 </button>
               </div>
-              <div id={scannerElementId} className="max-h-[52vh] overflow-hidden rounded-xl bg-black [&_video]:max-h-[52vh] [&_video]:object-cover" />
+              <div className="relative overflow-hidden rounded-xl bg-black">
+                <div id={scannerElementId} className="max-h-[52vh] [&_video]:max-h-[52vh] [&_video]:object-cover" />
+                {feedback && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-[2px]">
+                    <section className={`w-full max-w-sm rounded-3xl border p-5 text-center shadow-2xl ${feedbackClasses}`}>
+                      <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
+                        {feedback.type === 'success' ? <CheckCircle2 size={36} /> : <AlertTriangle size={36} />}
+                      </div>
+                      <h2 className="text-2xl font-black">{feedback.title}</h2>
+                      <p className="mt-2 text-lg font-bold">{feedback.message}</p>
+                      {feedback.type === 'warning' && feedback.participant && (
+                        <button
+                          type="button"
+                          onClick={() => void reprintParticipant(feedback.participant!)}
+                          className="mt-4 inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-base font-black text-white"
+                        >
+                          <Printer size={21} />
+                          Reimprimir
+                        </button>
+                      )}
+                    </section>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -387,7 +410,7 @@ export default function CheckinMobilePage({
           </div>
         )}
 
-        {feedback && (
+        {feedback && !scannerOpen && (
           <section className={`rounded-3xl border p-5 text-center shadow-xl ${feedbackClasses}`}>
             <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
               {feedback.type === 'success' ? <CheckCircle2 size={36} /> : <AlertTriangle size={36} />}
