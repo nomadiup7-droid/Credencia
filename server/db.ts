@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
 import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate } from '../src/types';
 
 // Load environment variables early
@@ -255,34 +256,116 @@ const DEFAULT_CLOAKROOM: CloakroomItem[] = [
   }
 ];
 
+// Helper functions to map camelCase <-> snake_case automatically
+function toCamel(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(toCamel);
+  const newObj: any = {};
+  for (const key of Object.keys(obj)) {
+    let camelKey = key.replace(/_([a-z])/g, (_, char) => char.toUpperCase());
+    
+    // Custom mappings
+    if (key === 'password_hash') camelKey = 'passwordHash';
+    if (key === 'organization_id') camelKey = 'organizationId';
+    if (key === 'event_id') camelKey = 'eventId';
+    if (key === 'user_id') camelKey = 'userId';
+    if (key === 'participant_id') camelKey = 'participantId';
+    if (key === 'activity_id') camelKey = 'activityId';
+    if (key === 'checked_in_at') camelKey = 'checkedInAt';
+    if (key === 'checked_in') camelKey = 'checkedIn';
+    if (key === 'ticket_code') camelKey = 'ticketCode';
+    if (key === 'volume_count') camelKey = 'volumeCount';
+    if (key === 'volume_tags') camelKey = 'volumeTags';
+    if (key === 'tag_number') camelKey = 'tagNumber';
+    if (key === 'registered_by_user_id') camelKey = 'registeredByUserId';
+    if (key === 'registered_by_name') camelKey = 'registeredByName';
+    if (key === 'returned_by_user_id') camelKey = 'returnedByUserId';
+    if (key === 'returned_by_name') camelKey = 'returnedByName';
+    if (key === 'field_order') camelKey = 'order';
+
+    if (['layout_config', 'checkin_screen_config', 'cloakroom_label_config', 'elements'].includes(key)) {
+      newObj[camelKey] = obj[key];
+    } else {
+      newObj[camelKey] = toCamel(obj[key]);
+    }
+  }
+  return newObj;
+}
+
+function toSnake(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(toSnake);
+  const newObj: any = {};
+  for (const key of Object.keys(obj)) {
+    let snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+    
+    // Custom mappings
+    if (key === 'passwordHash') snakeKey = 'password_hash';
+    if (key === 'organizationId') snakeKey = 'organization_id';
+    if (key === 'eventId') snakeKey = 'event_id';
+    if (key === 'userId') snakeKey = 'user_id';
+    if (key === 'participantId') snakeKey = 'participant_id';
+    if (key === 'activityId') snakeKey = 'activity_id';
+    if (key === 'checkedInAt') snakeKey = 'checked_in_at';
+    if (key === 'checkedIn') snakeKey = 'checked_in';
+    if (key === 'ticketCode') snakeKey = 'ticket_code';
+    if (key === 'volumeCount') snakeKey = 'volume_count';
+    if (key === 'volumeTags') snakeKey = 'volume_tags';
+    if (key === 'tagNumber') snakeKey = 'tag_number';
+    if (key === 'registeredByUserId') snakeKey = 'registered_by_user_id';
+    if (key === 'registeredByName') snakeKey = 'registered_by_name';
+    if (key === 'returnedByUserId') snakeKey = 'returned_by_user_id';
+    if (key === 'returnedByName') snakeKey = 'returned_by_name';
+    if (key === 'order') snakeKey = 'field_order';
+
+    if (['layoutConfig', 'checkinScreenConfig', 'cloakroomLabelConfig', 'elements'].includes(key)) {
+      newObj[snakeKey] = obj[key];
+    } else {
+      newObj[snakeKey] = toSnake(obj[key]);
+    }
+  }
+  return newObj;
+}
+
 class Database {
-  private data: DBSchema;
+  private data!: DBSchema;
+  private useSupabase: boolean;
+  private supabase: any;
 
   constructor() {
-    this.data = {
-      organizations: DEFAULT_ORGANIZATIONS,
-      users: DEFAULT_USERS,
-      eventUsers: [],
-      events: DEFAULT_EVENTS,
-      participants: DEFAULT_PARTICIPANTS,
-      cloakroom: DEFAULT_CLOAKROOM,
-      checkins: [],
-      logs: [],
-      actionLogs: [],
-      activities: [],
-      activityAttendances: [],
-      certificates: [],
-      certificateTemplates: [],
-      participantFields: DEFAULT_PARTICIPANT_FIELDS,
-      areas: [
-        { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
-        { id: 'a2', name: 'Restaurante', color: '#F59E0B', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
-        { id: 'a3', name: 'Shows', color: '#14B8A6', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() }
-      ],
-      areaAccessLogs: [],
-      accessProfiles: []
-    };
-    this.loadLocal();
+    this.useSupabase = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+    if (this.useSupabase) {
+      console.log('Using Supabase Database:', process.env.SUPABASE_URL);
+      this.supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    } else {
+      console.log('Using Local db.json Database');
+      this.data = {
+        organizations: DEFAULT_ORGANIZATIONS,
+        users: DEFAULT_USERS,
+        eventUsers: [],
+        events: DEFAULT_EVENTS,
+        participants: DEFAULT_PARTICIPANTS,
+        cloakroom: DEFAULT_CLOAKROOM,
+        checkins: [],
+        logs: [],
+        actionLogs: [],
+        activities: [],
+        activityAttendances: [],
+        certificates: [],
+        certificateTemplates: [],
+        participantFields: DEFAULT_PARTICIPANT_FIELDS,
+        areas: [
+          { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
+          { id: 'a2', name: 'Restaurante', color: '#F59E0B', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
+          { id: 'a3', name: 'Shows', color: '#14B8A6', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() }
+        ],
+        areaAccessLogs: [],
+        accessProfiles: []
+      };
+      this.loadLocal();
+    }
   }
 
   private loadLocal(): void {
@@ -379,6 +462,7 @@ class Database {
   }
 
   private saveLocal(): void {
+    if (this.useSupabase) return;
     try {
       fs.writeFileSync(DB_FILE_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (e) {
@@ -388,14 +472,37 @@ class Database {
 
   // --- Organizations CRUD ---
   async getOrganizations(): Promise<Organization[]> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('organizations').select('*');
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     return this.data.organizations || DEFAULT_ORGANIZATIONS;
   }
 
   async getOrganizationById(id: string): Promise<Organization | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('organizations').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.organizations || DEFAULT_ORGANIZATIONS).find(org => org.id === id);
   }
 
   async createOrganization(org: Omit<Organization, 'id' | 'createdAt'>): Promise<Organization> {
+    if (this.useSupabase) {
+      const newOrg = {
+        ...org,
+        id: 'org_' + Math.random().toString(36).substring(2, 9),
+        createdAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('organizations').insert(toSnake(newOrg)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.organizations) {
       this.data.organizations = [...DEFAULT_ORGANIZATIONS];
     }
@@ -411,6 +518,15 @@ class Database {
 
   // --- Users CRUD ---
   async getUsers(organizationId?: string): Promise<DBUser[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('users').select('*');
+      if (organizationId) {
+        query = query.eq('organization_id', organizationId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (organizationId) {
       return this.data.users.filter(u => u.organizationId === organizationId);
     }
@@ -418,14 +534,40 @@ class Database {
   }
 
   async getUserByEmail(email: string): Promise<DBUser | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('users').select('*').ilike('email', email.trim()).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   }
 
   async getUserById(id: string): Promise<DBUser | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('users').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return this.data.users.find(u => u.id === id);
   }
 
   async createUser(user: Omit<DBUser, 'id' | 'createdAt'>): Promise<DBUser> {
+    if (this.useSupabase) {
+      const newUser = {
+        ...user,
+        id: 'u_' + Math.random().toString(36).substring(2, 9),
+        createdAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('users').insert(toSnake(newUser)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     const newUser: DBUser = {
       ...user,
       id: 'u_' + Math.random().toString(36).substring(2, 9),
@@ -437,6 +579,14 @@ class Database {
   }
 
   async updateUser(id: string, updates: Partial<Omit<DBUser, 'id' | 'createdAt'>>): Promise<DBUser | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('users').update(toSnake(updates)).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const user = this.data.users.find(u => u.id === id);
     if (!user) return undefined;
     Object.assign(user, updates);
@@ -445,6 +595,11 @@ class Database {
   }
 
   async deleteUser(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     const index = this.data.users.findIndex(u => u.id === id);
     if (index === -1) return false;
     this.data.users.splice(index, 1);
@@ -458,6 +613,15 @@ class Database {
 
   // --- Event Users CRUD ---
   async getEventUsers(eventId?: string): Promise<EventUser[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('event_users').select('*');
+      if (eventId) {
+        query = query.eq('event_id', eventId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     const links = this.data.eventUsers || [];
     if (eventId) {
       return links.filter(eu => eu.eventId === eventId);
@@ -466,14 +630,39 @@ class Database {
   }
 
   async getEventUserById(id: string): Promise<EventUser | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('event_users').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.eventUsers || []).find(eu => eu.id === id);
   }
 
   async getEventUser(eventId: string, userId: string): Promise<EventUser | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('event_users').select('*').eq('event_id', eventId).eq('user_id', userId).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.eventUsers || []).find(eu => eu.eventId === eventId && eu.userId === userId);
   }
 
   async createEventUser(link: Omit<EventUser, 'id'>): Promise<EventUser> {
+    if (this.useSupabase) {
+      const newLink = {
+        ...link,
+        id: 'eu_' + Math.random().toString(36).substring(2, 9)
+      };
+      const { data, error } = await this.supabase.from('event_users').insert(toSnake(newLink)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.eventUsers) {
       this.data.eventUsers = [];
     }
@@ -487,6 +676,14 @@ class Database {
   }
 
   async updateEventUser(id: string, updates: Partial<Omit<EventUser, 'id' | 'eventId' | 'userId'>>): Promise<EventUser | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('event_users').update(toSnake(updates)).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const link = (this.data.eventUsers || []).find(eu => eu.id === id);
     if (!link) return undefined;
     Object.assign(link, updates);
@@ -495,6 +692,11 @@ class Database {
   }
 
   async deleteEventUser(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('event_users').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     if (!this.data.eventUsers) return false;
     const index = this.data.eventUsers.findIndex(eu => eu.id === id);
     if (index === -1) return false;
@@ -505,6 +707,15 @@ class Database {
 
   // --- Events CRUD ---
   async getEvents(organizationId?: string): Promise<Event[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('events').select('*');
+      if (organizationId) {
+        query = query.eq('organization_id', organizationId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (organizationId) {
       return this.data.events.filter(e => e.organizationId === organizationId);
     }
@@ -512,10 +723,28 @@ class Database {
   }
 
   async getEventById(id: string): Promise<Event | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('events').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return this.data.events.find(e => e.id === id);
   }
 
   async createEvent(event: Omit<Event, 'id' | 'createdAt'>): Promise<Event> {
+    if (this.useSupabase) {
+      const newEvent = {
+        ...event,
+        id: 'e_' + Math.random().toString(36).substring(2, 9),
+        createdAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('events').insert(toSnake(newEvent)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     const newEvent: Event = {
       ...event,
       id: 'e_' + Math.random().toString(36).substring(2, 9),
@@ -527,6 +756,14 @@ class Database {
   }
 
   async updateEvent(id: string, updates: Partial<Omit<Event, 'id' | 'createdAt'>>): Promise<Event | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('events').update(toSnake(updates)).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const event = this.data.events.find(e => e.id === id);
     if (!event) return undefined;
     Object.assign(event, updates);
@@ -535,6 +772,11 @@ class Database {
   }
 
   async deleteEvent(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('events').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     const index = this.data.events.findIndex(e => e.id === id);
     if (index === -1) return false;
     this.data.events.splice(index, 1);
@@ -552,6 +794,15 @@ class Database {
 
   // --- Participants CRUD ---
   async getParticipants(eventId?: string): Promise<Participant[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('participants').select('*');
+      if (eventId) {
+        query = query.eq('event_id', eventId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (eventId) {
       return this.data.participants.filter(p => p.eventId === eventId);
     }
@@ -560,12 +811,28 @@ class Database {
 
   async getParticipantById(id: string): Promise<Participant | undefined> {
     if (!id) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('participants').select('*').eq('id', id.trim()).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const cleanId = id.trim().toLowerCase();
     return this.data.participants.find(p => p.id?.trim().toLowerCase() === cleanId);
   }
 
   async getParticipantByTicketCode(code: string): Promise<Participant | undefined> {
     if (!code) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('participants').select('*').eq('ticket_code', code.trim()).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const cleanCode = code.trim().toLowerCase();
     return this.data.participants.find(p => p.ticketCode?.trim().toLowerCase() === cleanCode);
   }
@@ -574,12 +841,38 @@ class Database {
     if (!cpf) return undefined;
     const cleanCpf = cpf.replace(/\D/g, '');
     if (!cleanCpf) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('participants').select('*').eq('event_id', eventId);
+      if (error) throw error;
+      const found = data.find((p: any) => p.cpf.replace(/\D/g, '') === cleanCpf);
+      return toCamel(found);
+    }
     return this.data.participants.find(
       p => p.eventId === eventId && p.cpf.replace(/\D/g, '') === cleanCpf
     );
   }
 
   async createParticipant(p: Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'checkedInAt' | 'ticketCode'> & { ticketCode?: string; checkedIn?: boolean; checkedInAt?: string }): Promise<Participant> {
+    if (this.useSupabase) {
+      const defaultCode = 'TKT-' + p.eventId.toUpperCase() + '-' + p.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
+      const allowedAreaIds = Array.isArray(p.allowedAreaIds)
+        ? p.allowedAreaIds
+        : (Array.isArray(p.allowedAreas) ? p.allowedAreas : []);
+      const newParticipant = {
+        ...p,
+        id: 'p_' + Math.random().toString(36).substring(2, 9),
+        checkedIn: p.checkedIn || false,
+        checkedInAt: p.checkedInAt || (p.checkedIn ? new Date().toISOString() : null),
+        ticketCode: p.ticketCode || defaultCode,
+        company: p.company || '',
+        allowedAreaIds,
+        allowedAreas: Array.isArray(p.allowedAreas) ? p.allowedAreas : allowedAreaIds,
+        createdAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('participants').insert(toSnake(newParticipant)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     const defaultCode = 'TKT-' + p.eventId.toUpperCase() + '-' + p.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
     const allowedAreaIds = Array.isArray(p.allowedAreaIds)
       ? p.allowedAreaIds
@@ -601,6 +894,17 @@ class Database {
   }
 
   async createParticipantsBatch(batch: Array<Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'checkedInAt' | 'ticketCode'>>): Promise<Participant[]> {
+    if (this.useSupabase) {
+      const created: Participant[] = [];
+      for (const item of batch) {
+        const existing = await this.getParticipantByCpfAndEvent(item.cpf, item.eventId);
+        if (!existing) {
+          const added = await this.createParticipant(item);
+          created.push(added);
+        }
+      }
+      return created;
+    }
     const created: Participant[] = [];
     for (const item of batch) {
       const existing = await this.getParticipantByCpfAndEvent(item.cpf, item.eventId);
@@ -613,6 +917,22 @@ class Database {
   }
 
   async updateParticipant(id: string, updates: Partial<Omit<Participant, 'id' | 'createdAt'>>): Promise<Participant | undefined> {
+    if (this.useSupabase) {
+      const mappedUpdates = toSnake(updates);
+      if (updates.allowedAreaIds !== undefined) {
+        mappedUpdates.allowed_area_ids = updates.allowedAreaIds;
+        mappedUpdates.allowed_areas = updates.allowedAreaIds;
+      } else if (updates.allowedAreas !== undefined) {
+        mappedUpdates.allowed_area_ids = updates.allowedAreas;
+        mappedUpdates.allowed_areas = updates.allowedAreas;
+      }
+      const { data, error } = await this.supabase.from('participants').update(mappedUpdates).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const p = this.data.participants.find(p => p.id === id);
     if (!p) return undefined;
     const allowedAreaIds = updates.allowedAreaIds !== undefined
@@ -628,6 +948,11 @@ class Database {
   }
 
   async deleteParticipant(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('participants').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     const index = this.data.participants.findIndex(p => p.id === id);
     if (index === -1) return false;
     this.data.participants.splice(index, 1);
@@ -639,6 +964,33 @@ class Database {
   }
 
   async performCheckIn(id: string, checkInState: boolean): Promise<Participant | undefined> {
+    if (this.useSupabase) {
+      const p = await this.getParticipantById(id);
+      if (!p) return undefined;
+
+      const checkedInAt = checkInState ? new Date().toISOString() : null;
+      
+      const { data, error: pError } = await this.supabase.from('participants').update({
+        checked_in: checkInState,
+        checked_in_at: checkedInAt
+      }).eq('id', id).select().single();
+      
+      if (pError) throw pError;
+
+      if (checkInState) {
+        const newCheckIn = {
+          id: 'chi_' + Math.random().toString(36).substring(2, 11),
+          userId: id,
+          eventId: p.eventId,
+          checkInAt: checkedInAt || new Date().toISOString()
+        };
+        await this.supabase.from('checkins').insert(toSnake(newCheckIn));
+      } else {
+        await this.supabase.from('checkins').delete().eq('user_id', id).eq('event_id', p.eventId);
+      }
+
+      return toCamel(data);
+    }
     const p = this.data.participants.find(p => p.id === id);
     if (!p) return undefined;
     p.checkedIn = checkInState;
@@ -668,10 +1020,36 @@ class Database {
 
   // --- Check-In Direct Operations ---
   async getCheckIn(userId: string, eventId: string): Promise<CheckIn | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('checkins').select('*').eq('user_id', userId).eq('event_id', eventId).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.checkins || []).find(c => c.userId === userId && c.eventId === eventId);
   }
 
   async createCheckIn(userId: string, eventId: string): Promise<CheckIn> {
+    if (this.useSupabase) {
+      const newCheckIn = {
+        id: 'chi_' + Math.random().toString(36).substring(2, 11),
+        userId,
+        eventId,
+        checkInAt: new Date().toISOString()
+      };
+      
+      const { data, error } = await this.supabase.from('checkins').insert(toSnake(newCheckIn)).select().single();
+      if (error) throw error;
+
+      await this.supabase.from('participants').update({
+        checked_in: true,
+        checked_in_at: newCheckIn.checkInAt
+      }).eq('id', userId);
+
+      return toCamel(data);
+    }
     if (!this.data.checkins) {
       this.data.checkins = [];
     }
@@ -683,7 +1061,6 @@ class Database {
     };
     this.data.checkins.push(newCheckIn);
 
-    // Sync Participant model
     const p = this.data.participants.find(p => p.id === userId && p.eventId === eventId);
     if (p) {
       p.checkedIn = true;
@@ -695,15 +1072,34 @@ class Database {
   }
 
   async getCheckInsByEvent(eventId: string): Promise<CheckIn[]> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('checkins').select('*').eq('event_id', eventId);
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     return (this.data.checkins || []).filter(c => c.eventId === eventId);
   }
 
   async getCheckInsByUser(userId: string): Promise<CheckIn[]> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('checkins').select('*').eq('user_id', userId);
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     return (this.data.checkins || []).filter(c => c.userId === userId);
   }
 
   // --- Cloakroom (Chapelaria) CRUD ---
   async getCloakroom(eventId?: string): Promise<CloakroomItem[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('cloakroom').select('*');
+      if (eventId) {
+        query = query.eq('event_id', eventId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (eventId) {
       return this.data.cloakroom.filter(c => c.eventId === eventId);
     }
@@ -711,10 +1107,25 @@ class Database {
   }
 
   async getCloakroomItemById(id: string): Promise<CloakroomItem | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('cloakroom').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return this.data.cloakroom.find(c => c.id === id);
   }
 
   async getNextTagNumber(eventId: string): Promise<number> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('cloakroom').select('tag_number').eq('event_id', eventId);
+      if (error) throw error;
+      if (!data || data.length === 0) return 101;
+      const maxTag = Math.max(...data.map((i: any) => i.tag_number));
+      return maxTag + 1;
+    }
     const eventItems = await this.getCloakroom(eventId);
     if (eventItems.length === 0) return 101;
     const maxTag = Math.max(...eventItems.map(i => i.tagNumber));
@@ -722,6 +1133,22 @@ class Database {
   }
 
   async createCloakroomItem(item: Omit<CloakroomItem, 'id' | 'tagNumber' | 'status' | 'registeredAt' | 'returnedAt' | 'volumeTags'>): Promise<CloakroomItem> {
+    if (this.useSupabase) {
+      const nextTag = await this.getNextTagNumber(item.eventId);
+      const volumeCount = Math.max(1, Math.min(5, Number(item.volumeCount) || 1));
+      const newItem = {
+        ...item,
+        id: 'c_' + Math.random().toString(36).substring(2, 9),
+        tagNumber: nextTag,
+        volumeCount,
+        volumeTags: Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`),
+        status: 'guardado',
+        registeredAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('cloakroom').insert(toSnake(newItem)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     const nextTag = await this.getNextTagNumber(item.eventId);
     const volumeCount = Math.max(1, Math.min(5, Number(item.volumeCount) || 1));
     const newItem: CloakroomItem = {
@@ -739,6 +1166,21 @@ class Database {
   }
 
   async collectCloakroomItem(id: string, returnedBy?: { userId?: string; name?: string }): Promise<CloakroomItem | undefined> {
+    if (this.useSupabase) {
+      const returnedAt = new Date().toISOString();
+      const updates = {
+        status: 'retirado',
+        returned_at: returnedAt,
+        returned_by_user_id: returnedBy?.userId || null,
+        returned_by_name: returnedBy?.name || null
+      };
+      const { data, error } = await this.supabase.from('cloakroom').update(updates).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const returnedAt = new Date().toISOString();
     const item = this.data.cloakroom.find(c => c.id === id);
     if (!item) return undefined;
@@ -751,6 +1193,11 @@ class Database {
   }
 
   async deleteCloakroomItem(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('cloakroom').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     const index = this.data.cloakroom.findIndex(c => c.id === id);
     if (index === -1) return false;
     this.data.cloakroom.splice(index, 1);
@@ -761,10 +1208,28 @@ class Database {
   // --- PIN AUTHENTICATION & AUDIT LOGS ---
   async getUserByPin(pin: string): Promise<DBUser | undefined> {
     if (!pin) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('users').select('*').eq('pin', pin).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return this.data.users.find(u => u.pin === pin);
   }
 
   async createLog(log: Omit<CheckInLog, 'id' | 'timestamp'>): Promise<CheckInLog> {
+    if (this.useSupabase) {
+      const newLog = {
+        ...log,
+        id: 'log_' + Math.random().toString(36).substring(2, 9),
+        timestamp: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('logs').insert(toSnake(newLog)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.logs) {
       this.data.logs = [];
     }
@@ -779,6 +1244,14 @@ class Database {
   }
 
   async getLogs(organizationId?: string, eventId?: string): Promise<CheckInLog[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('logs').select('*');
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      if (eventId) query = query.eq('event_id', eventId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     let list = this.data.logs || [];
     if (organizationId) {
       list = list.filter(l => l.organizationId === organizationId);
@@ -790,6 +1263,16 @@ class Database {
   }
 
   async createActionLog(log: Omit<ActionLog, 'id' | 'timestamp'>): Promise<ActionLog> {
+    if (this.useSupabase) {
+      const newLog = {
+        ...log,
+        id: 'alog_' + Math.random().toString(36).substring(2, 9),
+        timestamp: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('action_logs').insert(toSnake(newLog)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.actionLogs) {
       this.data.actionLogs = [];
     }
@@ -804,6 +1287,13 @@ class Database {
   }
 
   async getActionLogs(eventId?: string): Promise<ActionLog[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('action_logs').select('*');
+      if (eventId) query = query.eq('event_id', eventId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     let list = this.data.actionLogs || [];
     if (eventId) {
       list = list.filter(log => log.eventId === eventId);
@@ -813,6 +1303,13 @@ class Database {
 
   // --- Activities & Attendance ---
   async getActivities(eventId?: string): Promise<Activity[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('activities').select('*');
+      if (eventId) query = query.eq('event_id', eventId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (!this.data.activities) {
       this.data.activities = [];
     }
@@ -823,10 +1320,33 @@ class Database {
   }
 
   async getActivityById(id: string): Promise<Activity | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('activities').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.activities || []).find(activity => activity.id === id);
   }
 
   async createActivity(activity: Omit<Activity, 'id' | 'createdAt'>): Promise<Activity> {
+    if (this.useSupabase) {
+      const newActivity = {
+        ...activity,
+        title: fixMojibake(activity.title),
+        roomName: fixMojibake(activity.roomName),
+        speakerName: fixMojibake(activity.speakerName),
+        id: 'act_' + Math.random().toString(36).substring(2, 9),
+        workloadHours: Number(activity.workloadHours) || 0,
+        active: activity.active !== false,
+        createdAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('activities').insert(toSnake(newActivity)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.activities) {
       this.data.activities = [];
     }
@@ -846,6 +1366,21 @@ class Database {
   }
 
   async updateActivity(id: string, updates: Partial<Omit<Activity, 'id' | 'eventId' | 'createdAt'>>): Promise<Activity | undefined> {
+    if (this.useSupabase) {
+      const cleanUpdates: any = { ...updates };
+      if (updates.title !== undefined) cleanUpdates.title = fixMojibake(updates.title);
+      if (updates.roomName !== undefined) cleanUpdates.roomName = fixMojibake(updates.roomName);
+      if (updates.speakerName !== undefined) cleanUpdates.speakerName = fixMojibake(updates.speakerName);
+      if (updates.workloadHours !== undefined) cleanUpdates.workloadHours = Number(updates.workloadHours) || 0;
+      if (updates.active !== undefined) cleanUpdates.active = updates.active !== false;
+
+      const { data, error } = await this.supabase.from('activities').update(toSnake(cleanUpdates)).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     const activity = (this.data.activities || []).find(item => item.id === id);
     if (!activity) return undefined;
     Object.assign(activity, {
@@ -861,6 +1396,11 @@ class Database {
   }
 
   async deleteActivity(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('activities').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     if (!this.data.activities) return false;
     const index = this.data.activities.findIndex(activity => activity.id === id);
     if (index === -1) return false;
@@ -873,6 +1413,14 @@ class Database {
   }
 
   async getActivityAttendances(eventId?: string, activityId?: string): Promise<ActivityAttendance[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('activity_attendances').select('*');
+      if (eventId) query = query.eq('event_id', eventId);
+      if (activityId) query = query.eq('activity_id', activityId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (!this.data.activityAttendances) {
       this.data.activityAttendances = [];
     }
@@ -887,10 +1435,30 @@ class Database {
   }
 
   async getActivityAttendance(activityId: string, participantId: string): Promise<ActivityAttendance | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('activity_attendances').select('*').eq('activity_id', activityId).eq('participant_id', participantId).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.activityAttendances || []).find(att => att.activityId === activityId && att.participantId === participantId);
   }
 
   async createActivityAttendance(attendance: Omit<ActivityAttendance, 'id' | 'checkedAt'>): Promise<ActivityAttendance> {
+    if (this.useSupabase) {
+      const existing = await this.getActivityAttendance(attendance.activityId, attendance.participantId);
+      if (existing) return existing;
+      const newAttendance = {
+        ...attendance,
+        id: 'aa_' + Math.random().toString(36).substring(2, 9),
+        checkedAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('activity_attendances').insert(toSnake(newAttendance)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.activityAttendances) {
       this.data.activityAttendances = [];
     }
@@ -907,6 +1475,14 @@ class Database {
   }
 
   async getCertificates(eventId?: string, participantId?: string): Promise<Certificate[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('certificates').select('*');
+      if (eventId) query = query.eq('event_id', eventId);
+      if (participantId) query = query.eq('participant_id', participantId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (!this.data.certificates) {
       this.data.certificates = [];
     }
@@ -921,6 +1497,14 @@ class Database {
   }
 
   async getCertificateById(id: string): Promise<Certificate | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('certificates').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     return (this.data.certificates || []).find(cert => cert.id === id);
   }
 
@@ -934,7 +1518,32 @@ class Database {
     return `CERT-${year}-${String(maxNumber + 1).padStart(6, '0')}`;
   }
 
+  private async getNextCertificateCodeSupabase(): Promise<string> {
+    const { data, error } = await this.supabase.from('certificates').select('certificate_code');
+    if (error) throw error;
+    const year = new Date().getFullYear();
+    const maxNumber = (data || []).reduce((max: number, cert: any) => {
+      const match = String(cert.certificate_code || '').match(/^CERT-\d{4}-(\d+)$/);
+      const value = match ? Number(match[1]) : 0;
+      return Math.max(max, value);
+    }, 0);
+    return `CERT-${year}-${String(maxNumber + 1).padStart(6, '0')}`;
+  }
+
   async createCertificate(certificate: Omit<Certificate, 'id' | 'issuedAt' | 'certificateCode'>): Promise<Certificate> {
+    if (this.useSupabase) {
+      const nextCode = await this.getNextCertificateCodeSupabase();
+      const newCertificate = {
+        ...certificate,
+        id: 'cert_' + Math.random().toString(36).substring(2, 9),
+        certificateCode: nextCode,
+        totalHours: Number(certificate.totalHours) || 0,
+        issuedAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('certificates').insert(toSnake(newCertificate)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.certificates) {
       this.data.certificates = [];
     }
@@ -975,6 +1584,19 @@ class Database {
   }
 
   async getCertificateTemplate(eventId: string): Promise<CertificateTemplate> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('certificate_templates').select('*').eq('event_id', eventId).single();
+      if (error) {
+        if (error.code === 'PGRST116') {
+          const template = this.createDefaultCertificateTemplate(eventId);
+          const { data: newTemplate, error: insertError } = await this.supabase.from('certificate_templates').insert(toSnake(template)).select().single();
+          if (insertError) throw insertError;
+          return toCamel(newTemplate);
+        }
+        throw error;
+      }
+      return toCamel(data);
+    }
     if (!this.data.certificateTemplates) {
       this.data.certificateTemplates = [];
     }
@@ -990,6 +1612,22 @@ class Database {
   }
 
   async saveCertificateTemplate(eventId: string, input: Partial<CertificateTemplate>): Promise<CertificateTemplate> {
+    if (this.useSupabase) {
+      const existing = await this.getCertificateTemplate(eventId);
+      const updated = {
+        ...existing,
+        name: String(input.name || existing.name || 'Template padrão').trim() || 'Template padrão',
+        orientation: input.orientation === 'portrait' ? 'portrait' : 'landscape',
+        pageSize: input.pageSize === 'A5' ? 'A5' : 'A4',
+        backgroundImageUrl: String(input.backgroundImageUrl || ''),
+        logoUrl: String(input.logoUrl || ''),
+        elements: Array.isArray(input.elements) && input.elements.length > 0 ? input.elements : existing.elements,
+        updatedAt: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('certificate_templates').update(toSnake(updated)).eq('id', existing.id).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.certificateTemplates) {
       this.data.certificateTemplates = [];
     }
@@ -1015,6 +1653,12 @@ class Database {
 
   // --- Participant Fields CRUD ---
   async getParticipantFields(): Promise<ParticipantField[]> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('participant_fields').select('*');
+      if (error) throw error;
+      const list = toCamel(data) || [];
+      return list.sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+    }
     if (!this.data.participantFields) {
       this.data.participantFields = DEFAULT_PARTICIPANT_FIELDS;
     }
@@ -1022,6 +1666,12 @@ class Database {
   }
 
   async saveParticipantFields(fields: ParticipantField[]): Promise<ParticipantField[]> {
+    if (this.useSupabase) {
+      const mapped = fields.map(f => toSnake(f));
+      const { error } = await this.supabase.from('participant_fields').upsert(mapped);
+      if (error) throw error;
+      return fields;
+    }
     this.data.participantFields = fields;
     this.saveLocal();
     return this.data.participantFields;
@@ -1029,6 +1679,23 @@ class Database {
 
   // --- Areas & Access Control ---
   async getAreas(eventId?: string): Promise<Area[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('areas').select('*');
+      if (eventId) {
+        query = query.eq('event_id', eventId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      
+      const list = toCamel(data) || [];
+      return list.map((area: any) => ({
+        ...area,
+        event_id: area.eventId,
+        isActive: area.active,
+        is_active: area.active,
+        created_at: area.createdAt
+      }));
+    }
     if (!this.data.areas) {
       this.data.areas = [];
     }
@@ -1039,10 +1706,51 @@ class Database {
   }
 
   async getAreaById(id: string): Promise<Area | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('areas').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      const area = toCamel(data);
+      return {
+        ...area,
+        event_id: area.eventId,
+        isActive: area.active,
+        is_active: area.active,
+        created_at: area.createdAt
+      };
+    }
     return (this.data.areas || []).find(a => a.id === id);
   }
 
   async createArea(areaData: { name: string; color?: string; eventId?: string; event_id?: string; active?: boolean; isActive?: boolean; is_active?: boolean }): Promise<Area> {
+    if (this.useSupabase) {
+      const eId = areaData.eventId || areaData.event_id || 'e1';
+      const active = areaData.active !== undefined ? areaData.active : (areaData.isActive !== undefined ? areaData.isActive : (areaData.is_active !== undefined ? areaData.is_active : true));
+      const dateStr = new Date().toISOString();
+
+      const newArea = {
+        id: 'area_' + Math.random().toString(36).substring(2, 9),
+        name: areaData.name,
+        color: areaData.color || '#00E545',
+        eventId: eId,
+        active,
+        createdAt: dateStr
+      };
+
+      const { data, error } = await this.supabase.from('areas').insert(toSnake(newArea)).select().single();
+      if (error) throw error;
+      
+      const area = toCamel(data);
+      return {
+        ...area,
+        event_id: area.eventId,
+        isActive: area.active,
+        is_active: area.active,
+        created_at: area.createdAt
+      };
+    }
     if (!this.data.areas) {
       this.data.areas = [];
     }
@@ -1069,6 +1777,32 @@ class Database {
   }
 
   async updateArea(id: string, areaData: Partial<Area>): Promise<Area | undefined> {
+    if (this.useSupabase) {
+      const updates: any = {};
+      if (areaData.name !== undefined) updates.name = areaData.name;
+      if (areaData.color !== undefined) updates.color = areaData.color;
+      if (areaData.eventId !== undefined || areaData.event_id !== undefined) {
+        updates.event_id = areaData.eventId || areaData.event_id;
+      }
+      if (areaData.active !== undefined || areaData.isActive !== undefined || areaData.is_active !== undefined) {
+        updates.active = areaData.active !== undefined ? areaData.active : (areaData.isActive !== undefined ? areaData.isActive : areaData.is_active);
+      }
+
+      const { data, error } = await this.supabase.from('areas').update(updates).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      
+      const area = toCamel(data);
+      return {
+        ...area,
+        event_id: area.eventId,
+        isActive: area.active,
+        is_active: area.active,
+        created_at: area.createdAt
+      };
+    }
     if (!this.data.areas) return undefined;
     const index = this.data.areas.findIndex(a => a.id === id);
     if (index === -1) return undefined;
@@ -1079,7 +1813,6 @@ class Database {
       ...areaData
     };
 
-    // Keep compatibility for event_id, is_active, created_at
     if (areaData.name !== undefined) updated.name = areaData.name;
     if (areaData.eventId !== undefined || areaData.event_id !== undefined) {
       const val = areaData.eventId || areaData.event_id;
@@ -1099,6 +1832,11 @@ class Database {
   }
 
   async deleteArea(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('areas').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     if (!this.data.areas) return false;
     const index = this.data.areas.findIndex(a => a.id === id);
     if (index === -1) return false;
@@ -1109,6 +1847,16 @@ class Database {
   }
 
   async createAreaAccessLog(log: Omit<AreaAccessLog, 'id' | 'timestamp'>): Promise<AreaAccessLog> {
+    if (this.useSupabase) {
+      const newLog = {
+        ...log,
+        id: 'alog_' + Math.random().toString(36).substring(2, 9),
+        timestamp: new Date().toISOString()
+      };
+      const { data, error } = await this.supabase.from('area_access_logs').insert(toSnake(newLog)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.areaAccessLogs) {
       this.data.areaAccessLogs = [];
     }
@@ -1123,11 +1871,25 @@ class Database {
   }
 
   async getAreaAccessLogs(): Promise<AreaAccessLog[]> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('area_access_logs').select('*');
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     return this.data.areaAccessLogs || [];
   }
 
   // --- AccessProfile CRUD ---
   async getAccessProfiles(eventId?: string): Promise<AccessProfile[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('access_profiles').select('*');
+      if (eventId) {
+        query = query.eq('event_id', eventId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
     if (!this.data.accessProfiles) {
       this.data.accessProfiles = [];
     }
@@ -1138,6 +1900,14 @@ class Database {
   }
 
   async getAccessProfileById(id: string): Promise<AccessProfile | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('access_profiles').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     if (!this.data.accessProfiles) {
       this.data.accessProfiles = [];
     }
@@ -1145,6 +1915,16 @@ class Database {
   }
 
   async createAccessProfile(profileData: Omit<AccessProfile, 'id'>): Promise<AccessProfile> {
+    if (this.useSupabase) {
+      const newProfile = {
+        ...profileData,
+        id: 'ap_' + Math.random().toString(36).substring(2, 9),
+        eventId: profileData.eventId || profileData.event_id
+      };
+      const { data, error } = await this.supabase.from('access_profiles').insert(toSnake(newProfile)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
     if (!this.data.accessProfiles) {
       this.data.accessProfiles = [];
     }
@@ -1160,6 +1940,15 @@ class Database {
   }
 
   async updateAccessProfile(id: string, profileData: Partial<AccessProfile>): Promise<AccessProfile | undefined> {
+    if (this.useSupabase) {
+      const updates = toSnake(profileData);
+      const { data, error } = await this.supabase.from('access_profiles').update(updates).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
     if (!this.data.accessProfiles) return undefined;
     const index = this.data.accessProfiles.findIndex(ap => ap.id === id);
     if (index === -1) return undefined;
@@ -1182,6 +1971,11 @@ class Database {
   }
 
   async deleteAccessProfile(id: string): Promise<boolean> {
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('access_profiles').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    }
     if (!this.data.accessProfiles) return false;
     const index = this.data.accessProfiles.findIndex(ap => ap.id === id);
     if (index === -1) return false;

@@ -54,6 +54,8 @@ import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
+import credenciaLogoIcon from './assets/credencia-logo-icon.png';
+import credenciaLoginGlass from './assets/credencia-login-glass.jpeg';
 import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement } from './types';
 
 // Sleek CSS Color mapping & constants
@@ -3457,35 +3459,61 @@ export default function App() {
 
   if (!token || !currentUser) {
     return (
-      <div className="min-h-screen bg-[#f7f7f2] text-slate-900 flex items-center justify-center p-6">
-        <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-10 items-center">
-          <section className="hidden lg:block">
-            <img src={credenciaLogo} alt="CREDENCIA" className="h-16 w-auto object-contain mb-6" />
-            <h1 className="text-4xl font-bold tracking-tight text-slate-950 font-display max-w-xl">
-              Credenciamento de eventos sem ruido.
-            </h1>
-            <p className="mt-4 text-base text-slate-600 max-w-lg leading-relaxed">
-              Controle participantes, check-ins, acessos e impressoes em uma operação clara para a equipe de recepcao.
-            </p>
-            <div className="mt-8 grid grid-cols-3 gap-3 max-w-xl">
-              <div className="border border-slate-200 bg-white rounded-lg p-4">
-                <div className="text-sm font-bold text-slate-950">Check-in</div>
-                <div className="text-xs text-slate-500 mt-1">Busca, leitura e presenca.</div>
+      <div className="relative min-h-screen overflow-hidden bg-[#030604] text-white flex items-center justify-center p-4 sm:p-6">
+        <img
+          src={credenciaLoginGlass}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover opacity-70"
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(18,224,0,0.28),transparent_28%),linear-gradient(90deg,rgba(3,6,4,0.48),rgba(3,6,4,0.82)_48%,rgba(3,6,4,0.96))]" />
+        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#030604] to-transparent" />
+
+        <div className="relative z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[1fr_430px] gap-8 lg:gap-12 items-center">
+          <section className="min-h-[260px] flex flex-col justify-end lg:min-h-[640px]">
+            <div className="max-w-2xl">
+              <div className="mb-7 flex items-center gap-3">
+                <img src={credenciaLogoIcon} alt="" className="h-14 sm:h-16 w-auto object-contain drop-shadow-[0_18px_32px_rgba(18,224,0,0.22)]" />
+                <div>
+                  <div className="font-display text-2xl sm:text-3xl font-bold tracking-wide text-white">CREDENCIA</div>
+                  <div className="text-sm sm:text-base text-slate-200">Tecnologia para events</div>
+                </div>
               </div>
-              <div className="border border-slate-200 bg-white rounded-lg p-4">
-                <div className="text-sm font-bold text-slate-950">Acesso</div>
-                <div className="text-xs text-slate-500 mt-1">Areas, perfis e logs.</div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-white/8 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-emerald-100 backdrop-blur-md">
+                <span className="h-2 w-2 rounded-full bg-[#12e000] shadow-[0_0_18px_rgba(18,224,0,0.85)]" />
+                Plataforma de credenciamento
               </div>
-              <div className="border border-slate-200 bg-white rounded-lg p-4">
-                <div className="text-sm font-bold text-slate-950">Relatórios</div>
-                <div className="text-xs text-slate-500 mt-1">Exportacao e auditoria.</div>
+              <h1 className="mt-5 text-3xl sm:text-5xl font-bold tracking-tight text-white font-display max-w-xl">
+                Operacao elegante para eventos de alta exigencia.
+              </h1>
+              <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-lg leading-relaxed">
+                Controle participantes, check-ins, acessos e impressoes em um fluxo claro para recepcao, supervisao e administracao.
+              </p>
+              <div className="mt-8 grid grid-cols-3 gap-3 max-w-xl">
+                <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
+                  <div className="text-sm font-bold text-white">Check-in</div>
+                  <div className="text-xs text-slate-300 mt-1">Busca, QR Code e presenca.</div>
+                </div>
+                <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
+                  <div className="text-sm font-bold text-white">Acessos</div>
+                  <div className="text-xs text-slate-300 mt-1">Salas, perfis e logs.</div>
+                </div>
+                <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
+                  <div className="text-sm font-bold text-white">Impressao</div>
+                  <div className="text-xs text-slate-300 mt-1">Etiquetas e credenciais.</div>
+                </div>
               </div>
             </div>
           </section>
 
-          <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-6 sm:p-8">
+          <div className="bg-white/96 border border-white/70 rounded-xl shadow-2xl shadow-black/35 p-6 sm:p-8 backdrop-blur-xl">
             <div className="mb-7">
-              <img src={credenciaLogo} alt="CREDENCIA" className="h-12 w-auto object-contain mb-5 lg:hidden" />
+              <div className="mb-5 flex items-center gap-2 lg:hidden">
+                <img src={credenciaLogoIcon} alt="" className="h-10 w-auto object-contain" />
+                <div>
+                  <div className="font-display text-lg font-bold tracking-wide text-slate-950">CREDENCIA</div>
+                  <div className="text-xs text-slate-500">Tecnologia para eventos</div>
+                </div>
+              </div>
               <h2 className="text-xl font-bold text-slate-950 font-display">
                 {isRegisterMode ? 'Criar acesso' : 'Entrar no sistema'}
               </h2>
