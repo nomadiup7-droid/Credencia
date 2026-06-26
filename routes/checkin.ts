@@ -64,6 +64,24 @@ const authenticateToken = async (req: express.Request, res: express.Response, ne
   }
 };
 
+const CHECKIN_PERMISSION_IDS = ['checkin.perform'];
+
+const hasCheckinPermission = async (user: any, eventId: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+
+  const eventLink = await db.getEventUser(eventId, user.id);
+  if (eventLink?.active) {
+    const permissions = Array.isArray(eventLink.permissions) ? eventLink.permissions : [];
+    if (permissions.some(permission => CHECKIN_PERMISSION_IDS.includes(permission))) return true;
+    return ['ADMIN', 'CHECKIN_CADASTRO', 'CHECKIN'].includes(String(eventLink.role || '').toUpperCase());
+  }
+
+  const userPermissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  if (userPermissions.some(permission => CHECKIN_PERMISSION_IDS.includes(permission))) return true;
+  return ['SUPERVISOR', 'CHECKIN_CADASTRO', 'CHECKIN', 'ATENDENTE', 'OPERADOR', 'OPERATOR'].includes(globalRole);
+};
+
 /**
  * 1. POST /api/checkin
  * Body: { userId, eventId }
@@ -110,6 +128,23 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
     }
 
     const event = await db.getEventById(eventId);
+    const reqUser = (req as any).user;
+
+    if (!event || event.organizationId !== (reqUser?.organizationId || 'org1')) {
+      res.status(403).json({
+        success: false,
+        message: 'Acesso negado para este evento'
+      });
+      return;
+    }
+
+    if (!(await hasCheckinPermission(reqUser, eventId))) {
+      res.status(403).json({
+        success: false,
+        message: 'Usuário sem permissão para fazer check-in neste evento'
+      });
+      return;
+    }
 
     // Check if already checked in
     const existingCheckIn = await db.getCheckIn(participant.id, eventId);
@@ -140,7 +175,6 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
     const checkIn = await db.createCheckIn(participant.id, eventId);
     
     // Log the check-in action automatically
-    const reqUser = (req as any).user;
     await writeLegacyLog({
       participantId: participant.id,
       action: 'CHECKIN',

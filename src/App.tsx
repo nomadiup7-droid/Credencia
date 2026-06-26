@@ -50,6 +50,7 @@ import EventsPage from './pages/EventsPage';
 import CheckinPage from './pages/CheckinPage';
 import ScanAccessControlPage from './pages/ScanAccessControlPage';
 import CheckInModular from './pages/CheckInModular';
+import CheckinMobilePage from './pages/CheckinMobilePage';
 import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
@@ -505,6 +506,7 @@ type ActiveTab =
   | 'eventos'
   | 'participantes'
   | 'checkin'
+  | 'checkin-mobile'
   | 'checkin-modular'
   | 'scanner'
   | 'atividades'
@@ -529,6 +531,7 @@ const ACTIVE_TABS: ActiveTab[] = [
   'eventos',
   'participantes',
   'checkin',
+  'checkin-mobile',
   'checkin-modular',
   'scanner',
   'atividades',
@@ -550,6 +553,12 @@ const isActiveTab = (value: string | null): value is ActiveTab => {
 const readStoredToken = () => {
   const saved = localStorage.getItem('credencia_token');
   return saved && saved !== 'undefined' && saved !== 'null' ? saved : null;
+};
+
+const readStoredActiveTab = (): ActiveTab | null => {
+  const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+  if (!isActiveTab(savedTab)) return null;
+  return savedTab === 'checkin-mobile' ? null : savedTab;
 };
 
 const readStoredUser = (): User | null => {
@@ -654,7 +663,6 @@ export default function App() {
   const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('certificates.issue');
   const canManageParticipants = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('participants.view') || hasSystemPermission('participants.edit');
   const canViewReports = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'RELATORIO' || hasSystemPermission('reports.view');
-  const isFernandoAdmin = String(currentUser?.email || '').toLowerCase() === 'fernando@credencia.com';
 
   // Login Form States
   const [loginMethod, setLoginMethod] = useState<'pin' | 'email'>('email');
@@ -713,10 +721,11 @@ export default function App() {
     ''
   ));
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (window.location.pathname === '/checkin/mobile') return 'checkin-mobile';
     if (window.location.pathname === '/checkin') return 'checkin';
 
-    const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    if (isActiveTab(savedTab)) return savedTab;
+    const savedTab = readStoredActiveTab();
+    if (savedTab) return savedTab;
 
     const saved = localStorage.getItem('credencia_user');
     if (saved) {
@@ -880,12 +889,15 @@ export default function App() {
   }, [isDarkTheme]);
 
   useEffect(() => {
-    if (!currentUser || !token || !isFernandoAdmin) return;
-    const key = `credencia_fernando_welcome_${currentUser.id}`;
+    if (!currentUser || !token || !isUserAdmin) return;
+    if (window.location.pathname !== '/') return;
+
+    const key = `credencia_admin_welcome_${currentUser.id}`;
     if (sessionStorage.getItem(key) === 'seen') return;
+
     setShowFernandoWelcome(true);
     sessionStorage.setItem(key, 'seen');
-  }, [currentUser, token, isFernandoAdmin]);
+  }, [currentUser, token, isUserAdmin]);
 
   // Safe fetch helper
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
@@ -1434,7 +1446,7 @@ export default function App() {
           body: JSON.stringify({
             userId: saved.id,
             role: userForm.eventRole,
-            permissions: userForm.eventPermissions.length ? userForm.eventPermissions : userForm.permissions,
+            permissions: userForm.permissions,
             active: userForm.eventActive
           })
         });
@@ -1497,6 +1509,16 @@ export default function App() {
   }, [selectedEventId, eventUserForm.eventId]);
 
   useEffect(() => {
+    if (window.location.pathname !== '/checkin/mobile' && activeTab === 'checkin-mobile') {
+      setActiveTab(isUserAdmin ? (selectedEventId ? 'evento-dashboard' : 'dashboard') : 'checkin');
+    }
+  }, [activeTab, isUserAdmin, selectedEventId]);
+
+  useEffect(() => {
+    if (activeTab === 'checkin-mobile') {
+      localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
+      return;
+    }
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
 
@@ -1510,6 +1532,7 @@ export default function App() {
           'participantes',
           'campos',
           'checkin',
+          'checkin-mobile',
           'atividades',
           'presenca-atividade',
           'certificados',
@@ -1522,7 +1545,7 @@ export default function App() {
           'etiquetas',
           'checkin-modular'
         ]
-      : ['eventos-ativos', 'checkin', 'presenca-atividade'];
+      : ['eventos-ativos', 'checkin', 'checkin-mobile', 'presenca-atividade'];
 
     if (canManageOperators) allowedTabs.push('usuarios');
     if (isUserAdmin || canManageParticipants) allowedTabs.push('participantes');
@@ -3776,8 +3799,9 @@ export default function App() {
 
   const isMoreActive = secondaryNavItems.some(item => item.id === activeTab);
   const isStandaloneCheckin = window.location.pathname === '/checkin';
+  const isStandaloneCheckinMobile = window.location.pathname === '/checkin/mobile';
   const isCheckinOnlyOperator = !!currentUser && !isUserAdmin && !canCreateParticipants && !canViewReports;
-  const shouldUseFullscreenCheckin = activeTab === 'checkin' && (isStandaloneCheckin || isCheckinOnlyOperator);
+  const shouldUseFullscreenCheckin = (activeTab === 'checkin' && (isStandaloneCheckin || isCheckinOnlyOperator)) || activeTab === 'checkin-mobile' || isStandaloneCheckinMobile;
   const activeActivities = activities.filter(activity => activity.active !== false);
   const selectedActivity = activities.find(activity => activity.id === activityAttendanceActivityId) || null;
   const selectedActivityAttendances = activityAttendances.filter(att => att.activityId === activityAttendanceActivityId);
@@ -3903,6 +3927,19 @@ export default function App() {
                   <Plus size={15} />
                   <span>Novo evento</span>
                 </button>
+              )}
+
+              {selectedEventId && (
+                <a
+                  href="/checkin/mobile"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold bg-emerald-400 hover:bg-emerald-300 text-slate-950 rounded-md transition cursor-pointer"
+                  title="Abrir Check-in Mobile em tela separada"
+                >
+                  <QrCode size={15} />
+                  <span>Check-in Mobile</span>
+                </a>
               )}
 
               <button
@@ -4239,7 +4276,7 @@ export default function App() {
             <p className="text-slate-500 font-medium text-sm">Carregando painel em tempo real...</p>
           </div>
         ) : (
-          <div className={`flex-1 overflow-y-auto ${activeTab === 'checkin' ? (isStandaloneCheckin ? 'p-0 bg-white' : 'p-0 bg-white') : 'p-8 bg-[#f7f7f2]'}`}>
+          <div className={`flex-1 overflow-y-auto ${activeTab === 'checkin' || activeTab === 'checkin-mobile' ? 'p-0 bg-white' : 'p-8 bg-[#f7f7f2]'}`}>
             
             {/* --- TAB 1: DASHBOARD --- */}
             {activeTab === 'dashboard' && (
@@ -4876,6 +4913,24 @@ export default function App() {
                 </div>
 
               </div>
+            )}
+
+            {activeTab === 'checkin-mobile' && (
+              <CheckinMobilePage
+                selectedEvent={currentEvent}
+                selectedEventId={selectedEventId}
+                participants={participants}
+                setParticipants={setParticipants}
+                currentUser={currentUser}
+                canCreateParticipants={canCreateParticipants}
+                apiCall={apiCall}
+                addToast={addToast}
+                onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
+                onNewParticipant={() => {
+                  setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: [] });
+                  setIsParticipantModalOpen(true);
+                }}
+              />
             )}
 
             {/* --- TAB 4: CHECK-IN RÁPIDO / SCANNER SIMULATOR --- */}
@@ -8042,43 +8097,9 @@ export default function App() {
                   </label>
 
                   {userForm.eventId && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Pesquisar permissão do evento</label>
-                          <input
-                            type="search"
-                            value={eventPermissionSearch}
-                            onChange={e => setEventPermissionSearch(e.target.value)}
-                            placeholder="Buscar permissão neste evento"
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setUserForm(prev => ({ ...prev, eventPermissions: ALL_PERMISSION_IDS }))}
-                          className="px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-xs font-bold hover:bg-emerald-100 transition cursor-pointer"
-                        >
-                          Marcar todas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setUserForm(prev => ({ ...prev, eventPermissions: [] }))}
-                          className="px-3 py-2 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-200 transition cursor-pointer"
-                        >
-                          Desmarcar todas
-                        </button>
-                      </div>
-
-                      {renderPermissionAccordion({
-                        selected: userForm.eventPermissions,
-                        search: eventPermissionSearch,
-                        openGroups: openEventPermissionGroups,
-                        onToggleOpen: groupId => setOpenEventPermissionGroups(prev => ({ ...prev, [groupId]: !prev[groupId] })),
-                        onTogglePermission: toggleEventPermission,
-                        onToggleGroup: toggleEventPermissionGroup
-                      })}
-                    </div>
+                    <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500">
+                      O vinculo deste evento usara as permissoes selecionadas em Permissoes do Sistema.
+                    </p>
                   )}
                 </div>
               )}
