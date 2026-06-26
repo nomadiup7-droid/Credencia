@@ -896,24 +896,85 @@ class Database {
   }
 
   async createParticipantsBatch(batch: Array<Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'checkedInAt' | 'ticketCode'>>): Promise<Participant[]> {
+    if (batch.length === 0) return [];
+    const eventId = batch[0].eventId;
+
     if (this.useSupabase) {
-      const created: Participant[] = [];
+      const existingParticipants = await this.getParticipants(eventId);
+      const existingCpfSet = new Set(
+        existingParticipants
+          .map(p => p.cpf?.replace(/\D/g, ''))
+          .filter(Boolean)
+      );
+
+      const newItems = [];
       for (const item of batch) {
-        const existing = await this.getParticipantByCpfAndEvent(item.cpf, item.eventId);
-        if (!existing) {
-          const added = await this.createParticipant(item);
-          created.push(added);
+        const cleanCpf = item.cpf?.replace(/\D/g, '');
+        if (cleanCpf && existingCpfSet.has(cleanCpf)) {
+          continue;
+        }
+        
+        const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
+        const allowedAreaIds = Array.isArray(item.allowedAreaIds)
+          ? item.allowedAreaIds
+          : (Array.isArray(item.allowedAreas) ? item.allowedAreas : []);
+        
+        const newParticipant = {
+          ...item,
+          id: 'p_' + Math.random().toString(36).substring(2, 9),
+          checkedIn: false,
+          checkedInAt: null,
+          ticketCode: (item as any).ticketCode || defaultCode,
+          company: item.company || '',
+          allowedAreaIds,
+          allowedAreas: allowedAreaIds,
+          createdAt: new Date().toISOString()
+        };
+        newItems.push(newParticipant);
+        if (cleanCpf) {
+          existingCpfSet.add(cleanCpf);
         }
       }
-      return created;
+
+      if (newItems.length > 0) {
+        const { data, error } = await this.supabase
+          .from('participants')
+          .insert(toSnake(newItems))
+          .select();
+        if (error) throw error;
+        return toCamel(data) || [];
+      }
+      return [];
     }
+
     const created: Participant[] = [];
     for (const item of batch) {
-      const existing = await this.getParticipantByCpfAndEvent(item.cpf, item.eventId);
+      const cleanCpf = item.cpf?.replace(/\D/g, '');
+      const existing = this.data.participants.find(
+        p => p.eventId === eventId && p.cpf?.replace(/\D/g, '') === cleanCpf
+      );
       if (!existing) {
-        const added = await this.createParticipant(item);
-        created.push(added);
+        const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
+        const allowedAreaIds = Array.isArray(item.allowedAreaIds)
+          ? item.allowedAreaIds
+          : (Array.isArray(item.allowedAreas) ? item.allowedAreas : []);
+        const newParticipant: Participant = {
+          ...item,
+          id: 'p_' + Math.random().toString(36).substring(2, 9),
+          checkedIn: false,
+          checkedInAt: undefined,
+          ticketCode: (item as any).ticketCode || defaultCode,
+          company: item.company || '',
+          allowedAreaIds,
+          allowedAreas: allowedAreaIds,
+          createdAt: new Date().toISOString()
+        };
+        this.data.participants.push(newParticipant);
+        created.push(newParticipant);
       }
+    }
+    if (created.length > 0) {
+      this.saveLocal();
     }
     return created;
   }

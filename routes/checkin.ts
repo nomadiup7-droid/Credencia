@@ -202,10 +202,14 @@ router.get('/event/:eventId?', authenticateToken, async (req: express.Request, r
     // Find all check-ins for this event from db
     const checkins = await db.getCheckInsByEvent(eventId);
     
+    // Fetch all participants for this event in a single call to avoid N+1 queries
+    const participants = await db.getParticipants(eventId);
+    const participantMap = new Map(participants.map(p => [p.id, p]));
+    
     // Join details of active participants
     const responseList = [];
     for (const c of checkins) {
-      const p = await db.getParticipantById(c.userId);
+      const p = participantMap.get(c.userId);
       if (p) {
         responseList.push({
           id: c.id,

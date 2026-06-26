@@ -2093,7 +2093,7 @@ export default function App() {
       addToast('Selecione um evento ativo primeiro.', 'error');
       return;
     }
-    if (!participantForm.name || !participantForm.email) {
+    if (!participantForm.id && (!participantForm.name || !participantForm.email)) {
       addToast('Nome e e-mail são obrigatórios!', 'error');
       return;
     }
@@ -7501,7 +7501,7 @@ export default function App() {
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome Completo</label>
                 <input
                   type="text"
-                  required
+                  required={!participantForm.id}
                   value={participantForm.name}
                   onChange={e => setParticipantForm(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Ex: Mariana Albuquerque de Barros"
@@ -7513,7 +7513,7 @@ export default function App() {
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">E-mail</label>
                 <input
                   type="email"
-                  required
+                  required={!participantForm.id}
                   value={participantForm.email}
                   onChange={e => setParticipantForm(prev => ({ ...prev, email: e.target.value }))}
                   placeholder="mariana@exemplo.com"

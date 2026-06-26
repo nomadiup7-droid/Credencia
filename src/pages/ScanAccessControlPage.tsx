@@ -38,6 +38,14 @@ export default function ScanAccessControlPage({
   const cameraRef = useRef<Html5Qrcode | null>(null);
   const cameraContainerId = 'scan-access-camera-reader';
 
+  const cameraActiveRef = useRef(cameraActive);
+  const isScanningPausedRef = useRef(false);
+  const feedbackTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    cameraActiveRef.current = cameraActive;
+  }, [cameraActive]);
+
   const selectedArea = useMemo(() => {
     return areas.find(area => area.id === selectedAreaId) || null;
   }, [areas, selectedAreaId]);
@@ -66,23 +74,34 @@ export default function ScanAccessControlPage({
   }, [currentEvent?.id]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [selectedAreaId, feedback.status]);
+    if (!cameraActive) {
+      inputRef.current?.focus();
+    }
+  }, [selectedAreaId, feedback.status, cameraActive]);
 
   useEffect(() => {
     return () => {
       stopCamera();
+      if (feedbackTimeoutRef.current) {
+        window.clearTimeout(feedbackTimeoutRef.current);
+      }
     };
   }, []);
 
   const resetFeedbackSoon = () => {
-    window.setTimeout(() => {
+    if (feedbackTimeoutRef.current) {
+      window.clearTimeout(feedbackTimeoutRef.current);
+    }
+    feedbackTimeoutRef.current = window.setTimeout(() => {
       setFeedback({
         status: 'idle',
         title: 'Aguardando leitura',
         message: 'Pronto para a próxima leitura.'
       });
-      inputRef.current?.focus();
+      if (!cameraActiveRef.current) {
+        inputRef.current?.focus();
+      }
+      feedbackTimeoutRef.current = null;
     }, 4200);
   };
 
@@ -97,7 +116,9 @@ export default function ScanAccessControlPage({
       return;
     }
     if (!search) {
-      inputRef.current?.focus();
+      if (!cameraActiveRef.current) {
+        inputRef.current?.focus();
+      }
       return;
     }
 
@@ -157,6 +178,7 @@ export default function ScanAccessControlPage({
 
   const stopCamera = async () => {
     setCameraActive(false);
+    isScanningPausedRef.current = false;
     if (!cameraRef.current) return;
     try {
       if (cameraRef.current.isScanning) {
@@ -177,6 +199,7 @@ export default function ScanAccessControlPage({
     }
 
     setCameraError('');
+    isScanningPausedRef.current = false;
     setFeedback({
       status: 'idle',
       title: 'Câmera ativa',
@@ -199,9 +222,16 @@ export default function ScanAccessControlPage({
           }
         },
         async decodedText => {
-          await stopCamera();
+          if (isScanningPausedRef.current) return;
+          isScanningPausedRef.current = true;
+
           setQuery(decodedText);
           await validateAccess(decodedText);
+
+          // Cooldown of 3 seconds to prevent double scanning
+          window.setTimeout(() => {
+            isScanningPausedRef.current = false;
+          }, 3000);
         },
         () => {}
       );
