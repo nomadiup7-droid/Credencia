@@ -51,10 +51,11 @@ export default function CheckinMobilePage({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const resetTimerRef = useRef<number | null>(null);
+  const scanLockRef = useRef(false);
   const scannerElementId = 'checkin-mobile-camera-reader';
 
   useEffect(() => {
-    inputRef.current?.focus();
+    if (!scannerOpen) inputRef.current?.focus();
   }, [selectedEventId]);
 
   useEffect(() => {
@@ -99,13 +100,13 @@ export default function CheckinMobilePage({
       .slice(0, 8);
   }, [debouncedQuery, participants, selectedEventId]);
 
-  const scheduleReset = () => {
+  const scheduleReset = ({ focusInput = true } = {}) => {
     if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
     resetTimerRef.current = window.setTimeout(() => {
       setQuery('');
       setDebouncedQuery('');
       setFeedback(null);
-      inputRef.current?.focus();
+      if (focusInput) inputRef.current?.focus();
     }, 2800);
   };
 
@@ -128,7 +129,7 @@ export default function CheckinMobilePage({
     }
   };
 
-  const performCheckin = async (participant: Participant) => {
+  const performCheckin = async (participant: Participant, { focusInputAfter = true } = {}) => {
     if (!selectedEventId) {
       addToast('Selecione um evento antes de realizar check-in.', 'warning');
       return;
@@ -143,7 +144,8 @@ export default function CheckinMobilePage({
           : `${participant.name} ja realizou check-in.`,
         participant
       });
-      inputRef.current?.focus();
+      if (focusInputAfter) inputRef.current?.focus();
+      scheduleReset({ focusInput: focusInputAfter });
       return;
     }
 
@@ -166,6 +168,7 @@ export default function CheckinMobilePage({
           participant: checkedParticipant
         });
         updateParticipantAsCheckedIn(participant, result.checkInAt);
+        scheduleReset({ focusInput: focusInputAfter });
         return;
       }
 
@@ -185,7 +188,7 @@ export default function CheckinMobilePage({
         participant: updatedParticipant
       });
       addToast(`Check-in realizado: ${participant.name}`, 'success');
-      scheduleReset();
+      scheduleReset({ focusInput: focusInputAfter });
     } catch (error: any) {
       setFeedback({
         type: 'error',
@@ -194,6 +197,7 @@ export default function CheckinMobilePage({
         participant
       });
       addToast(error.message || 'Erro ao realizar check-in.', 'error');
+      scheduleReset({ focusInput: focusInputAfter });
     } finally {
       setIsCheckingInId(null);
     }
@@ -208,8 +212,9 @@ export default function CheckinMobilePage({
   };
 
   const handleScanResult = async (decodedText: string) => {
-    await stopScanner();
-    setQuery(decodedText);
+    if (scanLockRef.current) return;
+    scanLockRef.current = true;
+
     const clean = normalizeSearch(decodedText);
     const participant = participants.find(item =>
       item.eventId === selectedEventId &&
@@ -223,11 +228,17 @@ export default function CheckinMobilePage({
         message: 'Nenhum participante encontrado para o QR Code lido.'
       });
       addToast('Participante nao encontrado.', 'error');
-      inputRef.current?.focus();
+      scheduleReset({ focusInput: false });
+      window.setTimeout(() => {
+        scanLockRef.current = false;
+      }, 1800);
       return;
     }
 
-    await performCheckin(participant);
+    await performCheckin(participant, { focusInputAfter: false });
+    window.setTimeout(() => {
+      scanLockRef.current = false;
+    }, 1800);
   };
 
   const stopScanner = async () => {
