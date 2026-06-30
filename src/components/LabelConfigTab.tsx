@@ -33,6 +33,7 @@ const DEFAULT_CONFIG: LabelConfig = {
   showQrCode: true,
   qrSize: 36,
   qrPosition: 'bottom',
+  textSpacing: 2,
   iconStyle: 'shield',
   contrastMode: 'colored',
   customHeader: 'CREDENCIAL PARTICIPANTE',
@@ -177,6 +178,7 @@ export default function LabelConfigTab({
       showQrCode: preset.showQrCode,
       qrSize: preset.qrSize,
       qrPosition: preset.qrPosition,
+      textSpacing: config.textSpacing ?? DEFAULT_CONFIG.textSpacing,
       iconStyle: preset.iconStyle,
       contrastMode: preset.contrastMode,
       customHeader: preset.customHeader

@@ -84,6 +84,7 @@ export default function SimpleEditor({
   };
 
   const fields = getNormalizedFields();
+  const textSpacing = config.textSpacing ?? 2;
 
   const updateFieldsList = (newFields: BadgeFieldItem[]) => {
     const eventField = newFields.find(f => f.id === 'event');
@@ -417,6 +418,39 @@ export default function SimpleEditor({
         </div>
 
         {/* Dimensões Customizadas da Etiqueta */}
+        <div className="mt-5 pt-5 border-t border-slate-100">
+          <div className="flex justify-between items-center mb-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-150">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+              Espaçamento entre textos
+            </span>
+            <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+              {textSpacing} px
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="0"
+              max="24"
+              value={textSpacing}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                onChange({ textSpacing: isNaN(val) ? 0 : Math.max(0, Math.min(24, val)) });
+              }}
+              className="w-24 text-xs font-black text-slate-800 bg-white border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2 transition"
+            />
+            <input
+              type="range"
+              min="0"
+              max="24"
+              value={textSpacing}
+              onChange={(e) => onChange({ textSpacing: parseInt(e.target.value) })}
+              className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              title="Arraste para regular o espaçamento vertical entre os textos impressos"
+            />
+          </div>
+        </div>
+
         <div className="mt-5 pt-5 border-t border-slate-100">
           <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-3 font-display">
             Dimensões Personalizadas da Credencial / Etiqueta 

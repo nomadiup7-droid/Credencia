@@ -49,6 +49,7 @@ export default function LabelPrint({
     showQrCode: event?.showQRCode !== false,
     qrSize: 32,
     qrPosition: 'right',
+    textSpacing: 2,
     iconStyle: 'shield',
     contrastMode: 'colored',
     customHeader: '',
@@ -73,6 +74,7 @@ export default function LabelPrint({
 
   const fontMultiplierName = config.fontSizeName === 'sm' ? '11px' : config.fontSizeName === 'md' ? '13px' : config.fontSizeName === 'lg' ? '15px' : config.fontSizeName === 'xl' ? '18px' : '22px';
   const fontMultiplierMeta = config.fontSizeMeta === 'xs' ? '8px' : config.fontSizeMeta === 'sm' ? '10px' : '12px';
+  const textSpacing = Math.max(0, Math.min(24, config.textSpacing ?? 2));
 
   // Layout parameters
   const isQrOnSide = config.qrPosition === 'left' || config.qrPosition === 'right' || config.qrPosition === 'side-by-side';
@@ -223,7 +225,7 @@ export default function LabelPrint({
               justify-content: center;
               flex: 1;
               min-width: 0;
-              gap: 2px;
+              gap: ${textSpacing}px;
               text-align: ${config.alignment};
             }
             .qr {

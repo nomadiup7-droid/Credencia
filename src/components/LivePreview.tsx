@@ -150,6 +150,7 @@ export default function LivePreview({
 
   const activeFields = getNormalizedFields();
   const catStyle = CATEGORY_STYLE[selectedParticipant.category] || CATEGORY_STYLE.Participante;
+  const textSpacing = Math.max(0, Math.min(24, config.textSpacing ?? (isLabel ? 2 : 4)));
 
   // Determine QR Code alignment and layout properties on the card
   const isQrOnSide = config.qrPosition === 'left' || config.qrPosition === 'right' || config.qrPosition === 'side-by-side';
@@ -237,7 +238,7 @@ export default function LivePreview({
                 justifyContent: 'center',
                 flex: 1,
                 minWidth: 0,
-                gap: isLabel ? '2px' : '4px'
+                gap: `${textSpacing}px`
               }}
               className={`w-full ${getAlignmentClass()}`}
             >

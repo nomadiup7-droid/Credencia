@@ -151,6 +151,7 @@ export interface LabelConfig {
   showQrCode: boolean;
   qrSize: number;       // in mm or px (e.g. 35)
   qrPosition: 'left' | 'center' | 'right' | 'top' | 'bottom' | 'side-by-side';
+  textSpacing?: number; // spacing between printed text fields in px
   iconStyle: 'none' | 'shield' | 'circle' | 'minimal';
   contrastMode: 'monochrome' | 'colored';
   customHeader: string; // optional custom header text
