@@ -1534,6 +1534,7 @@ export default function App() {
           'dashboard',
           'eventos',
           'participantes',
+          'inscricoes-online',
           'campos',
           'checkin',
           'checkin-mobile',
