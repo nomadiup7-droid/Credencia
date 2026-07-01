@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate } from '../src/types';
+import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate, OnlineRegistrationConfig, OnlineRegistration } from '../src/types';
 
 // Load environment variables early
 dotenv.config();
@@ -26,6 +26,8 @@ interface DBSchema {
   activityAttendances?: ActivityAttendance[];
   certificates?: Certificate[];
   certificateTemplates?: CertificateTemplate[];
+  onlineRegistrationConfigs?: OnlineRegistrationConfig[];
+  onlineRegistrations?: OnlineRegistration[];
   participantFields?: ParticipantField[];
   areas?: Area[];
   areaAccessLogs?: AreaAccessLog[];
@@ -357,6 +359,8 @@ class Database {
         activityAttendances: [],
         certificates: [],
         certificateTemplates: [],
+        onlineRegistrationConfigs: [],
+        onlineRegistrations: [],
         participantFields: DEFAULT_PARTICIPANT_FIELDS,
         areas: [
           { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
@@ -435,6 +439,8 @@ class Database {
             logoUrl: template.logoUrl || '',
             elements: Array.isArray(template.elements) ? template.elements : []
           })),
+          onlineRegistrationConfigs: parsed.onlineRegistrationConfigs || [],
+          onlineRegistrations: parsed.onlineRegistrations || [],
           participantFields: parsed.participantFields || DEFAULT_PARTICIPANT_FIELDS,
           areas: (parsed.areas || [
             { id: 'a1', name: 'Sala', color: '#00E545' },
@@ -788,10 +794,200 @@ class Database {
     this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.eventId !== id);
     this.data.certificates = (this.data.certificates || []).filter(cert => cert.eventId !== id);
     this.data.certificateTemplates = (this.data.certificateTemplates || []).filter(template => template.eventId !== id);
+    this.data.onlineRegistrationConfigs = (this.data.onlineRegistrationConfigs || []).filter(config => config.eventId !== id);
+    this.data.onlineRegistrations = (this.data.onlineRegistrations || []).filter(registration => registration.eventId !== id);
     this.data.participants = this.data.participants.filter(p => p.eventId !== id);
     this.data.cloakroom = this.data.cloakroom.filter(c => c.eventId !== id);
     this.saveLocal();
     return true;
+  }
+
+  // --- Online Registrations ---
+  async getOnlineRegistrationConfigs(eventId?: string): Promise<OnlineRegistrationConfig[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('online_registration_configs').select('*');
+      if (eventId) query = query.eq('event_id', eventId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return toCamel(data) || [];
+    }
+    const configs = this.data.onlineRegistrationConfigs || [];
+    return eventId ? configs.filter(config => config.eventId === eventId) : configs;
+  }
+
+  async getOnlineRegistrationConfigByEvent(eventId: string): Promise<OnlineRegistrationConfig | undefined> {
+    const configs = await this.getOnlineRegistrationConfigs(eventId);
+    return configs[0];
+  }
+
+  async getOnlineRegistrationConfigBySlug(slug: string): Promise<OnlineRegistrationConfig | undefined> {
+    const cleanSlug = String(slug || '').trim().toLowerCase();
+    if (!cleanSlug) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase
+        .from('online_registration_configs')
+        .select('*')
+        .eq('slug', cleanSlug)
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    return (this.data.onlineRegistrationConfigs || []).find(config => config.slug.toLowerCase() === cleanSlug);
+  }
+
+  async upsertOnlineRegistrationConfig(eventId: string, updates: Partial<Omit<OnlineRegistrationConfig, 'id' | 'eventId' | 'createdAt' | 'updatedAt'>>): Promise<OnlineRegistrationConfig> {
+    const now = new Date().toISOString();
+    const cleanSlug = String(updates.slug || '').trim().toLowerCase();
+    const payload = {
+      ...updates,
+      ...(cleanSlug ? { slug: cleanSlug } : {}),
+      updatedAt: now
+    };
+
+    if (this.useSupabase) {
+      const existing = await this.getOnlineRegistrationConfigByEvent(eventId);
+      if (existing) {
+        const { data, error } = await this.supabase
+          .from('online_registration_configs')
+          .update(toSnake(payload))
+          .eq('id', existing.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return toCamel(data);
+      }
+
+      const newConfig: OnlineRegistrationConfig = {
+        id: 'orc_' + Math.random().toString(36).substring(2, 10),
+        eventId,
+        enabled: false,
+        slug: cleanSlug || `evento-${eventId}`,
+        publicTitle: '',
+        publicDescription: '',
+        publicDate: '',
+        publicLocation: '',
+        bannerUrl: '',
+        status: 'PAUSADA',
+        approvalMode: 'MANUAL',
+        createdAt: now,
+        updatedAt: now,
+        ...payload
+      } as OnlineRegistrationConfig;
+      const { data, error } = await this.supabase
+        .from('online_registration_configs')
+        .insert(toSnake(newConfig))
+        .select()
+        .single();
+      if (error) throw error;
+      return toCamel(data);
+    }
+
+    this.data.onlineRegistrationConfigs = this.data.onlineRegistrationConfigs || [];
+    const existing = this.data.onlineRegistrationConfigs.find(config => config.eventId === eventId);
+    if (existing) {
+      Object.assign(existing, payload);
+      this.saveLocal();
+      return existing;
+    }
+
+    const newConfig: OnlineRegistrationConfig = {
+      id: 'orc_' + Math.random().toString(36).substring(2, 10),
+      eventId,
+      enabled: false,
+      slug: cleanSlug || `evento-${eventId}`,
+      publicTitle: '',
+      publicDescription: '',
+      publicDate: '',
+      publicLocation: '',
+      bannerUrl: '',
+      status: 'PAUSADA',
+      approvalMode: 'MANUAL',
+      createdAt: now,
+      updatedAt: now,
+      ...payload
+    } as OnlineRegistrationConfig;
+    this.data.onlineRegistrationConfigs.push(newConfig);
+    this.saveLocal();
+    return newConfig;
+  }
+
+  async getOnlineRegistrations(filters: { eventId?: string; status?: string; search?: string } = {}): Promise<OnlineRegistration[]> {
+    if (this.useSupabase) {
+      let query = this.supabase.from('online_registrations').select('*');
+      if (filters.eventId) query = query.eq('event_id', filters.eventId);
+      if (filters.status) query = query.eq('status', filters.status);
+      const { data, error } = await query.order('registered_at', { ascending: false });
+      if (error) throw error;
+      const rows = toCamel(data) || [];
+      return this.filterOnlineRegistrations(rows, filters.search);
+    }
+    let rows = [...(this.data.onlineRegistrations || [])];
+    if (filters.eventId) rows = rows.filter(row => row.eventId === filters.eventId);
+    if (filters.status) rows = rows.filter(row => row.status === filters.status);
+    rows = this.filterOnlineRegistrations(rows, filters.search);
+    return rows.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime());
+  }
+
+  private filterOnlineRegistrations(rows: OnlineRegistration[], search?: string) {
+    const query = String(search || '').trim().toLowerCase();
+    if (!query) return rows;
+    return rows.filter(row =>
+      row.name.toLowerCase().includes(query) ||
+      String(row.email || '').toLowerCase().includes(query) ||
+      String(row.phone || '').toLowerCase().includes(query)
+    );
+  }
+
+  async getOnlineRegistrationById(id: string): Promise<OnlineRegistration | undefined> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('online_registrations').select('*').eq('id', id).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    return (this.data.onlineRegistrations || []).find(row => row.id === id);
+  }
+
+  async createOnlineRegistration(registration: Omit<OnlineRegistration, 'id' | 'registeredAt' | 'createdAt' | 'updatedAt'>): Promise<OnlineRegistration> {
+    const now = new Date().toISOString();
+    const newRegistration: OnlineRegistration = {
+      ...registration,
+      id: 'or_' + Math.random().toString(36).substring(2, 10),
+      registeredAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('online_registrations').insert(toSnake(newRegistration)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
+    this.data.onlineRegistrations = this.data.onlineRegistrations || [];
+    this.data.onlineRegistrations.push(newRegistration);
+    this.saveLocal();
+    return newRegistration;
+  }
+
+  async updateOnlineRegistration(id: string, updates: Partial<Omit<OnlineRegistration, 'id' | 'createdAt'>>): Promise<OnlineRegistration | undefined> {
+    const payload = { ...updates, updatedAt: new Date().toISOString() };
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('online_registrations').update(toSnake(payload)).eq('id', id).select().single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    const registration = (this.data.onlineRegistrations || []).find(row => row.id === id);
+    if (!registration) return undefined;
+    Object.assign(registration, payload);
+    this.saveLocal();
+    return registration;
   }
 
   // --- Participants CRUD ---

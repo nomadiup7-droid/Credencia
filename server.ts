@@ -1,8 +1,9 @@
 import express from 'express';
 import path from 'path';
+import { randomBytes } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction, CertificateTemplate } from './src/types';
+import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationStatus } from './src/types';
 import checkInRouter from './routes/checkin';
 
 const app = express();
@@ -349,6 +350,377 @@ const requireActivityAdmin = async (req: express.Request, res: express.Response,
   (req as any).activityRecord = activity;
   next();
 };
+
+const normalizeSlug = (value: string) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+
+const normalizeDigits = (value?: string) => String(value || '').replace(/\D/g, '');
+const normalizeText = (value?: string) => String(value || '').trim();
+const generateQrToken = () => `OR-${randomBytes(18).toString('hex')}`;
+
+const publicConfigPayload = (config: any, event: any) => ({
+  id: config.id,
+  eventId: config.eventId,
+  slug: config.slug,
+  enabled: config.enabled,
+  publicTitle: config.publicTitle || event.name,
+  publicDescription: config.publicDescription || '',
+  publicDate: config.publicDate || event.date,
+  publicLocation: config.publicLocation || event.location,
+  bannerUrl: config.bannerUrl || '',
+  status: config.status,
+  approvalMode: config.approvalMode,
+  maxRegistrations: config.maxRegistrations || undefined
+});
+
+const canViewOnlineRegistrationsForEvent = async (user: any, eventId?: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+  if (!eventId) return false;
+  if (await hasEventPermission(user, eventId, 'participants.view')) return true;
+  const eventLink = await db.getEventUser(eventId, user.id);
+  return eventLink?.active === true && ['ADMIN', 'CHECKIN_CADASTRO', 'RELATORIO'].includes(String(eventLink.role || '').toUpperCase());
+};
+
+const canModerateOnlineRegistrationsForEvent = async (user: any, eventId?: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+  if (!eventId) return false;
+  if (await hasEventPermission(user, eventId, 'participants.create')) return true;
+  const eventLink = await db.getEventUser(eventId, user.id);
+  return eventLink?.active === true && ['ADMIN', 'CHECKIN_CADASTRO'].includes(String(eventLink.role || '').toUpperCase());
+};
+
+const ensureOnlineRegistrationParticipant = async (registration: OnlineRegistration, approvedBy?: string) => {
+  if (registration.participantId) {
+    const existingParticipant = await db.getParticipantById(registration.participantId);
+    if (existingParticipant) return { registration, participant: existingParticipant };
+  }
+
+  const qrToken = registration.qrToken || generateQrToken();
+  const participant = await db.createParticipant({
+    eventId: registration.eventId,
+    name: registration.name,
+    badgeName: registration.name,
+    email: registration.email || '',
+    cpf: normalizeDigits(registration.cpf),
+    category: 'Participante' as ParticipantCategory,
+    company: registration.company || '',
+    ticketCode: qrToken,
+    checkedIn: false
+  });
+
+  const updated = await db.updateOnlineRegistration(registration.id, {
+    status: 'APROVADA',
+    participantId: participant.id,
+    qrToken,
+    approvedAt: new Date().toISOString(),
+    approvedBy
+  });
+
+  return { registration: updated || registration, participant };
+};
+
+const validateOnlineRegistrationAvailability = async (config: any) => {
+  if (!config || !config.enabled) return 'InscriÃ§Ã£o online indisponÃ­vel para este evento.';
+  if (config.status === 'PAUSADA') return 'As inscriÃ§Ãµes online estÃ£o pausadas.';
+  if (config.status === 'ENCERRADA') return 'As inscriÃ§Ãµes online estÃ£o encerradas.';
+  if (config.status !== 'ABERTA') return 'As inscriÃ§Ãµes online nÃ£o estÃ£o abertas.';
+
+  if (config.maxRegistrations && Number(config.maxRegistrations) > 0) {
+    const registrations = await db.getOnlineRegistrations({ eventId: config.eventId });
+    const activeTotal = registrations.filter(row => row.status !== 'CANCELADA').length;
+    if (activeTotal >= Number(config.maxRegistrations)) {
+      return 'O limite de inscriÃ§Ãµes deste evento foi atingido.';
+    }
+  }
+
+  return '';
+};
+
+// --- PUBLIC ONLINE REGISTRATION ENDPOINTS ---
+app.get('/api/public/online-registration/:slug', async (req, res) => {
+  try {
+    const config = await db.getOnlineRegistrationConfigBySlug(req.params.slug);
+    if (!config) {
+      res.status(404).json({ error: 'PÃ¡gina de inscriÃ§Ã£o nÃ£o encontrada' });
+      return;
+    }
+
+    const event = await db.getEventById(config.eventId);
+    if (!event) {
+      res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+      return;
+    }
+
+    res.json({ config: publicConfigPayload(config, event) });
+  } catch (error) {
+    console.error('Error loading public online registration:', error);
+    res.status(500).json({ error: 'Erro ao carregar inscriÃ§Ã£o online' });
+  }
+});
+
+app.post('/api/public/online-registration/:slug/register', async (req, res) => {
+  try {
+    const config = await db.getOnlineRegistrationConfigBySlug(req.params.slug);
+    if (!config) {
+      res.status(404).json({ error: 'PÃ¡gina de inscriÃ§Ã£o nÃ£o encontrada' });
+      return;
+    }
+
+    const event = await db.getEventById(config.eventId);
+    if (!event) {
+      res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+      return;
+    }
+
+    const availabilityError = await validateOnlineRegistrationAvailability(config);
+    if (availabilityError) {
+      res.status(400).json({ error: availabilityError });
+      return;
+    }
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeText(req.body.email).toLowerCase();
+    const phone = normalizeDigits(req.body.phone);
+    const cpf = normalizeDigits(req.body.cpf);
+    const company = normalizeText(req.body.company);
+    const position = normalizeText(req.body.position);
+    const lgpdAccepted = req.body.lgpdAccepted === true;
+
+    if (!name) {
+      res.status(400).json({ error: 'Nome completo Ã© obrigatÃ³rio.' });
+      return;
+    }
+    if (!phone) {
+      res.status(400).json({ error: 'Telefone/WhatsApp Ã© obrigatÃ³rio.' });
+      return;
+    }
+    if (!lgpdAccepted) {
+      res.status(400).json({ error: 'O aceite LGPD Ã© obrigatÃ³rio.' });
+      return;
+    }
+
+    const registrations = await db.getOnlineRegistrations({ eventId: config.eventId });
+    const duplicate = registrations.find(row => {
+      if (email && String(row.email || '').toLowerCase() === email) return true;
+      if (phone && normalizeDigits(row.phone) === phone) return true;
+      if (cpf && normalizeDigits(row.cpf) === cpf) return true;
+      return false;
+    });
+    if (duplicate) {
+      res.status(409).json({ error: 'JÃ¡ existe uma inscriÃ§Ã£o para este evento com os dados informados.' });
+      return;
+    }
+
+    if (cpf) {
+      const existingParticipant = await db.getParticipantByCpfAndEvent(cpf, config.eventId);
+      if (existingParticipant) {
+        res.status(409).json({ error: 'JÃ¡ existe participante cadastrado para este evento com este CPF.' });
+        return;
+      }
+    }
+
+    const isAutomatic = config.approvalMode === 'AUTOMATICA';
+    const registration = await db.createOnlineRegistration({
+      eventId: config.eventId,
+      name,
+      email,
+      phone,
+      company,
+      position,
+      cpf,
+      status: isAutomatic ? 'APROVADA' : 'PENDENTE',
+      lgpdAccepted
+    });
+
+    if (isAutomatic) {
+      const result = await ensureOnlineRegistrationParticipant(registration);
+      res.status(201).json({
+        status: 'APROVADA',
+        message: 'InscriÃ§Ã£o confirmada com sucesso.',
+        registration: result.registration,
+        participant: result.participant,
+        qrToken: result.registration.qrToken || result.participant.ticketCode
+      });
+      return;
+    }
+
+    res.status(201).json({
+      status: 'PENDENTE',
+      message: 'Sua inscriÃ§Ã£o foi recebida e estÃ¡ aguardando aprovaÃ§Ã£o.',
+      registration
+    });
+  } catch (error) {
+    console.error('Error creating public online registration:', error);
+    res.status(500).json({ error: 'Erro ao criar inscriÃ§Ã£o online' });
+  }
+});
+
+// --- ADMIN ONLINE REGISTRATION ENDPOINTS ---
+app.get('/api/events/:eventId/online-registration-config', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      return;
+    }
+    if (!(await canViewOnlineRegistrationsForEvent(user, event.id))) {
+      res.status(403).json({ error: 'Acesso negado para inscriÃ§Ãµes online' });
+      return;
+    }
+
+    const existing = await db.getOnlineRegistrationConfigByEvent(event.id);
+    res.json(existing || null);
+  } catch (error) {
+    console.error('Error loading online registration config:', error);
+    res.status(500).json({ error: 'Erro ao carregar configuraÃ§Ã£o de inscriÃ§Ãµes online' });
+  }
+});
+
+app.put('/api/events/:eventId/online-registration-config', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const event = await db.getEventById(req.params.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      return;
+    }
+    if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
+      res.status(403).json({ error: 'Acesso negado para configurar inscriÃ§Ãµes online' });
+      return;
+    }
+
+    const slug = normalizeSlug(req.body.slug || event.name);
+    if (!slug) {
+      res.status(400).json({ error: 'Slug pÃºblico Ã© obrigatÃ³rio.' });
+      return;
+    }
+
+    const existingSlugConfig = await db.getOnlineRegistrationConfigBySlug(slug);
+    if (existingSlugConfig && existingSlugConfig.eventId !== event.id) {
+      res.status(409).json({ error: 'Este slug jÃ¡ estÃ¡ em uso por outro evento.' });
+      return;
+    }
+
+    const config = await db.upsertOnlineRegistrationConfig(event.id, {
+      enabled: req.body.enabled === true,
+      slug,
+      publicTitle: normalizeText(req.body.publicTitle) || event.name,
+      publicDescription: normalizeText(req.body.publicDescription),
+      publicDate: normalizeText(req.body.publicDate) || event.date,
+      publicLocation: normalizeText(req.body.publicLocation) || event.location,
+      bannerUrl: normalizeText(req.body.bannerUrl),
+      maxRegistrations: req.body.maxRegistrations ? Math.max(0, Number(req.body.maxRegistrations)) : undefined,
+      status: ['ABERTA', 'PAUSADA', 'ENCERRADA'].includes(req.body.status) ? req.body.status : 'PAUSADA',
+      approvalMode: req.body.approvalMode === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL'
+    });
+    res.json(config);
+  } catch (error) {
+    console.error('Error saving online registration config:', error);
+    res.status(500).json({ error: 'Erro ao salvar configuraÃ§Ã£o de inscriÃ§Ãµes online' });
+  }
+});
+
+app.get('/api/online-registrations', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const eventId = req.query.eventId as string | undefined;
+    if (eventId) {
+      const event = await db.getEventById(eventId);
+      if (!event || event.organizationId !== user.organizationId) {
+        res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+        return;
+      }
+      if (!(await canViewOnlineRegistrationsForEvent(user, eventId))) {
+        res.status(403).json({ error: 'Acesso negado para inscriÃ§Ãµes online' });
+        return;
+      }
+    }
+
+    const events = await db.getEvents(user.organizationId);
+    const allowedEventIds = new Set(events.map(event => event.id));
+    const registrations = await db.getOnlineRegistrations({
+      eventId,
+      status: req.query.status as string | undefined,
+      search: req.query.search as string | undefined
+    });
+    res.json(registrations.filter(row => allowedEventIds.has(row.eventId)));
+  } catch (error) {
+    console.error('Error listing online registrations:', error);
+    res.status(500).json({ error: 'Erro ao listar inscriÃ§Ãµes online' });
+  }
+});
+
+app.post('/api/online-registrations/:id/approve', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const registration = await db.getOnlineRegistrationById(req.params.id);
+    if (!registration) {
+      res.status(404).json({ error: 'InscriÃ§Ã£o nÃ£o encontrada' });
+      return;
+    }
+    const event = await db.getEventById(registration.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      return;
+    }
+    if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
+      res.status(403).json({ error: 'Acesso negado para aprovar inscriÃ§Ãµes online' });
+      return;
+    }
+    if (registration.status === 'CANCELADA') {
+      res.status(400).json({ error: 'InscriÃ§Ãµes canceladas nÃ£o podem ser aprovadas.' });
+      return;
+    }
+
+    const result = await ensureOnlineRegistrationParticipant(registration, user.id);
+    res.json(result);
+  } catch (error) {
+    console.error('Error approving online registration:', error);
+    res.status(500).json({ error: 'Erro ao aprovar inscriÃ§Ã£o online' });
+  }
+});
+
+const updateOnlineRegistrationStatusRoute = (status: OnlineRegistrationStatus) => async (req: express.Request, res: express.Response) => {
+  try {
+    const user = (req as any).user;
+    const registration = await db.getOnlineRegistrationById(req.params.id);
+    if (!registration) {
+      res.status(404).json({ error: 'InscriÃ§Ã£o nÃ£o encontrada' });
+      return;
+    }
+    const event = await db.getEventById(registration.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      return;
+    }
+    if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
+      res.status(403).json({ error: 'Acesso negado para gerenciar inscriÃ§Ãµes online' });
+      return;
+    }
+
+    const updated = await db.updateOnlineRegistration(registration.id, {
+      status,
+      ...(status === 'CANCELADA' ? { cancelledAt: new Date().toISOString() } : {})
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating online registration status:', error);
+    res.status(500).json({ error: 'Erro ao atualizar inscriÃ§Ã£o online' });
+  }
+};
+
+app.post('/api/online-registrations/:id/reject', authenticateToken, updateOnlineRegistrationStatusRoute('REPROVADA'));
+app.post('/api/online-registrations/:id/cancel', authenticateToken, updateOnlineRegistrationStatusRoute('CANCELADA'));
 
 // --- AUTHENTICATION ENDPOINTS ---
 app.post('/api/auth/login', async (req, res) => {

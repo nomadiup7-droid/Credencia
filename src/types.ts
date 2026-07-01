@@ -80,6 +80,48 @@ export interface Event {
 
 export type ParticipantCategory = 'VIP' | 'Palestrante' | 'Expositor' | 'Participante' | 'Staff';
 
+export type OnlineRegistrationConfigStatus = 'ABERTA' | 'PAUSADA' | 'ENCERRADA';
+export type OnlineRegistrationApprovalMode = 'AUTOMATICA' | 'MANUAL';
+export type OnlineRegistrationStatus = 'PENDENTE' | 'APROVADA' | 'REPROVADA' | 'CANCELADA';
+
+export interface OnlineRegistrationConfig {
+  id: string;
+  eventId: string;
+  enabled: boolean;
+  slug: string;
+  publicTitle: string;
+  publicDescription: string;
+  publicDate: string;
+  publicLocation: string;
+  bannerUrl?: string;
+  maxRegistrations?: number;
+  status: OnlineRegistrationConfigStatus;
+  approvalMode: OnlineRegistrationApprovalMode;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OnlineRegistration {
+  id: string;
+  eventId: string;
+  participantId?: string;
+  name: string;
+  email?: string;
+  phone: string;
+  company?: string;
+  position?: string;
+  cpf?: string;
+  status: OnlineRegistrationStatus;
+  qrToken?: string;
+  lgpdAccepted: boolean;
+  registeredAt: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  cancelledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Participant {
   id: string;
   eventId: string;

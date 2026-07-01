@@ -47,6 +47,8 @@ import LabelConfigTab from './components/LabelConfigTab';
 import Dashboard from './components/Dashboard';
 import StatsCard from './components/StatsCard';
 import EventsPage from './pages/EventsPage';
+import OnlineRegistrationsPage from './pages/OnlineRegistrationsPage';
+import PublicRegistrationPage from './pages/PublicRegistrationPage';
 import CheckinPage from './pages/CheckinPage';
 import ScanAccessControlPage from './pages/ScanAccessControlPage';
 import CheckInModular from './pages/CheckInModular';
@@ -505,6 +507,7 @@ type ActiveTab =
   | 'evento-dashboard'
   | 'eventos'
   | 'participantes'
+  | 'inscricoes-online'
   | 'checkin'
   | 'checkin-mobile'
   | 'checkin-modular'
@@ -530,6 +533,7 @@ const ACTIVE_TABS: ActiveTab[] = [
   'evento-dashboard',
   'eventos',
   'participantes',
+  'inscricoes-online',
   'checkin',
   'checkin-mobile',
   'checkin-modular',
@@ -3480,6 +3484,10 @@ export default function App() {
     );
   };
 
+  if (window.location.pathname.startsWith('/inscricao/')) {
+    return <PublicRegistrationPage />;
+  }
+
   if (!token || !currentUser) {
     return (
       <div className="relative min-h-screen overflow-hidden bg-[#030604] text-white flex items-center justify-center p-4 sm:p-6">
@@ -3783,6 +3791,7 @@ export default function App() {
     ...(isUserAdmin ? [{ id: 'eventos' as const, label: 'Eventos', icon: Calendar }] : []),
     ...(canManageOperators ? [{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
     ...(canManageParticipants || isUserAdmin ? [{ id: 'participantes' as const, label: 'Participantes', icon: Users }] : []),
+    ...(isUserAdmin ? [{ id: 'inscricoes-online' as const, label: 'Inscrições Online', icon: ClipboardCheck }] : []),
     ...(isUserAdmin ? [{ id: 'campos' as const, label: 'Campos de Cadastro', icon: FileText }] : []),
     { id: 'checkin' as const, label: 'Check-in', icon: QrCode },
     ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
@@ -4913,6 +4922,20 @@ export default function App() {
                 </div>
 
               </div>
+            )}
+
+            {activeTab === 'inscricoes-online' && isUserAdmin && (
+              <OnlineRegistrationsPage
+                events={events}
+                selectedEventId={selectedEventId}
+                apiCall={apiCall}
+                addToast={addToast}
+                onParticipantsChanged={(eventId) => {
+                  if (eventId === selectedEventId) {
+                    loadDataForEvent(eventId);
+                  }
+                }}
+              />
             )}
 
             {activeTab === 'checkin-mobile' && (
