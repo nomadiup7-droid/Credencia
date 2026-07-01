@@ -392,6 +392,32 @@ interface ReportBrandConfig {
   watermarkOpacity: number;
 }
 
+type ReportOptionKey =
+  | 'summaryTotal'
+  | 'summaryCheckedIn'
+  | 'summaryPending'
+  | 'summaryAttendanceRate'
+  | 'eventName'
+  | 'eventDate'
+  | 'eventCategory'
+  | 'eventStatusFilter'
+  | 'issuedAt'
+  | 'checkinsByHour'
+  | 'participantsByCategory'
+  | 'presenceBreakdown'
+  | 'areaAccess'
+  | 'areaAccessDecisions'
+  | 'participantName'
+  | 'participantCpf'
+  | 'participantEmail'
+  | 'participantPhone'
+  | 'participantCategory'
+  | 'participantCheckinStatus'
+  | 'participantCheckinTime'
+  | 'participantAreaAccess';
+
+type ReportConfig = Record<ReportOptionKey, boolean>;
+
 const DEFAULT_REPORT_BRAND_CONFIG: ReportBrandConfig = {
   showLogo: false,
   logoUrl: '',
@@ -399,6 +425,86 @@ const DEFAULT_REPORT_BRAND_CONFIG: ReportBrandConfig = {
   watermarkUrl: '',
   watermarkOpacity: 0.08
 };
+
+const DEFAULT_REPORT_CONFIG: ReportConfig = {
+  summaryTotal: true,
+  summaryCheckedIn: true,
+  summaryPending: true,
+  summaryAttendanceRate: true,
+  eventName: true,
+  eventDate: true,
+  eventCategory: true,
+  eventStatusFilter: true,
+  issuedAt: true,
+  checkinsByHour: true,
+  participantsByCategory: true,
+  presenceBreakdown: true,
+  areaAccess: true,
+  areaAccessDecisions: true,
+  participantName: true,
+  participantCpf: true,
+  participantEmail: true,
+  participantPhone: false,
+  participantCategory: true,
+  participantCheckinStatus: true,
+  participantCheckinTime: true,
+  participantAreaAccess: true
+};
+
+const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; description: string; keys: Array<{ key: ReportOptionKey; label: string }> }> = [
+  {
+    id: 'summary',
+    title: 'Resumo geral',
+    description: 'Indicadores principais do credenciamento.',
+    keys: [
+      { key: 'summaryTotal', label: 'Total de participantes' },
+      { key: 'summaryCheckedIn', label: 'Check-ins realizados' },
+      { key: 'summaryPending', label: 'Participantes pendentes' },
+      { key: 'summaryAttendanceRate', label: 'Percentual de presença' }
+    ]
+  },
+  {
+    id: 'event',
+    title: 'Dados do evento',
+    description: 'Cabeçalho e contexto do relatório.',
+    keys: [
+      { key: 'eventName', label: 'Nome do evento' },
+      { key: 'eventDate', label: 'Data do evento' },
+      { key: 'eventCategory', label: 'Categoria' },
+      { key: 'eventStatusFilter', label: 'Status filtrado' },
+      { key: 'issuedAt', label: 'Data e hora de emissão do relatório' }
+    ]
+  },
+  {
+    id: 'charts',
+    title: 'Gráficos e estatísticas',
+    description: 'Blocos visuais de análise operacional.',
+    keys: [
+      { key: 'checkinsByHour', label: 'Check-ins por horário' },
+      { key: 'participantsByCategory', label: 'Participantes por categoria' },
+      { key: 'presenceBreakdown', label: 'Presentes x ausentes' },
+      { key: 'areaAccess', label: 'Acessos por sala' },
+      { key: 'areaAccessDecisions', label: 'Liberações e negações de acesso' }
+    ]
+  },
+  {
+    id: 'participants',
+    title: 'Lista de participantes',
+    description: 'Colunas da tabela impressa e exportada.',
+    keys: [
+      { key: 'participantName', label: 'Nome' },
+      { key: 'participantCpf', label: 'CPF' },
+      { key: 'participantEmail', label: 'E-mail' },
+      { key: 'participantPhone', label: 'Telefone' },
+      { key: 'participantCategory', label: 'Categoria' },
+      { key: 'participantCheckinStatus', label: 'Status do check-in' },
+      { key: 'participantCheckinTime', label: 'Horário do check-in' },
+      { key: 'participantAreaAccess', label: 'Sala/acesso liberado ou negado' }
+    ]
+  }
+];
+
+const REPORT_OPTION_KEYS = REPORT_CONFIG_GROUPS.flatMap(group => group.keys.map(item => item.key));
 
 const REPORT_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
 const REPORT_IMAGE_FORMATS = 'PNG, JPG/JPEG, WebP, GIF e SVG';
@@ -762,6 +868,14 @@ export default function App() {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedPresenceFilter, setSelectedPresenceFilter] = useState<'all' | 'present' | 'absent'>('all');
   const [reportBrandConfig, setReportBrandConfig] = useState<ReportBrandConfig>(DEFAULT_REPORT_BRAND_CONFIG);
+  const [reportConfig, setReportConfig] = useState<ReportConfig>(() => {
+    try {
+      const saved = localStorage.getItem('credencia_report_config');
+      return saved ? { ...DEFAULT_REPORT_CONFIG, ...JSON.parse(saved) } : DEFAULT_REPORT_CONFIG;
+    } catch (error) {
+      return DEFAULT_REPORT_CONFIG;
+    }
+  });
 
   // Modal / Form trigger states
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
@@ -1696,6 +1810,10 @@ export default function App() {
     if (!selectedEventId) return;
     localStorage.setItem(`credencia_report_brand_${selectedEventId}`, JSON.stringify(reportBrandConfig));
   }, [reportBrandConfig, selectedEventId]);
+
+  useEffect(() => {
+    localStorage.setItem('credencia_report_config', JSON.stringify(reportConfig));
+  }, [reportConfig]);
 
   const handleReportImageUpload = (file: File | undefined, target: 'logoUrl' | 'watermarkUrl') => {
     if (!file) return;
@@ -3126,8 +3244,20 @@ export default function App() {
 
 
   // --- REPORTS EXPORT GENERATORS ---
+  const hasReportSelection = () => REPORT_OPTION_KEYS.some(key => reportConfig[key]);
+  const getReportSelectedSectionCount = (config = reportConfig) => REPORT_CONFIG_GROUPS.filter(group => group.keys.some(item => config[item.key])).length;
+  const getReportSelectedOptionCount = (config = reportConfig) => REPORT_OPTION_KEYS.filter(key => config[key]).length;
+  const getReportParticipantPhone = (participant: Participant) => (participant as any).phone || (participant as any).whatsapp || (participant as any).telefone || '';
+  const updateReportOption = (key: ReportOptionKey, checked: boolean) => setReportConfig(prev => ({ ...prev, [key]: checked }));
+  const setAllReportOptions = (checked: boolean) => setReportConfig(REPORT_OPTION_KEYS.reduce((acc, key) => ({ ...acc, [key]: checked }), {} as ReportConfig));
+  const resetReportOptions = () => setReportConfig(DEFAULT_REPORT_CONFIG);
+
   const exportParticipantsToExcelWithFilter = (presentOnly: boolean, sourceList?: Participant[], fileLabel?: string) => {
     if (!currentEvent) return;
+    if (!hasReportSelection()) {
+      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
+      return;
+    }
 
     const reportSource = sourceList || participants;
     
@@ -3163,7 +3293,33 @@ export default function App() {
       };
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(outputRows);
+    const exportRows = outputRows.map((row: any) => {
+      const filtered: Record<string, string | number> = {};
+      const findColumn = (patterns: string[]) => {
+        const key = Object.keys(row).find(column => patterns.some(pattern => column.toLowerCase().includes(pattern)));
+        return key ? row[key] : '';
+      };
+
+      if (reportConfig.eventName) filtered['Evento'] = currentEvent.name;
+      if (reportConfig.eventDate) filtered['Data do Evento'] = currentEvent.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : '';
+      if (reportConfig.eventCategory) filtered['Categoria Filtrada'] = selectedCategoryFilter === 'all' ? 'Todas' : selectedCategoryFilter;
+      if (reportConfig.eventStatusFilter) filtered['Status Filtrado'] = selectedPresenceFilter === 'all' ? 'Todos' : selectedPresenceFilter === 'present' ? 'Credenciados' : 'Pendentes';
+      if (reportConfig.issuedAt) filtered['Emitido em'] = new Date().toLocaleString('pt-BR');
+      if (reportConfig.participantName) filtered['Nome'] = row.Nome || '';
+      if (reportConfig.participantCpf) filtered['CPF'] = row.CPF || '';
+      if (reportConfig.participantEmail) filtered['E-mail'] = row['E-mail'] || '';
+      if (reportConfig.participantPhone) filtered['Telefone'] = findColumn(['telefone', 'whatsapp']);
+      if (reportConfig.participantCategory) filtered['Categoria'] = row.Categoria || '';
+      if (reportConfig.participantCheckinStatus) filtered['Status do Check-in'] = row['Credenciado?'] || '';
+      if (reportConfig.participantCheckinTime) filtered['Horário do Check-in'] = findColumn(['hor']);
+      if (reportConfig.participantAreaAccess) {
+        filtered['Acessos por Sala'] = findColumn(['acessos por sala']);
+        filtered['Acessos Negados'] = findColumn(['negados']);
+      }
+      return filtered;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
     XLSX.writeFile(workbook, `Filtro_${titleSuffix}_${currentEvent.name.replace(/\s+/g, '_')}.xlsx`);
@@ -3172,6 +3328,10 @@ export default function App() {
 
   // Direct CSV printable list
   const triggerPrintableReport = () => {
+    if (!hasReportSelection()) {
+      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
+      return;
+    }
     window.print();
   };
 
@@ -6514,6 +6674,121 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                  <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
+                        <Sliders size={17} className="text-slate-500" />
+                        <span>Configurar relatório</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Escolha quais informações devem sair no relatório impresso ou exportado.
+                      </p>
+                      <p className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
+                        Este relatório será gerado com {getReportSelectedSectionCount()} seções selecionadas
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAllReportOptions(true)}
+                        className="px-3 py-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer"
+                      >
+                        Selecionar tudo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAllReportOptions(false)}
+                        className="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition cursor-pointer"
+                      >
+                        Limpar seleção
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetReportOptions}
+                        className="px-3 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 text-xs font-bold transition cursor-pointer"
+                      >
+                        Restaurar padrão
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-4 mt-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {REPORT_CONFIG_GROUPS.map(group => {
+                        const selectedCount = group.keys.filter(item => reportConfig[item.key]).length;
+                        const isSelected = selectedCount > 0;
+                        return (
+                          <div
+                            key={group.id}
+                            className={`rounded-xl border p-4 transition ${
+                              isSelected ? 'border-emerald-200 bg-emerald-50/40 shadow-xs' : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h4 className="text-sm font-black text-slate-900">{group.title}</h4>
+                                <p className="text-xs text-slate-500 mt-1">{group.description}</p>
+                              </div>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                                isSelected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {selectedCount}/{group.keys.length}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 space-y-2">
+                              {group.keys.map(item => (
+                                <label key={item.key} className="flex items-center gap-2 rounded-lg bg-white/80 border border-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={reportConfig[item.key]}
+                                    onChange={event => updateReportOption(item.key, event.target.checked)}
+                                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-100"
+                                  />
+                                  <span>{item.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Prévia simples</h4>
+                      <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 space-y-2">
+                        <div className="h-3 w-28 rounded bg-slate-900" />
+                        {reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            {[1, 2, 3, 4].slice(0, Math.max(1, REPORT_CONFIG_GROUPS[0].keys.filter(item => reportConfig[item.key]).length)).map(item => (
+                              <div key={item} className="h-10 rounded bg-emerald-100 border border-emerald-200" />
+                            ))}
+                          </div>
+                        ) : null}
+                        {REPORT_CONFIG_GROUPS[2].keys.some(item => reportConfig[item.key]) && (
+                          <div className="space-y-1 pt-1">
+                            <div className="h-2 rounded bg-blue-200 w-full" />
+                            <div className="h-2 rounded bg-blue-100 w-2/3" />
+                            <div className="h-2 rounded bg-blue-100 w-1/2" />
+                          </div>
+                        )}
+                        {REPORT_CONFIG_GROUPS[3].keys.some(item => reportConfig[item.key]) && (
+                          <div className="pt-2 space-y-1">
+                            <div className="h-2 rounded bg-slate-200 w-full" />
+                            <div className="h-2 rounded bg-slate-100 w-full" />
+                            <div className="h-2 rounded bg-slate-100 w-5/6" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="mt-3 text-xs text-slate-500">
+                        {getReportSelectedOptionCount()} informação(ões) selecionada(s). Os filtros atuais continuam sendo aplicados.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                     <div className="min-w-0">
@@ -7264,7 +7539,13 @@ export default function App() {
         <div className="relative z-10 border-b-2 border-slate-900 pb-4 mb-5 flex items-center justify-between gap-6">
           <div>
             <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
-            <p className="text-xs text-zinc-650">Evento: {currentEvent?.name} • Data de Impressão: {new Date().toLocaleString('pt-BR')}</p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-650">
+              {reportConfig.eventName && <span>Evento: {currentEvent?.name}</span>}
+              {reportConfig.eventDate && <span>Data do evento: {currentEvent?.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : '-'}</span>}
+              {reportConfig.eventCategory && <span>Categoria: {selectedCategoryFilter === 'all' ? 'Todas' : selectedCategoryFilter}</span>}
+              {reportConfig.eventStatusFilter && <span>Status: {selectedPresenceFilter === 'all' ? 'Todos' : selectedPresenceFilter === 'present' ? 'Credenciados' : 'Pendentes'}</span>}
+              {reportConfig.issuedAt && <span>Emitido em: {new Date().toLocaleString('pt-BR')}</span>}
+            </div>
           </div>
           {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
             <img
@@ -7275,183 +7556,160 @@ export default function App() {
           )}
         </div>
 
-        <div className="relative z-10 grid grid-cols-4 gap-3 mb-6">
-          <div className="border border-zinc-300 rounded p-3">
-            <p className="text-[10px] uppercase font-bold text-zinc-500">Total</p>
-            <p className="text-xl font-black">{reportSummary.total}</p>
+        {(reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate) && (
+          <div className="relative z-10 grid grid-cols-4 gap-3 mb-6">
+            {reportConfig.summaryTotal && (
+              <div className="border border-zinc-300 rounded p-3">
+                <p className="text-[10px] uppercase font-bold text-zinc-500">Total de participantes</p>
+                <p className="text-xl font-black">{reportSummary.total}</p>
+              </div>
+            )}
+            {reportConfig.summaryCheckedIn && (
+              <div className="border border-zinc-300 rounded p-3">
+                <p className="text-[10px] uppercase font-bold text-zinc-500">Check-ins realizados</p>
+                <p className="text-xl font-black">{reportSummary.checkedIn}</p>
+              </div>
+            )}
+            {reportConfig.summaryPending && (
+              <div className="border border-zinc-300 rounded p-3">
+                <p className="text-[10px] uppercase font-bold text-zinc-500">Participantes pendentes</p>
+                <p className="text-xl font-black">{reportSummary.pending}</p>
+              </div>
+            )}
+            {reportConfig.summaryAttendanceRate && (
+              <div className="border border-zinc-300 rounded p-3">
+                <p className="text-[10px] uppercase font-bold text-zinc-500">Percentual de presença</p>
+                <p className="text-xl font-black">{reportSummary.attendanceRate}%</p>
+              </div>
+            )}
           </div>
-          <div className="border border-zinc-300 rounded p-3">
-            <p className="text-[10px] uppercase font-bold text-zinc-500">Credenciados</p>
-            <p className="text-xl font-black">{reportSummary.checkedIn}</p>
-          </div>
-          <div className="border border-zinc-300 rounded p-3">
-            <p className="text-[10px] uppercase font-bold text-zinc-500">Pendentes</p>
-            <p className="text-xl font-black">{reportSummary.pending}</p>
-          </div>
-          <div className="border border-zinc-300 rounded p-3">
-            <p className="text-[10px] uppercase font-bold text-zinc-500">Presença</p>
-            <p className="text-xl font-black">{reportSummary.attendanceRate}%</p>
-          </div>
-        </div>
+        )}
 
-        <div className="relative z-10 mb-6">
-          <h2 className="text-sm font-black uppercase border-b border-black pb-2 mb-3">Relatório de Certificados</h2>
-          <div className="grid grid-cols-5 gap-2 mb-4">
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Certificados</p>
-              <p className="text-lg font-black">{reportCertificateSummary.total}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Participantes</p>
-              <p className="text-lg font-black">{reportCertificateSummary.participantCount}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Gerais</p>
-              <p className="text-lg font-black">{reportCertificateSummary.general}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Atividades</p>
-              <p className="text-lg font-black">{reportCertificateSummary.activity}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Horas</p>
-              <p className="text-lg font-black">{reportCertificateSummary.totalHours}h</p>
-            </div>
-          </div>
+        {(reportConfig.checkinsByHour || reportConfig.participantsByCategory || reportConfig.presenceBreakdown || reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
+          <div className="relative z-10 mb-6 space-y-5">
+            <h2 className="text-sm font-black uppercase border-b border-black pb-2">Gráficos e estatísticas</h2>
 
-          <table className="w-full text-left text-[10px] text-slate-950 mb-6">
+            {reportConfig.checkinsByHour && (
+              <div>
+                <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">Check-ins por horário</h3>
+                <table className="w-full text-left text-[10px] text-slate-950">
+                  <tbody>
+                    {reportCheckinsByHour.length === 0 ? (
+                      <tr><td className="py-2 text-zinc-500">Nenhum check-in nos filtros atuais.</td></tr>
+                    ) : reportCheckinsByHour.map(item => (
+                      <tr key={item.label} className="border-b border-zinc-200">
+                        <td className="py-1 font-mono">{item.label}</td>
+                        <td className="py-1 text-right font-bold">{item.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {reportConfig.participantsByCategory && (
+              <div>
+                <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">Participantes por categoria</h3>
+                <table className="w-full text-left text-[10px] text-slate-950">
+                  <tbody>
+                    {reportParticipantsByCategory.map(item => (
+                      <tr key={item.label} className="border-b border-zinc-200">
+                        <td className="py-1">{item.label}</td>
+                        <td className="py-1 text-right font-bold">{item.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {reportConfig.presenceBreakdown && (
+              <div>
+                <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">Presentes x ausentes</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="border border-zinc-300 rounded p-3">
+                    <p className="text-[10px] uppercase font-bold text-zinc-500">Presentes</p>
+                    <p className="text-lg font-black">{reportSummary.checkedIn}</p>
+                  </div>
+                  <div className="border border-zinc-300 rounded p-3">
+                    <p className="text-[10px] uppercase font-bold text-zinc-500">Ausentes</p>
+                    <p className="text-lg font-black">{reportSummary.pending}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
+              <div>
+                <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">
+                  {reportConfig.areaAccess && reportConfig.areaAccessDecisions ? 'Acessos por sala, liberações e negações' : reportConfig.areaAccess ? 'Acessos por sala' : 'Liberações e negações de acesso'}
+                </h3>
+                <table className="w-full text-left text-[10px] text-slate-950">
+                  <thead>
+                    <tr className="border-b border-black">
+                      <th className="py-1">Sala</th>
+                      {reportConfig.areaAccess && <th className="py-1 text-right">Total</th>}
+                      {reportConfig.areaAccessDecisions && <th className="py-1 text-right">Liberados</th>}
+                      {reportConfig.areaAccessDecisions && <th className="py-1 text-right">Negados</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportAreaAccessSummary.length === 0 ? (
+                      <tr><td colSpan={4} className="py-2 text-center text-zinc-500">Nenhum acesso por sala registrado nos filtros atuais.</td></tr>
+                    ) : reportAreaAccessSummary.map(item => (
+                      <tr key={item.areaId} className="border-b border-zinc-200">
+                        <td className="py-1">{item.areaName}</td>
+                        {reportConfig.areaAccess && <td className="py-1 text-right font-bold">{item.total}</td>}
+                        {reportConfig.areaAccessDecisions && <td className="py-1 text-right font-bold">{item.allowed}</td>}
+                        {reportConfig.areaAccessDecisions && <td className="py-1 text-right font-bold">{item.denied}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {REPORT_CONFIG_GROUPS[3].keys.some(item => reportConfig[item.key]) && (
+          <table className="relative z-10 w-full text-left text-xs text-slate-950">
             <thead>
               <tr className="border-b border-black">
-                <th className="py-1">Código</th>
-                <th className="py-1">Participante</th>
-                <th className="py-1">Tipo</th>
-                <th className="py-1">Atividade</th>
-                <th className="py-1">Horas</th>
-                <th className="py-1">Emissão</th>
-                <th className="py-1 text-right">Operador</th>
+                {reportConfig.participantName && <th className="py-2">Nome</th>}
+                {reportConfig.participantCpf && <th className="py-2">CPF</th>}
+                {reportConfig.participantEmail && <th className="py-2">E-mail</th>}
+                {reportConfig.participantPhone && <th className="py-2">Telefone</th>}
+                {reportConfig.participantCategory && <th className="py-2">Categoria</th>}
+                {reportConfig.participantCheckinStatus && <th className="py-2">Status do check-in</th>}
+                {reportConfig.participantCheckinTime && <th className="py-2">Horário do check-in</th>}
+                {reportConfig.participantAreaAccess && <th className="py-2">Sala/acesso liberado ou negado</th>}
               </tr>
             </thead>
             <tbody>
-              {reportCertificates.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-3 text-center text-zinc-500">Nenhum certificado emitido nos filtros atuais.</td>
-                </tr>
-              ) : (
-                reportCertificates.map(certificate => (
-                  <tr key={certificate.id} className="border-b border-zinc-200">
-                    <td className="py-1 font-mono font-bold">{certificate.certificateCode}</td>
-                    <td className="py-1 font-semibold">{certificate.participantName}</td>
-                    <td className="py-1">{certificate.type === 'general' ? 'GERAL' : 'ATIVIDADE'}</td>
-                    <td className="py-1">{certificate.type === 'activity' ? fixMojibake(certificate.activityTitle || '-') : '-'}</td>
-                    <td className="py-1">{certificate.totalHours}h</td>
-                    <td className="py-1 font-mono">{new Date(certificate.issuedAt).toLocaleString('pt-BR')}</td>
-                    <td className="py-1 text-right">{certificate.operatorName || 'Operador'}</td>
+              {reportParticipants.map(p => {
+                const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
+                return (
+                  <tr key={p.id} className="border-b border-zinc-200">
+                    {reportConfig.participantName && <td className="py-2 font-semibold">{p.name}</td>}
+                    {reportConfig.participantCpf && <td className="py-2 font-mono">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>}
+                    {reportConfig.participantEmail && <td className="py-2">{p.email || '-'}</td>}
+                    {reportConfig.participantPhone && <td className="py-2">{getReportParticipantPhone(p) || '-'}</td>}
+                    {reportConfig.participantCategory && <td className="py-2">{p.category}</td>}
+                    {reportConfig.participantCheckinStatus && <td className="py-2">{p.checkedIn ? 'CREDENCIADO' : 'PENDENTE'}</td>}
+                    {reportConfig.participantCheckinTime && <td className="py-2 font-mono">{p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>}
+                    {reportConfig.participantAreaAccess && (
+                      <td className="py-2">
+                        {areaAccess && areaAccess.total > 0
+                          ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
+                          : '-'}
+                      </td>
+                    )}
                   </tr>
-                ))
-              )}
+                );
+              })}
             </tbody>
           </table>
-        </div>
-
-        <div className="relative z-10 mb-6">
-          <h2 className="text-sm font-black uppercase border-b border-black pb-2 mb-3">Relatório de Chapelaria</h2>
-          <div className="grid grid-cols-5 gap-2 mb-4">
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Tickets</p>
-              <p className="text-lg font-black">{reportCloakroomSummary.totalTickets}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Guardados</p>
-              <p className="text-lg font-black">{reportCloakroomSummary.stored}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Retirados</p>
-              <p className="text-lg font-black">{reportCloakroomSummary.returned}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Volumes</p>
-              <p className="text-lg font-black">{reportCloakroomSummary.totalVolumes}</p>
-            </div>
-            <div className="border border-zinc-300 rounded p-2">
-              <p className="text-[9px] uppercase font-bold text-zinc-500">Em guarda</p>
-              <p className="text-lg font-black">{reportCloakroomSummary.storedVolumes}</p>
-            </div>
-          </div>
-
-          <table className="w-full text-left text-[10px] text-slate-950 mb-6">
-            <thead>
-              <tr className="border-b border-black">
-                <th className="py-1">Ticket</th>
-                <th className="py-1">Participante</th>
-                <th className="py-1">Volumes</th>
-                <th className="py-1">Status</th>
-                <th className="py-1">Entrada</th>
-                <th className="py-1">Op. entrada</th>
-                <th className="py-1">Devolução</th>
-                <th className="py-1 text-right">Op. retirada</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportCloakroomItems.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-3 text-center text-zinc-500">Nenhuma movimentação de chapelaria nos filtros atuais.</td>
-                </tr>
-              ) : (
-                reportCloakroomItems.map(item => (
-                  <tr key={item.id} className="border-b border-zinc-200">
-                    <td className="py-1 font-mono font-bold">#{item.tagNumber}</td>
-                    <td className="py-1 font-semibold">{item.participantName}</td>
-                    <td className="py-1">{item.volumeCount || 1}</td>
-                    <td className="py-1">{item.status === 'retirado' ? 'RETIRADO' : 'GUARDADO'}</td>
-                    <td className="py-1 font-mono">{new Date(item.registeredAt).toLocaleString('pt-BR')}</td>
-                    <td className="py-1">{item.registeredByName || '-'}</td>
-                    <td className="py-1 font-mono">{item.returnedAt ? new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td>
-                    <td className="py-1 text-right">{item.returnedByName || '-'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <table className="relative z-10 w-full text-left text-xs text-slate-950">
-          <thead>
-            <tr className="border-b border-black">
-              <th className="py-2">Nome</th>
-              <th className="py-2">CPF</th>
-              <th className="py-2">Categoria</th>
-              <th className="py-2">Status</th>
-              <th className="py-2">Horário do check-in</th>
-              <th className="py-2">Acessos por sala</th>
-              <th className="py-2">Certificados</th>
-              <th className="py-2 text-right">Operador</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reportParticipants.map(p => {
-              const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
-              const participantCertificates = reportCertificates.filter(certificate => certificate.participantId === p.id);
-              return (
-                <tr key={p.id} className="border-b border-zinc-200">
-                  <td className="py-2 font-semibold">{p.name}</td>
-                  <td className="py-2 font-mono">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
-                  <td className="py-2">{p.category}</td>
-                  <td className="py-2">{p.checkedIn ? 'CREDENCIADO' : 'PENDENTE'}</td>
-                  <td className="py-2 font-mono">{p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>
-                  <td className="py-2">
-                    {areaAccess && areaAccess.total > 0
-                      ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
-                      : '-'}
-                  </td>
-                  <td className="py-2 font-mono">
-                    {participantCertificates.length > 0 ? participantCertificates.map(certificate => certificate.certificateCode).join(', ') : '-'}
-                  </td>
-                  <td className="py-2 text-right">{getReportCheckinOperator(p)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        )}
       </div>
 
 
