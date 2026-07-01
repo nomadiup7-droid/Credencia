@@ -225,7 +225,38 @@ export default function OnlineRegistrationsPage({
           </label>
           <label className="block">
             <span className="text-xs font-black uppercase text-slate-500">Banner URL</span>
-            <input value={config.bannerUrl || ''} onChange={e => setConfig(prev => ({ ...prev, bannerUrl: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" />
+            <div className="mt-1 flex flex-col sm:flex-row gap-2">
+              <input
+                value={config.bannerUrl || ''}
+                onChange={e => setConfig(prev => ({ ...prev, bannerUrl: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold"
+                placeholder="Cole uma URL ou envie uma imagem"
+              />
+              <label className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-100 cursor-pointer whitespace-nowrap">
+                Upload
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={event => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    if (!file.type.startsWith('image/')) {
+                      addToast('Selecione um arquivo de imagem.', 'error');
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setConfig(prev => ({ ...prev, bannerUrl: String(reader.result || '') }));
+                      addToast('Banner carregado. Clique em Salvar configuração.', 'success');
+                    };
+                    reader.onerror = () => addToast('Não foi possível carregar o banner.', 'error');
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+            </div>
           </label>
 
           {publicUrl && <p className="break-all rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs font-semibold text-slate-500">{publicUrl}</p>}
