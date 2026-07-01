@@ -429,16 +429,16 @@ const ensureOnlineRegistrationParticipant = async (registration: OnlineRegistrat
 };
 
 const validateOnlineRegistrationAvailability = async (config: any) => {
-  if (!config || !config.enabled) return 'InscriÃ§Ã£o online indisponÃ­vel para este evento.';
-  if (config.status === 'PAUSADA') return 'As inscriÃ§Ãµes online estÃ£o pausadas.';
-  if (config.status === 'ENCERRADA') return 'As inscriÃ§Ãµes online estÃ£o encerradas.';
-  if (config.status !== 'ABERTA') return 'As inscriÃ§Ãµes online nÃ£o estÃ£o abertas.';
+  if (!config || !config.enabled) return 'Inscrição online indisponível para este evento.';
+  if (config.status === 'PAUSADA') return 'As inscrições online estão pausadas.';
+  if (config.status === 'ENCERRADA') return 'As inscrições online estão encerradas.';
+  if (config.status !== 'ABERTA') return 'As inscrições online não estão abertas.';
 
   if (config.maxRegistrations && Number(config.maxRegistrations) > 0) {
     const registrations = await db.getOnlineRegistrations({ eventId: config.eventId });
     const activeTotal = registrations.filter(row => row.status !== 'CANCELADA').length;
     if (activeTotal >= Number(config.maxRegistrations)) {
-      return 'O limite de inscriÃ§Ãµes deste evento foi atingido.';
+      return 'O limite de inscrições deste evento foi atingido.';
     }
   }
 
@@ -450,20 +450,20 @@ app.get('/api/public/online-registration/:slug', async (req, res) => {
   try {
     const config = await db.getOnlineRegistrationConfigBySlug(req.params.slug);
     if (!config) {
-      res.status(404).json({ error: 'PÃ¡gina de inscriÃ§Ã£o nÃ£o encontrada' });
+      res.status(404).json({ error: 'Página de inscrição não encontrada' });
       return;
     }
 
     const event = await db.getEventById(config.eventId);
     if (!event) {
-      res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+      res.status(404).json({ error: 'Evento não encontrado' });
       return;
     }
 
     res.json({ config: publicConfigPayload(config, event) });
   } catch (error) {
     console.error('Error loading public online registration:', error);
-    res.status(500).json({ error: 'Erro ao carregar inscriÃ§Ã£o online' });
+    res.status(500).json({ error: 'Erro ao carregar inscrição online' });
   }
 });
 
@@ -471,13 +471,13 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
   try {
     const config = await db.getOnlineRegistrationConfigBySlug(req.params.slug);
     if (!config) {
-      res.status(404).json({ error: 'PÃ¡gina de inscriÃ§Ã£o nÃ£o encontrada' });
+      res.status(404).json({ error: 'Página de inscrição não encontrada' });
       return;
     }
 
     const event = await db.getEventById(config.eventId);
     if (!event) {
-      res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+      res.status(404).json({ error: 'Evento não encontrado' });
       return;
     }
 
@@ -496,15 +496,15 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
     const lgpdAccepted = req.body.lgpdAccepted === true;
 
     if (!name) {
-      res.status(400).json({ error: 'Nome completo Ã© obrigatÃ³rio.' });
+      res.status(400).json({ error: 'Nome completo é obrigatório.' });
       return;
     }
     if (!phone) {
-      res.status(400).json({ error: 'Telefone/WhatsApp Ã© obrigatÃ³rio.' });
+      res.status(400).json({ error: 'Telefone/WhatsApp é obrigatório.' });
       return;
     }
     if (!lgpdAccepted) {
-      res.status(400).json({ error: 'O aceite LGPD Ã© obrigatÃ³rio.' });
+      res.status(400).json({ error: 'O aceite LGPD é obrigatório.' });
       return;
     }
 
@@ -516,14 +516,14 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       return false;
     });
     if (duplicate) {
-      res.status(409).json({ error: 'JÃ¡ existe uma inscriÃ§Ã£o para este evento com os dados informados.' });
+      res.status(409).json({ error: 'Já existe uma inscrição para este evento com os dados informados.' });
       return;
     }
 
     if (cpf) {
       const existingParticipant = await db.getParticipantByCpfAndEvent(cpf, config.eventId);
       if (existingParticipant) {
-        res.status(409).json({ error: 'JÃ¡ existe participante cadastrado para este evento com este CPF.' });
+        res.status(409).json({ error: 'Já existe participante cadastrado para este evento com este CPF.' });
         return;
       }
     }
@@ -545,7 +545,7 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       const result = await ensureOnlineRegistrationParticipant(registration);
       res.status(201).json({
         status: 'APROVADA',
-        message: 'InscriÃ§Ã£o confirmada com sucesso.',
+        message: 'Inscrição confirmada com sucesso.',
         registration: result.registration,
         participant: result.participant,
         qrToken: result.registration.qrToken || result.participant.ticketCode
@@ -555,12 +555,12 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
 
     res.status(201).json({
       status: 'PENDENTE',
-      message: 'Sua inscriÃ§Ã£o foi recebida e estÃ¡ aguardando aprovaÃ§Ã£o.',
+      message: 'Sua inscrição foi recebida e está aguardando aprovação.',
       registration
     });
   } catch (error) {
     console.error('Error creating public online registration:', error);
-    res.status(500).json({ error: 'Erro ao criar inscriÃ§Ã£o online' });
+    res.status(500).json({ error: 'Erro ao criar inscrição online' });
   }
 });
 
@@ -570,11 +570,11 @@ app.get('/api/events/:eventId/online-registration-config', authenticateToken, as
     const user = (req as any).user;
     const event = await db.getEventById(req.params.eventId);
     if (!event || event.organizationId !== user.organizationId) {
-      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
       return;
     }
     if (!(await canViewOnlineRegistrationsForEvent(user, event.id))) {
-      res.status(403).json({ error: 'Acesso negado para inscriÃ§Ãµes online' });
+      res.status(403).json({ error: 'Acesso negado para inscrições online' });
       return;
     }
 
@@ -582,7 +582,7 @@ app.get('/api/events/:eventId/online-registration-config', authenticateToken, as
     res.json(existing || null);
   } catch (error) {
     console.error('Error loading online registration config:', error);
-    res.status(500).json({ error: 'Erro ao carregar configuraÃ§Ã£o de inscriÃ§Ãµes online' });
+    res.status(500).json({ error: 'Erro ao carregar configuração de inscrições online' });
   }
 });
 
@@ -591,23 +591,23 @@ app.put('/api/events/:eventId/online-registration-config', authenticateToken, as
     const user = (req as any).user;
     const event = await db.getEventById(req.params.eventId);
     if (!event || event.organizationId !== user.organizationId) {
-      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
       return;
     }
     if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
-      res.status(403).json({ error: 'Acesso negado para configurar inscriÃ§Ãµes online' });
+      res.status(403).json({ error: 'Acesso negado para configurar inscrições online' });
       return;
     }
 
     const slug = normalizeSlug(req.body.slug || event.name);
     if (!slug) {
-      res.status(400).json({ error: 'Slug pÃºblico Ã© obrigatÃ³rio.' });
+      res.status(400).json({ error: 'Slug público é obrigatório.' });
       return;
     }
 
     const existingSlugConfig = await db.getOnlineRegistrationConfigBySlug(slug);
     if (existingSlugConfig && existingSlugConfig.eventId !== event.id) {
-      res.status(409).json({ error: 'Este slug jÃ¡ estÃ¡ em uso por outro evento.' });
+      res.status(409).json({ error: 'Este slug já está em uso por outro evento.' });
       return;
     }
 
@@ -626,7 +626,7 @@ app.put('/api/events/:eventId/online-registration-config', authenticateToken, as
     res.json(config);
   } catch (error) {
     console.error('Error saving online registration config:', error);
-    res.status(500).json({ error: 'Erro ao salvar configuraÃ§Ã£o de inscriÃ§Ãµes online' });
+    res.status(500).json({ error: 'Erro ao salvar configuração de inscrições online' });
   }
 });
 
@@ -637,11 +637,11 @@ app.get('/api/online-registrations', authenticateToken, async (req, res) => {
     if (eventId) {
       const event = await db.getEventById(eventId);
       if (!event || event.organizationId !== user.organizationId) {
-        res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+        res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
         return;
       }
       if (!(await canViewOnlineRegistrationsForEvent(user, eventId))) {
-        res.status(403).json({ error: 'Acesso negado para inscriÃ§Ãµes online' });
+        res.status(403).json({ error: 'Acesso negado para inscrições online' });
         return;
       }
     }
@@ -656,7 +656,7 @@ app.get('/api/online-registrations', authenticateToken, async (req, res) => {
     res.json(registrations.filter(row => allowedEventIds.has(row.eventId)));
   } catch (error) {
     console.error('Error listing online registrations:', error);
-    res.status(500).json({ error: 'Erro ao listar inscriÃ§Ãµes online' });
+    res.status(500).json({ error: 'Erro ao listar inscrições online' });
   }
 });
 
@@ -665,20 +665,20 @@ app.post('/api/online-registrations/:id/approve', authenticateToken, async (req,
     const user = (req as any).user;
     const registration = await db.getOnlineRegistrationById(req.params.id);
     if (!registration) {
-      res.status(404).json({ error: 'InscriÃ§Ã£o nÃ£o encontrada' });
+      res.status(404).json({ error: 'Inscrição não encontrada' });
       return;
     }
     const event = await db.getEventById(registration.eventId);
     if (!event || event.organizationId !== user.organizationId) {
-      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
       return;
     }
     if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
-      res.status(403).json({ error: 'Acesso negado para aprovar inscriÃ§Ãµes online' });
+      res.status(403).json({ error: 'Acesso negado para aprovar inscrições online' });
       return;
     }
     if (registration.status === 'CANCELADA') {
-      res.status(400).json({ error: 'InscriÃ§Ãµes canceladas nÃ£o podem ser aprovadas.' });
+      res.status(400).json({ error: 'Inscrições canceladas não podem ser aprovadas.' });
       return;
     }
 
@@ -686,7 +686,7 @@ app.post('/api/online-registrations/:id/approve', authenticateToken, async (req,
     res.json(result);
   } catch (error) {
     console.error('Error approving online registration:', error);
-    res.status(500).json({ error: 'Erro ao aprovar inscriÃ§Ã£o online' });
+    res.status(500).json({ error: 'Erro ao aprovar inscrição online' });
   }
 });
 
@@ -695,16 +695,16 @@ const updateOnlineRegistrationStatusRoute = (status: OnlineRegistrationStatus) =
     const user = (req as any).user;
     const registration = await db.getOnlineRegistrationById(req.params.id);
     if (!registration) {
-      res.status(404).json({ error: 'InscriÃ§Ã£o nÃ£o encontrada' });
+      res.status(404).json({ error: 'Inscrição não encontrada' });
       return;
     }
     const event = await db.getEventById(registration.eventId);
     if (!event || event.organizationId !== user.organizationId) {
-      res.status(404).json({ error: 'Evento nÃ£o encontrado ou acesso restrito' });
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
       return;
     }
     if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
-      res.status(403).json({ error: 'Acesso negado para gerenciar inscriÃ§Ãµes online' });
+      res.status(403).json({ error: 'Acesso negado para gerenciar inscrições online' });
       return;
     }
 
@@ -715,7 +715,7 @@ const updateOnlineRegistrationStatusRoute = (status: OnlineRegistrationStatus) =
     res.json(updated);
   } catch (error) {
     console.error('Error updating online registration status:', error);
-    res.status(500).json({ error: 'Erro ao atualizar inscriÃ§Ã£o online' });
+    res.status(500).json({ error: 'Erro ao atualizar inscrição online' });
   }
 };
 
