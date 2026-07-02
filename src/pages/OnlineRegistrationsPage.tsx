@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Copy, Loader2, QrCode, Search, Settings, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Copy, Loader2, Plus, QrCode, Search, Settings, Trash2, XCircle } from 'lucide-react';
 import UserQRCode from '../components/UserQRCode';
-import { Event, OnlineRegistration, OnlineRegistrationConfig, OnlineRegistrationStatus } from '../types';
+import { Event, OnlineRegistration, OnlineRegistrationConfig, OnlineRegistrationField, OnlineRegistrationStatus } from '../types';
 
 interface OnlineRegistrationsPageProps {
   events: Event[];
@@ -38,6 +38,23 @@ const defaultConfig = (event?: Event | null): Partial<OnlineRegistrationConfig> 
   approvalMode: 'MANUAL'
 });
 
+const defaultOnlineFields = (): OnlineRegistrationField[] => [
+  { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
+  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: false, visible: true, system: true, order: 2 },
+  { id: 'orf_phone', key: 'phone', label: 'Telefone/WhatsApp', type: 'tel', required: true, visible: true, system: true, order: 3 },
+  { id: 'orf_company', key: 'company', label: 'Empresa', type: 'text', required: false, visible: true, system: true, order: 4 },
+  { id: 'orf_position', key: 'position', label: 'Cargo', type: 'text', required: false, visible: true, system: true, order: 5 },
+  { id: 'orf_cpf', key: 'cpf', label: 'CPF', type: 'text', required: false, visible: true, system: true, order: 6 },
+  { id: 'orf_category', key: 'category', label: 'Categoria', type: 'select', required: false, visible: false, system: true, order: 7, options: ['Participante', 'Palestrante', 'VIP', 'Expositor', 'Staff'] }
+];
+
+const normalizeOnlineFields = (fields?: OnlineRegistrationField[]) => {
+  const incoming = Array.isArray(fields) ? fields : [];
+  const base = defaultOnlineFields().map(field => ({ ...field, ...(incoming.find(item => item.key === field.key) || {}) }));
+  const custom = incoming.filter(field => !base.some(item => item.key === field.key));
+  return [...base, ...custom].sort((a, b) => (a.order || 0) - (b.order || 0));
+};
+
 export default function OnlineRegistrationsPage({
   events,
   selectedEventId,
@@ -60,7 +77,10 @@ export default function OnlineRegistrationsPage({
   const loadConfig = async (eventId: string) => {
     if (!eventId) return;
     const existing = await apiCall(`/api/events/${eventId}/online-registration-config`).catch(() => null);
-    setConfig(existing || defaultConfig(events.find(event => event.id === eventId)));
+    setConfig({
+      ...(existing || defaultConfig(events.find(event => event.id === eventId))),
+      fields: normalizeOnlineFields(existing?.fields)
+    });
   };
 
   const loadRegistrations = async () => {
@@ -108,9 +128,9 @@ export default function OnlineRegistrationsPage({
     try {
       const saved = await apiCall(`/api/events/${eventFilter}/online-registration-config`, {
         method: 'PUT',
-        body: JSON.stringify(config)
+        body: JSON.stringify({ ...config, fields: normalizeOnlineFields(config.fields) })
       });
-      setConfig(saved);
+      setConfig({ ...saved, fields: normalizeOnlineFields(saved.fields) });
       addToast('Configuração de inscrições online salva.', 'success');
     } finally {
       setSaving(false);
@@ -132,6 +152,44 @@ export default function OnlineRegistrationsPage({
       if (response.registration) setDetails(response.registration);
     }
     await loadRegistrations();
+  };
+
+  const updateField = (fieldKey: string, updates: Partial<OnlineRegistrationField>) => {
+    setConfig(prev => ({
+      ...prev,
+      fields: normalizeOnlineFields(prev.fields).map(field =>
+        field.key === fieldKey ? { ...field, ...updates } : field
+      )
+    }));
+  };
+
+  const addField = () => {
+    const fields = normalizeOnlineFields(config.fields);
+    const id = `orf_${Math.random().toString(36).slice(2, 9)}`;
+    setConfig(prev => ({
+      ...prev,
+      fields: [
+        ...fields,
+        {
+          id,
+          key: `custom_${fields.length + 1}`,
+          label: 'Novo campo',
+          type: 'text',
+          required: false,
+          visible: true,
+          system: false,
+          order: fields.length + 1,
+          options: []
+        }
+      ]
+    }));
+  };
+
+  const removeField = (fieldKey: string) => {
+    setConfig(prev => ({
+      ...prev,
+      fields: normalizeOnlineFields(prev.fields).filter(field => field.key !== fieldKey || field.system)
+    }));
   };
 
   return (
@@ -261,6 +319,87 @@ export default function OnlineRegistrationsPage({
 
           {publicUrl && <p className="break-all rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs font-semibold text-slate-500">{publicUrl}</p>}
 
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Campos do formulário</h3>
+                <p className="text-xs text-slate-500 mt-1">Escolha o que aparece para o cliente e crie campos extras.</p>
+              </div>
+              <button type="button" onClick={addField} className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">
+                <Plus size={14} />
+                Novo campo
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+              {normalizeOnlineFields(config.fields).map(field => (
+                <div key={field.key} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <input
+                      value={field.label}
+                      onChange={e => updateField(field.key, { label: e.target.value })}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+                    />
+                    {!field.system && (
+                      <button type="button" onClick={() => removeField(field.key)} className="rounded-lg bg-rose-50 p-2 text-rose-700 hover:bg-rose-100" title="Remover campo">
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {!field.system && (
+                      <label className="text-[10px] font-black uppercase text-slate-500">
+                        Chave
+                        <input
+                          value={field.key}
+                          onChange={e => updateField(field.key, { key: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_') })}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"
+                        />
+                      </label>
+                    )}
+                    <label className="text-[10px] font-black uppercase text-slate-500">
+                      Tipo
+                      <select
+                        value={field.type}
+                        onChange={e => updateField(field.key, { type: e.target.value as any })}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"
+                      >
+                        <option value="text">Texto</option>
+                        <option value="email">E-mail</option>
+                        <option value="tel">Telefone</option>
+                        <option value="number">Número</option>
+                        <option value="select">Lista</option>
+                        <option value="checkbox">Checkbox</option>
+                      </select>
+                    </label>
+                    {field.type === 'select' && (
+                      <label className="text-[10px] font-black uppercase text-slate-500 sm:col-span-2">
+                        Opções separadas por vírgula
+                        <input
+                          value={(field.options || []).join(', ')}
+                          onChange={e => updateField(field.key, { options: e.target.value.split(',').map(item => item.trim()).filter(Boolean) })}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600">
+                      <input type="checkbox" checked={field.visible !== false} onChange={e => updateField(field.key, { visible: e.target.checked })} />
+                      Exibir
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600">
+                      <input type="checkbox" checked={field.required === true} onChange={e => updateField(field.key, { required: e.target.checked })} />
+                      Obrigatório
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <button onClick={saveConfig} disabled={saving || !selectedEvent} className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-50">
             {saving && <Loader2 className="animate-spin" size={16} />}
             <span>Salvar configuração</span>
@@ -344,8 +483,16 @@ export default function OnlineRegistrationsPage({
               <Info label="Empresa" value={details.company || '-'} />
               <Info label="Cargo" value={details.position || '-'} />
               <Info label="CPF" value={details.cpf || '-'} />
+              <Info label="Categoria" value={details.category || '-'} />
               <Info label="Inscrição" value={new Date(details.registeredAt).toLocaleString('pt-BR')} />
             </div>
+            {details.customFields && Object.keys(details.customFields).length > 0 && (
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                {Object.entries(details.customFields).map(([key, value]) => (
+                  <div key={key}>`r`n                    <Info label={key} value={typeof value === 'boolean' ? (value ? 'Sim' : 'N�o') : String(value || '-')} />`r`n                  </div>
+                ))}
+              </div>
+            )}
             {details.status === 'APROVADA' && details.qrToken && (
               <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-200 p-5 flex flex-col items-center gap-3">
                 <UserQRCode value={details.qrToken} size={170} frameless />
@@ -379,3 +526,4 @@ function Info({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+

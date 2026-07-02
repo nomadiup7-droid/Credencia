@@ -83,6 +83,19 @@ export type ParticipantCategory = 'VIP' | 'Palestrante' | 'Expositor' | 'Partici
 export type OnlineRegistrationConfigStatus = 'ABERTA' | 'PAUSADA' | 'ENCERRADA';
 export type OnlineRegistrationApprovalMode = 'AUTOMATICA' | 'MANUAL';
 export type OnlineRegistrationStatus = 'PENDENTE' | 'APROVADA' | 'REPROVADA' | 'CANCELADA';
+export type OnlineRegistrationFieldType = 'text' | 'email' | 'tel' | 'number' | 'select' | 'checkbox';
+
+export interface OnlineRegistrationField {
+  id: string;
+  key: string;
+  label: string;
+  type: OnlineRegistrationFieldType;
+  required: boolean;
+  visible: boolean;
+  options?: string[];
+  system?: boolean;
+  order?: number;
+}
 
 export interface OnlineRegistrationConfig {
   id: string;
@@ -97,6 +110,7 @@ export interface OnlineRegistrationConfig {
   maxRegistrations?: number;
   status: OnlineRegistrationConfigStatus;
   approvalMode: OnlineRegistrationApprovalMode;
+  fields?: OnlineRegistrationField[];
   createdAt: string;
   updatedAt: string;
 }
@@ -111,6 +125,8 @@ export interface OnlineRegistration {
   company?: string;
   position?: string;
   cpf?: string;
+  category?: ParticipantCategory;
+  customFields?: Record<string, any>;
   status: OnlineRegistrationStatus;
   qrToken?: string;
   lgpdAccepted: boolean;

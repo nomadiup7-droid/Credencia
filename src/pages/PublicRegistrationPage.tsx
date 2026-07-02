@@ -1,11 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, MapPin, Calendar, ShieldCheck } from 'lucide-react';
 import UserQRCode from '../components/UserQRCode';
-import { OnlineRegistrationConfig } from '../types';
+import { OnlineRegistrationConfig, OnlineRegistrationField } from '../types';
 
 interface PublicConfig extends OnlineRegistrationConfig {
   maxRegistrations?: number;
 }
+
+const defaultOnlineFields = (): OnlineRegistrationField[] => [
+  { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
+  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: false, visible: true, system: true, order: 2 },
+  { id: 'orf_phone', key: 'phone', label: 'Telefone/WhatsApp', type: 'tel', required: true, visible: true, system: true, order: 3 },
+  { id: 'orf_company', key: 'company', label: 'Empresa', type: 'text', required: false, visible: true, system: true, order: 4 },
+  { id: 'orf_position', key: 'position', label: 'Cargo', type: 'text', required: false, visible: true, system: true, order: 5 },
+  { id: 'orf_cpf', key: 'cpf', label: 'CPF', type: 'text', required: false, visible: true, system: true, order: 6 }
+];
 
 export default function PublicRegistrationPage() {
   const slug = decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1] || '');
@@ -14,15 +23,12 @@ export default function PublicRegistrationPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ status: string; message: string; qrToken?: string; name?: string } | null>(null);
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    company: '',
-    position: '',
-    cpf: '',
-    lgpdAccepted: false
-  });
+  const [form, setForm] = useState<Record<string, any>>({});
+  const [lgpdAccepted, setLgpdAccepted] = useState(false);
+
+  const fields = (config?.fields?.length ? config.fields : defaultOnlineFields())
+    .filter(field => field.visible !== false)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -51,7 +57,7 @@ export default function PublicRegistrationPage() {
       const response = await fetch(`/api/public/online-registration/${encodeURIComponent(slug)}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ fields: form, lgpdAccepted })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Erro ao enviar inscrição');
@@ -136,34 +142,45 @@ export default function PublicRegistrationPage() {
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="sm:col-span-2">
-                <span className="text-xs font-black uppercase text-slate-500">Nome completo *</span>
-                <input className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} required />
-              </label>
-              <label>
-                <span className="text-xs font-black uppercase text-slate-500">E-mail</span>
-                <input type="email" className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" value={form.email} onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))} />
-              </label>
-              <label>
-                <span className="text-xs font-black uppercase text-slate-500">Telefone/WhatsApp *</span>
-                <input className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" value={form.phone} onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))} required />
-              </label>
-              <label>
-                <span className="text-xs font-black uppercase text-slate-500">Empresa</span>
-                <input className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" value={form.company} onChange={e => setForm(prev => ({ ...prev, company: e.target.value }))} />
-              </label>
-              <label>
-                <span className="text-xs font-black uppercase text-slate-500">Cargo</span>
-                <input className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" value={form.position} onChange={e => setForm(prev => ({ ...prev, position: e.target.value }))} />
-              </label>
-              <label>
-                <span className="text-xs font-black uppercase text-slate-500">CPF</span>
-                <input className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" value={form.cpf} onChange={e => setForm(prev => ({ ...prev, cpf: e.target.value }))} />
-              </label>
+              {fields.map(field => (
+                <label key={field.key} className={field.key === 'name' ? 'sm:col-span-2' : ''}>
+                  <span className="text-xs font-black uppercase text-slate-500">{field.label}{field.required ? ' *' : ''}</span>
+                  {field.type === 'select' ? (
+                    <select
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                      value={form[field.key] || ''}
+                      onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.value }))}
+                      required={field.required}
+                    >
+                      <option value="">Selecione</option>
+                      {(field.options || []).map(option => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  ) : field.type === 'checkbox' ? (
+                    <span className="mt-1 flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-emerald-600"
+                        checked={form[field.key] === true}
+                        onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.checked }))}
+                        required={field.required}
+                      />
+                      {field.label}
+                    </span>
+                  ) : (
+                    <input
+                      type={field.type === 'tel' ? 'tel' : field.type}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                      value={form[field.key] || ''}
+                      onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.value }))}
+                      required={field.required}
+                    />
+                  )}
+                </label>
+              ))}
             </div>
 
             <label className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              <input type="checkbox" className="mt-1 h-4 w-4 accent-emerald-600" checked={form.lgpdAccepted} onChange={e => setForm(prev => ({ ...prev, lgpdAccepted: e.target.checked }))} required />
+              <input type="checkbox" className="mt-1 h-4 w-4 accent-emerald-600" checked={lgpdAccepted} onChange={e => setLgpdAccepted(e.target.checked)} required />
               <span>Autorizo o uso dos meus dados para fins de inscrição, credenciamento e comunicação sobre este evento.</span>
             </label>
 

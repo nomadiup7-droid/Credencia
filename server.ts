@@ -3,7 +3,7 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationStatus } from './src/types';
+import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus } from './src/types';
 import checkInRouter from './routes/checkin';
 
 const app = express();
@@ -365,6 +365,38 @@ const normalizeDigits = (value?: string) => String(value || '').replace(/\D/g, '
 const normalizeText = (value?: string) => String(value || '').trim();
 const generateQrToken = () => `OR-${randomBytes(18).toString('hex')}`;
 
+const DEFAULT_ONLINE_REGISTRATION_FIELDS: OnlineRegistrationField[] = [
+  { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
+  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: false, visible: true, system: true, order: 2 },
+  { id: 'orf_phone', key: 'phone', label: 'Telefone/WhatsApp', type: 'tel', required: true, visible: true, system: true, order: 3 },
+  { id: 'orf_company', key: 'company', label: 'Empresa', type: 'text', required: false, visible: true, system: true, order: 4 },
+  { id: 'orf_position', key: 'position', label: 'Cargo', type: 'text', required: false, visible: true, system: true, order: 5 },
+  { id: 'orf_cpf', key: 'cpf', label: 'CPF', type: 'text', required: false, visible: true, system: true, order: 6 },
+  { id: 'orf_category', key: 'category', label: 'Categoria', type: 'select', required: false, visible: false, system: true, order: 7, options: ['Participante', 'Palestrante', 'VIP', 'Expositor', 'Staff'] }
+];
+
+const getOnlineRegistrationFields = (config: any): OnlineRegistrationField[] => {
+  const configured = Array.isArray(config?.fields) ? config.fields : [];
+  const merged = DEFAULT_ONLINE_REGISTRATION_FIELDS.map(defaultField => ({
+    ...defaultField,
+    ...(configured.find((field: any) => field.key === defaultField.key) || {})
+  }));
+  const custom = configured.filter((field: any) => !DEFAULT_ONLINE_REGISTRATION_FIELDS.some(defaultField => defaultField.key === field.key));
+  return [...merged, ...custom]
+    .map((field: any, index) => ({
+      id: String(field.id || `orf_${field.key || index}`),
+      key: String(field.key || field.id || `custom_${index}`).replace(/[^a-zA-Z0-9_]/g, '_'),
+      label: normalizeText(field.label) || 'Campo',
+      type: ['text', 'email', 'tel', 'number', 'select', 'checkbox'].includes(field.type) ? field.type : 'text',
+      required: field.required === true,
+      visible: field.visible !== false,
+      options: Array.isArray(field.options) ? field.options.map((item: any) => normalizeText(item)).filter(Boolean) : [],
+      system: field.system === true,
+      order: Number.isFinite(Number(field.order)) ? Number(field.order) : index + 1
+    }))
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+};
+
 const publicConfigPayload = (config: any, event: any) => ({
   id: config.id,
   eventId: config.eventId,
@@ -377,6 +409,7 @@ const publicConfigPayload = (config: any, event: any) => ({
   bannerUrl: config.bannerUrl || '',
   status: config.status,
   approvalMode: config.approvalMode,
+  fields: getOnlineRegistrationFields(config).filter(field => field.visible),
   maxRegistrations: config.maxRegistrations || undefined
 });
 
@@ -411,7 +444,7 @@ const ensureOnlineRegistrationParticipant = async (registration: OnlineRegistrat
     badgeName: registration.name,
     email: registration.email || '',
     cpf: normalizeDigits(registration.cpf),
-    category: 'Participante' as ParticipantCategory,
+    category: (registration.category || 'Participante') as ParticipantCategory,
     company: registration.company || '',
     ticketCode: qrToken,
     checkedIn: false
@@ -487,21 +520,40 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       return;
     }
 
-    const name = normalizeText(req.body.name);
-    const email = normalizeText(req.body.email).toLowerCase();
-    const phone = normalizeDigits(req.body.phone);
-    const cpf = normalizeDigits(req.body.cpf);
-    const company = normalizeText(req.body.company);
-    const position = normalizeText(req.body.position);
+    const visibleFields = getOnlineRegistrationFields(config).filter(field => field.visible);
+    const formData = req.body?.fields && typeof req.body.fields === 'object' ? req.body.fields : req.body;
+    const name = normalizeText(formData.name);
+    const email = normalizeText(formData.email).toLowerCase();
+    const phone = normalizeDigits(formData.phone);
+    const cpf = normalizeDigits(formData.cpf);
+    const company = normalizeText(formData.company);
+    const position = normalizeText(formData.position);
+    const category = ['VIP', 'Palestrante', 'Expositor', 'Participante', 'Staff'].includes(formData.category) ? formData.category : 'Participante';
     const lgpdAccepted = req.body.lgpdAccepted === true;
+    const customFields = visibleFields
+      .filter(field => !field.system)
+      .reduce<Record<string, any>>((acc, field) => {
+        const rawValue = formData[field.key];
+        acc[field.key] = field.type === 'checkbox' ? rawValue === true : normalizeText(rawValue);
+        return acc;
+      }, {});
 
-    if (!name) {
+    if (!name && visibleFields.some(field => field.key === 'name' && field.visible !== false)) {
       res.status(400).json({ error: 'Nome completo é obrigatório.' });
       return;
     }
-    if (!phone) {
+    if (!phone && visibleFields.some(field => field.key === 'phone' && field.visible !== false)) {
       res.status(400).json({ error: 'Telefone/WhatsApp é obrigatório.' });
       return;
+    }
+    for (const field of visibleFields) {
+      if (!field.required) continue;
+      const value = field.system ? formData[field.key] : customFields[field.key];
+      const empty = field.type === 'checkbox' ? value !== true : !normalizeText(value);
+      if (empty) {
+        res.status(400).json({ error: `${field.label} é obrigatório.` });
+        return;
+      }
     }
     if (!lgpdAccepted) {
       res.status(400).json({ error: 'O aceite LGPD é obrigatório.' });
@@ -537,6 +589,8 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       company,
       position,
       cpf,
+      category,
+      customFields,
       status: isAutomatic ? 'APROVADA' : 'PENDENTE',
       lgpdAccepted
     });
@@ -621,7 +675,8 @@ app.put('/api/events/:eventId/online-registration-config', authenticateToken, as
       bannerUrl: normalizeText(req.body.bannerUrl),
       maxRegistrations: req.body.maxRegistrations ? Math.max(0, Number(req.body.maxRegistrations)) : undefined,
       status: ['ABERTA', 'PAUSADA', 'ENCERRADA'].includes(req.body.status) ? req.body.status : 'PAUSADA',
-      approvalMode: req.body.approvalMode === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL'
+      approvalMode: req.body.approvalMode === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL',
+      fields: getOnlineRegistrationFields({ fields: req.body.fields })
     });
     res.json(config);
   } catch (error) {
