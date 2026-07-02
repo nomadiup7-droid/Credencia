@@ -1,0 +1,25 @@
+{
+  "name": "credencia-print-manager",
+  "version": "1.0.0",
+  "description": "Credencia Print Manager local API and print queue",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "concurrently \"node server.js\" \"electron src/app/main.js\"",
+    "app": "electron src/app/main.js"
+  },
+  "keywords": [
+    "credencia",
+    "print",
+    "manager",
+    "queue"
+  ],
+  "author": "Credencia",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "electron": "^37.2.0",
+    "express": "^4.21.2"
+  }
+}

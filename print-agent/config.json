@@ -1,0 +1,24 @@
+{
+  "appName": "Credencia Print Manager",
+  "version": "1.0.0",
+  "port": 3333,
+  "host": "0.0.0.0",
+  "printMode": "real",
+  "defaultPrinter": "",
+  "defaultPrinterName": "",
+  "queue": {
+    "autoProcess": true,
+    "maxAttempts": 3,
+    "retryDelayMs": 1000
+  },
+  "ui": {
+    "printType": "text",
+    "copies": 1,
+    "autoRefresh": true,
+    "language": "pt-BR",
+    "theme": "light"
+  },
+  "cors": {
+    "origin": "*"
+  }
+}
