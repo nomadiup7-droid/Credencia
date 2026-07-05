@@ -109,7 +109,7 @@ export default function LoginPage({
               {isRegisterMode ? 'Criar acesso' : 'Entrar no sistema'}
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              {isRegisterMode ? 'Cadastre um operador para usar o sistema.' : 'Use seu e-mail e senha para acessar a operaÃ§Ã£o.'}
+              {isRegisterMode ? 'Cadastre um operador para usar o sistema.' : 'Use seu e-mail e senha para acessar a operação.'}
             </p>
           </div>
 
@@ -206,7 +206,7 @@ export default function LoginPage({
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                      OrganizaÃ§Ã£o ou empresa
+                      Organização ou empresa
                     </label>
                     <input
                       type="text"
@@ -248,7 +248,7 @@ export default function LoginPage({
               {isRegisterMode && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    NÃ­vel de acesso
+                    Nível de acesso
                   </label>
                   <select
                     value={registerRoleInput}

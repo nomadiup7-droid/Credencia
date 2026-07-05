@@ -42,31 +42,31 @@ export const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; descriptio
       { key: 'summaryTotal', label: 'Total de participantes' },
       { key: 'summaryCheckedIn', label: 'Check-ins realizados' },
       { key: 'summaryPending', label: 'Participantes pendentes' },
-      { key: 'summaryAttendanceRate', label: 'Percentual de presenÃ§a' }
+      { key: 'summaryAttendanceRate', label: 'Percentual de presença' }
     ]
   },
   {
     id: 'event',
     title: 'Dados do evento',
-    description: 'CabeÃ§alho e contexto do relatÃ³rio.',
+    description: 'Cabeçalho e contexto do relatório.',
     keys: [
       { key: 'eventName', label: 'Nome do evento' },
       { key: 'eventDate', label: 'Data do evento' },
       { key: 'eventCategory', label: 'Categoria' },
       { key: 'eventStatusFilter', label: 'Status filtrado' },
-      { key: 'issuedAt', label: 'Data e hora de emissÃ£o do relatÃ³rio' }
+      { key: 'issuedAt', label: 'Data e hora de emissão do relatório' }
     ]
   },
   {
     id: 'charts',
-    title: 'GrÃ¡ficos e estatÃ­sticas',
-    description: 'Blocos visuais de anÃ¡lise operacional.',
+    title: 'Gráficos e estatísticas',
+    description: 'Blocos visuais de análise operacional.',
     keys: [
-      { key: 'checkinsByHour', label: 'Check-ins por horÃ¡rio' },
+      { key: 'checkinsByHour', label: 'Check-ins por horário' },
       { key: 'participantsByCategory', label: 'Participantes por categoria' },
       { key: 'presenceBreakdown', label: 'Presentes x ausentes' },
       { key: 'areaAccess', label: 'Acessos por sala' },
-      { key: 'areaAccessDecisions', label: 'LiberaÃ§Ãµes e negaÃ§Ãµes de acesso' }
+      { key: 'areaAccessDecisions', label: 'Liberações e negações de acesso' }
     ]
   },
   {
@@ -80,7 +80,7 @@ export const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; descriptio
       { key: 'participantPhone', label: 'Telefone' },
       { key: 'participantCategory', label: 'Categoria' },
       { key: 'participantCheckinStatus', label: 'Status do check-in' },
-      { key: 'participantCheckinTime', label: 'HorÃ¡rio do check-in' },
+      { key: 'participantCheckinTime', label: 'Horário do check-in' },
       { key: 'participantAreaAccess', label: 'Sala/acesso liberado ou negado' }
     ]
   }

@@ -3,7 +3,7 @@ import type { CertificateTemplate, CertificateTemplateElement } from '../types';
 export const DEFAULT_CERTIFICATE_TEMPLATE: CertificateTemplate = {
   id: 'default',
   eventId: '',
-  name: 'Template padrÃ£o',
+  name: 'Template padrão',
   orientation: 'landscape',
   pageSize: 'A4',
   backgroundImageUrl: '',
@@ -13,9 +13,9 @@ export const DEFAULT_CERTIFICATE_TEMPLATE: CertificateTemplate = {
     { id: 'event_name', type: 'text', label: 'Nome do evento', placeholder: '{{event.name}}', x: 16, y: 47, width: 68, height: 7, fontFamily: 'Arial', fontSize: 24, color: '#0f172a', bold: true, italic: false, align: 'center', order: 2 },
     { id: 'activity_title', type: 'text', label: 'Nome da atividade', placeholder: '{{activity.title}}', x: 16, y: 58, width: 68, height: 6, fontFamily: 'Arial', fontSize: 20, color: '#334155', bold: true, italic: false, align: 'center', order: 3 },
     { id: 'activity_speaker', type: 'text', label: 'Palestrante', placeholder: '{{activity.speakerName}}', x: 22, y: 67, width: 56, height: 5, fontFamily: 'Arial', fontSize: 16, color: '#475569', bold: false, italic: false, align: 'center', order: 4 },
-    { id: 'certificate_hours', type: 'text', label: 'Carga horÃ¡ria', placeholder: '{{certificate.totalHours}} horas', fontSize: 22, order: 5 },
-    { id: 'certificate_code', type: 'text', label: 'CÃ³digo do certificado', placeholder: '{{certificate.code}}', fontSize: 12, order: 6 },
-    { id: 'certificate_issued_at', type: 'text', label: 'Data de emissÃ£o', placeholder: '{{certificate.issuedAt}}', fontSize: 12, order: 7 }
+    { id: 'certificate_hours', type: 'text', label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas', fontSize: 22, order: 5 },
+    { id: 'certificate_code', type: 'text', label: 'Código do certificado', placeholder: '{{certificate.code}}', fontSize: 12, order: 6 },
+    { id: 'certificate_issued_at', type: 'text', label: 'Data de emissão', placeholder: '{{certificate.issuedAt}}', fontSize: 12, order: 7 }
   ],
   createdAt: '',
   updatedAt: ''
@@ -27,9 +27,9 @@ export const CERTIFICATE_ELEMENT_PRESETS = [
   { label: 'Evento', placeholder: '{{event.name}}' },
   { label: 'Atividade', placeholder: '{{activity.title}}' },
   { label: 'Palestrante', placeholder: '{{activity.speakerName}}' },
-  { label: 'Carga horÃ¡ria', placeholder: '{{certificate.totalHours}} horas' },
+  { label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas' },
   { label: 'Data', placeholder: '{{certificate.issuedAt}}' },
-  { label: 'CÃ³digo do certificado', placeholder: '{{certificate.code}}' }
+  { label: 'Código do certificado', placeholder: '{{certificate.code}}' }
 ];
 
 export const getCertificateElementDefaults = (element: Partial<CertificateTemplateElement>, index: number): CertificateTemplateElement => {
