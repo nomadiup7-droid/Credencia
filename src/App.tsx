@@ -29,7 +29,6 @@ import {
   RefreshCw,
   Printer,
   ChevronRight,
-  ArrowRight,
   Sliders,
   Settings,
   Camera,
@@ -53,702 +52,23 @@ import CheckinPage from './pages/CheckinPage';
 import ScanAccessControlPage from './pages/ScanAccessControlPage';
 import CheckInModular from './pages/CheckInModular';
 import CheckinMobilePage from './pages/CheckinMobilePage';
+import LoginPage from './pages/LoginPage';
 import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
-import credenciaLogoIcon from './assets/credencia-logo-icon.png';
-import credenciaLoginGlass from './assets/credencia-login-glass.jpeg';
-import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement } from './types';
-
-// Sleek CSS Color mapping & constants
-const CATEGORY_TAGS: Record<ParticipantCategory, { bg: string, text: string, border: string }> = {
-  VIP: { bg: 'bg-amber-100 text-amber-800', text: 'text-amber-800', border: 'border-amber-200' },
-  Palestrante: { bg: 'bg-purple-100 text-purple-800', text: 'text-purple-800', border: 'border-purple-200' },
-  Expositor: { bg: 'bg-teal-100 text-teal-800', text: 'text-teal-800', border: 'border-teal-200' },
-  Participante: { bg: 'bg-blue-100 text-blue-800', text: 'text-blue-800', border: 'border-blue-200' },
-  Staff: { bg: 'bg-rose-100 text-rose-800', text: 'text-rose-800', border: 'border-rose-200' }
-};
-
-interface Toast {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info';
-}
-
-type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'category' | 'ticketCode' | 'areas' | 'profile' | 'ignore';
-
-interface ImportTemplate {
-  id: string;
-  name: string;
-  eventId?: string;
-  global: boolean;
-  mapping: Record<string, ImportTargetField>;
-  fieldOrder: ImportTargetField[];
-  updatedAt: string;
-}
-
-const IMPORT_TARGET_OPTIONS: Array<{ value: ImportTargetField; label: string }> = [
-  { value: 'name', label: 'Nome' },
-  { value: 'cpf', label: 'CPF' },
-  { value: 'email', label: 'Email' },
-  { value: 'company', label: 'Empresa' },
-  { value: 'category', label: 'Categoria' },
-  { value: 'ticketCode', label: 'Codigo QR / Codigo do ingresso' },
-  { value: 'areas', label: 'Area de acesso' },
-  { value: 'profile', label: 'Perfil de acesso' },
-  { value: 'ignore', label: 'Ignorar coluna' }
-];
-
-const DEFAULT_IMPORT_FIELD_ORDER: ImportTargetField[] = ['name', 'cpf', 'email', 'company', 'category', 'ticketCode', 'areas', 'profile'];
-const IMPORT_TEMPLATES_STORAGE_KEY = 'credencia_import_templates';
-
-interface PermissionDefinition {
-  id: string;
-  label: string;
-}
-
-interface PermissionGroupDefinition {
-  id: string;
-  title: string;
-  icon: React.ElementType;
-  permissions: PermissionDefinition[];
-}
-
-const PERMISSION_GROUPS: PermissionGroupDefinition[] = [
-  {
-    id: 'events',
-    title: 'Eventos',
-    icon: Calendar,
-    permissions: [
-      { id: 'events.view', label: 'Visualizar eventos' },
-      { id: 'events.create', label: 'Criar eventos' },
-      { id: 'events.edit', label: 'Editar eventos' },
-      { id: 'events.delete', label: 'Excluir eventos' },
-      { id: 'events.configure', label: 'Configurar eventos' }
-    ]
-  },
-  {
-    id: 'participants',
-    title: 'Participantes',
-    icon: Users,
-    permissions: [
-      { id: 'participants.view', label: 'Visualizar participantes' },
-      { id: 'participants.create', label: 'Cadastrar participantes' },
-      { id: 'participants.edit', label: 'Editar participantes' },
-      { id: 'participants.delete', label: 'Excluir participantes' },
-      { id: 'participants.import', label: 'Importar participantes' },
-      { id: 'participants.export', label: 'Exportar participantes' }
-    ]
-  },
-  {
-    id: 'checkin',
-    title: 'Check-in',
-    icon: CheckCircle2,
-    permissions: [
-      { id: 'checkin.access', label: 'Acessar tela de Check-in' },
-      { id: 'checkin.perform', label: 'Fazer Check-in' },
-      { id: 'checkin.reprint', label: 'Reimprimir credencial' },
-      { id: 'checkin.createParticipant', label: 'Cadastrar participante durante o Check-in' }
-    ]
-  },
-  {
-    id: 'access',
-    title: 'Controle de Acesso',
-    icon: ShieldCheck,
-    permissions: [
-      { id: 'access.scanQr', label: 'Scanner QR Code' },
-      { id: 'access.rooms', label: 'Controle de Salas' },
-      { id: 'access.restaurants', label: 'Controle de Restaurantes' },
-      { id: 'access.shows', label: 'Controle de Shows' },
-      { id: 'access.manageAreas', label: 'Gerenciar Areas' }
-    ]
-  },
-  {
-    id: 'cloakroom',
-    title: 'Chapelaria',
-    icon: FolderLock,
-    permissions: [
-      { id: 'cloakroom.checkin', label: 'Registrar entrada' },
-      { id: 'cloakroom.checkout', label: 'Registrar retirada' },
-      { id: 'cloakroom.reprint', label: 'Reimprimir etiquetas' }
-    ]
-  },
-  {
-    id: 'certificates',
-    title: 'Certificados',
-    icon: Award,
-    permissions: [
-      { id: 'certificates.issue', label: 'Emitir certificados' },
-      { id: 'certificates.manageActivities', label: 'Gerenciar atividades' },
-      { id: 'certificates.editTemplate', label: 'Editar template de certificado' }
-    ]
-  },
-  {
-    id: 'print',
-    title: 'Impressao',
-    icon: Printer,
-    permissions: [
-      { id: 'print.configureLabels', label: 'Configurar etiquetas' },
-      { id: 'print.configureBadges', label: 'Configurar crachas' },
-      { id: 'print.labels', label: 'Imprimir etiquetas' },
-      { id: 'print.badges', label: 'Imprimir crachas' }
-    ]
-  },
-  {
-    id: 'reports',
-    title: 'Relatorios',
-    icon: Download,
-    permissions: [
-      { id: 'reports.view', label: 'Visualizar relatorios' },
-      { id: 'reports.exportExcel', label: 'Exportar Excel' },
-      { id: 'reports.exportPdf', label: 'Exportar PDF' }
-    ]
-  },
-  {
-    id: 'operators',
-    title: 'Operadores',
-    icon: UserCheck,
-    permissions: [
-      { id: 'operators.create', label: 'Criar operadores' },
-      { id: 'operators.edit', label: 'Editar operadores' },
-      { id: 'operators.delete', label: 'Excluir operadores' },
-      { id: 'operators.managePermissions', label: 'Gerenciar permissoes' }
-    ]
-  },
-  {
-    id: 'settings',
-    title: 'Configuracoes',
-    icon: Settings,
-    permissions: [
-      { id: 'settings.general', label: 'Configuracoes gerais' },
-      { id: 'settings.customFields', label: 'Campos personalizados' },
-      { id: 'settings.importTemplates', label: 'Modelos de importacao' },
-      { id: 'settings.labelConfig', label: 'Configuracao de etiquetas' },
-      { id: 'settings.badgeConfig', label: 'Configuracao de crachas' },
-      { id: 'settings.certificateTemplates', label: 'Templates de certificados' },
-      { id: 'settings.integrations', label: 'Integracoes' },
-      { id: 'settings.backup', label: 'Backup' }
-    ]
-  }
-];
-
-const ALL_PERMISSION_IDS = PERMISSION_GROUPS.flatMap(group => group.permissions.map(permission => permission.id));
-
-const normalizePermissions = (permissions?: string[]) =>
-  [...new Set((permissions || []).filter(permission => ALL_PERMISSION_IDS.includes(permission)))];
-
-const legacyPermissionsForRole = (role?: string): string[] => {
-  const normalized = String(role || '').toUpperCase();
-  if (normalized === 'ADMIN' || role === 'admin') return ALL_PERMISSION_IDS;
-  if (normalized === 'SUPERVISOR') {
-    return normalizePermissions([
-      'events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'participants.export',
-      'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
-      'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows', 'access.manageAreas',
-      'certificates.issue', 'certificates.manageActivities',
-      'reports.view', 'reports.exportExcel'
-    ]);
-  }
-  if (normalized === 'CHECKIN_CADASTRO') {
-    return normalizePermissions([
-      'events.view', 'participants.view', 'participants.create', 'participants.import',
-      'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant',
-      'certificates.issue'
-    ]);
-  }
-  if (normalized === 'RELATORIO' || normalized === 'VISUALIZADOR') {
-    return normalizePermissions(['events.view', 'participants.view', 'reports.view', 'reports.exportExcel', 'reports.exportPdf']);
-  }
-  if (normalized === 'CHECKIN' || normalized === 'ATENDENTE' || normalized === 'OPERATOR' || normalized === 'OPERADOR') {
-    return normalizePermissions(['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint']);
-  }
-  return [];
-};
-
-const PERMISSION_PRESETS: Record<string, { label: string; role: UserRole; eventRole: EventUserRole; permissions: string[] }> = {
-  ADMIN: { label: 'Administrador', role: 'ADMIN', eventRole: 'ADMIN', permissions: ALL_PERMISSION_IDS },
-  RECEPCAO: {
-    label: 'Recepcao',
-    role: 'OPERADOR',
-    eventRole: 'CHECKIN_CADASTRO',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant', 'print.labels', 'print.badges'])
-  },
-  CHECKIN: {
-    label: 'Check-in',
-    role: 'OPERADOR',
-    eventRole: 'CHECKIN',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint'])
-  },
-  CHAPELARIA: {
-    label: 'Chapelaria',
-    role: 'OPERADOR',
-    eventRole: 'CHECKIN',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'cloakroom.checkin', 'cloakroom.checkout', 'cloakroom.reprint'])
-  },
-  SCANNER: {
-    label: 'Scanner',
-    role: 'OPERADOR',
-    eventRole: 'CHECKIN',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows'])
-  },
-  CERTIFICADOS: {
-    label: 'Certificados',
-    role: 'OPERADOR',
-    eventRole: 'CHECKIN_CADASTRO',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'certificates.issue', 'certificates.manageActivities', 'certificates.editTemplate'])
-  },
-  RELATORIOS: {
-    label: 'Relatorios',
-    role: 'VISUALIZADOR',
-    eventRole: 'RELATORIO',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'reports.view', 'reports.exportExcel', 'reports.exportPdf'])
-  },
-  SECRETARIA: {
-    label: 'Secretaria',
-    role: 'OPERADOR',
-    eventRole: 'CHECKIN_CADASTRO',
-    permissions: normalizePermissions(['events.view', 'participants.view', 'participants.create', 'participants.edit', 'participants.import', 'participants.export', 'checkin.access', 'reports.view', 'reports.exportExcel', 'certificates.issue', 'settings.importTemplates'])
-  },
-  ORGANIZACAO: {
-    label: 'Organizacao',
-    role: 'OPERADOR',
-    eventRole: 'ADMIN',
-    permissions: normalizePermissions(ALL_PERMISSION_IDS.filter(permission => !['events.delete', 'operators.delete', 'settings.backup', 'settings.integrations'].includes(permission)))
-  }
-};
-
-const formatUserRoleLabel = (role?: string) => {
-  const normalized = String(role || '').toUpperCase();
-  if (normalized === 'ADMIN' || role === 'admin') return 'Administrador';
-  if (normalized === 'VISUALIZADOR' || normalized === 'RELATORIO') return 'Visualizador';
-  return 'Operador';
-};
-
-interface ReportAreaAccessLog {
-  id: string;
-  participantId: string;
-  areaId: string;
-  status: 'ALLOWED' | 'DENIED';
-  userId: string;
-  timestamp: string;
-  participantName?: string;
-  participantCpf?: string;
-  areaName?: string;
-  operatorName?: string;
-}
-
-interface ReportActionLog {
-  id: string;
-  eventId: string;
-  userId: string;
-  participantId?: string;
-  action: string;
-  timestamp: string;
-  participantName?: string;
-  operatorName?: string;
-}
-
-interface ActivityAttendanceView {
-  id: string;
-  eventId: string;
-  activityId: string;
-  participantId: string;
-  checkedAt: string;
-  checkedByUserId: string;
-  participantName?: string;
-  participantCpf?: string;
-  participantCategory?: string;
-  operatorName?: string;
-}
-
-interface CertificateActivityView extends Activity {
-  checkedAt?: string;
-  attendanceId?: string;
-}
-
-interface CertificateLookupResult {
-  participant: Participant;
-  event: Event;
-  attendedActivities: CertificateActivityView[];
-  totalHours: number;
-  certificates: Certificate[];
-}
-
-interface ReportCertificate extends Certificate {
-  participantName?: string;
-  participantCpf?: string;
-  participantCategory?: string;
-  activityTitle?: string;
-  activitySpeakerName?: string;
-  operatorName?: string;
-}
-
-interface ReportBrandConfig {
-  showLogo: boolean;
-  logoUrl: string;
-  showWatermark: boolean;
-  watermarkUrl: string;
-  watermarkOpacity: number;
-}
-
-type ReportOptionKey =
-  | 'summaryTotal'
-  | 'summaryCheckedIn'
-  | 'summaryPending'
-  | 'summaryAttendanceRate'
-  | 'eventName'
-  | 'eventDate'
-  | 'eventCategory'
-  | 'eventStatusFilter'
-  | 'issuedAt'
-  | 'checkinsByHour'
-  | 'participantsByCategory'
-  | 'presenceBreakdown'
-  | 'areaAccess'
-  | 'areaAccessDecisions'
-  | 'participantName'
-  | 'participantCpf'
-  | 'participantEmail'
-  | 'participantPhone'
-  | 'participantCategory'
-  | 'participantCheckinStatus'
-  | 'participantCheckinTime'
-  | 'participantAreaAccess';
-
-type ReportConfig = Record<ReportOptionKey, boolean>;
-
-const DEFAULT_REPORT_BRAND_CONFIG: ReportBrandConfig = {
-  showLogo: false,
-  logoUrl: '',
-  showWatermark: false,
-  watermarkUrl: '',
-  watermarkOpacity: 0.08
-};
-
-const DEFAULT_REPORT_CONFIG: ReportConfig = {
-  summaryTotal: true,
-  summaryCheckedIn: true,
-  summaryPending: true,
-  summaryAttendanceRate: true,
-  eventName: true,
-  eventDate: true,
-  eventCategory: true,
-  eventStatusFilter: true,
-  issuedAt: true,
-  checkinsByHour: true,
-  participantsByCategory: true,
-  presenceBreakdown: true,
-  areaAccess: true,
-  areaAccessDecisions: true,
-  participantName: true,
-  participantCpf: true,
-  participantEmail: true,
-  participantPhone: false,
-  participantCategory: true,
-  participantCheckinStatus: true,
-  participantCheckinTime: true,
-  participantAreaAccess: true
-};
-
-const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; description: string; keys: Array<{ key: ReportOptionKey; label: string }> }> = [
-  {
-    id: 'summary',
-    title: 'Resumo geral',
-    description: 'Indicadores principais do credenciamento.',
-    keys: [
-      { key: 'summaryTotal', label: 'Total de participantes' },
-      { key: 'summaryCheckedIn', label: 'Check-ins realizados' },
-      { key: 'summaryPending', label: 'Participantes pendentes' },
-      { key: 'summaryAttendanceRate', label: 'Percentual de presença' }
-    ]
-  },
-  {
-    id: 'event',
-    title: 'Dados do evento',
-    description: 'Cabeçalho e contexto do relatório.',
-    keys: [
-      { key: 'eventName', label: 'Nome do evento' },
-      { key: 'eventDate', label: 'Data do evento' },
-      { key: 'eventCategory', label: 'Categoria' },
-      { key: 'eventStatusFilter', label: 'Status filtrado' },
-      { key: 'issuedAt', label: 'Data e hora de emissão do relatório' }
-    ]
-  },
-  {
-    id: 'charts',
-    title: 'Gráficos e estatísticas',
-    description: 'Blocos visuais de análise operacional.',
-    keys: [
-      { key: 'checkinsByHour', label: 'Check-ins por horário' },
-      { key: 'participantsByCategory', label: 'Participantes por categoria' },
-      { key: 'presenceBreakdown', label: 'Presentes x ausentes' },
-      { key: 'areaAccess', label: 'Acessos por sala' },
-      { key: 'areaAccessDecisions', label: 'Liberações e negações de acesso' }
-    ]
-  },
-  {
-    id: 'participants',
-    title: 'Lista de participantes',
-    description: 'Colunas da tabela impressa e exportada.',
-    keys: [
-      { key: 'participantName', label: 'Nome' },
-      { key: 'participantCpf', label: 'CPF' },
-      { key: 'participantEmail', label: 'E-mail' },
-      { key: 'participantPhone', label: 'Telefone' },
-      { key: 'participantCategory', label: 'Categoria' },
-      { key: 'participantCheckinStatus', label: 'Status do check-in' },
-      { key: 'participantCheckinTime', label: 'Horário do check-in' },
-      { key: 'participantAreaAccess', label: 'Sala/acesso liberado ou negado' }
-    ]
-  }
-];
-
-const REPORT_OPTION_KEYS = REPORT_CONFIG_GROUPS.flatMap(group => group.keys.map(item => item.key));
-
-const REPORT_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
-const REPORT_IMAGE_FORMATS = 'PNG, JPG/JPEG, WebP, GIF e SVG';
-
-const DEFAULT_CERTIFICATE_TEMPLATE: CertificateTemplate = {
-  id: 'default',
-  eventId: '',
-  name: 'Template padrão',
-  orientation: 'landscape',
-  pageSize: 'A4',
-  backgroundImageUrl: '',
-  logoUrl: '',
-  elements: [
-    { id: 'participant_name', type: 'text', label: 'Nome do participante', placeholder: '{{participant.name}}', x: 16, y: 34, width: 68, height: 8, fontFamily: 'Arial', fontSize: 30, color: '#0f172a', bold: true, italic: false, align: 'center', order: 1 },
-    { id: 'event_name', type: 'text', label: 'Nome do evento', placeholder: '{{event.name}}', x: 16, y: 47, width: 68, height: 7, fontFamily: 'Arial', fontSize: 24, color: '#0f172a', bold: true, italic: false, align: 'center', order: 2 },
-    { id: 'activity_title', type: 'text', label: 'Nome da atividade', placeholder: '{{activity.title}}', x: 16, y: 58, width: 68, height: 6, fontFamily: 'Arial', fontSize: 20, color: '#334155', bold: true, italic: false, align: 'center', order: 3 },
-    { id: 'activity_speaker', type: 'text', label: 'Palestrante', placeholder: '{{activity.speakerName}}', x: 22, y: 67, width: 56, height: 5, fontFamily: 'Arial', fontSize: 16, color: '#475569', bold: false, italic: false, align: 'center', order: 4 },
-    { id: 'certificate_hours', type: 'text', label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas', fontSize: 22, order: 5 },
-    { id: 'certificate_code', type: 'text', label: 'Código do certificado', placeholder: '{{certificate.code}}', fontSize: 12, order: 6 },
-    { id: 'certificate_issued_at', type: 'text', label: 'Data de emissão', placeholder: '{{certificate.issuedAt}}', fontSize: 12, order: 7 }
-  ],
-  createdAt: '',
-  updatedAt: ''
-};
-
-const CERTIFICATE_ELEMENT_PRESETS = [
-  { label: 'Texto livre', placeholder: 'Texto livre' },
-  { label: 'Nome participante', placeholder: '{{participant.name}}' },
-  { label: 'Evento', placeholder: '{{event.name}}' },
-  { label: 'Atividade', placeholder: '{{activity.title}}' },
-  { label: 'Palestrante', placeholder: '{{activity.speakerName}}' },
-  { label: 'Carga horária', placeholder: '{{certificate.totalHours}} horas' },
-  { label: 'Data', placeholder: '{{certificate.issuedAt}}' },
-  { label: 'Código do certificado', placeholder: '{{certificate.code}}' }
-];
-
-const getCertificateElementDefaults = (element: Partial<CertificateTemplateElement>, index: number): CertificateTemplateElement => {
-  const fallbackPositions = [
-    { x: 16, y: 34, width: 68, height: 8, fontSize: 30, align: 'center' as const, bold: true },
-    { x: 16, y: 47, width: 68, height: 7, fontSize: 24, align: 'center' as const, bold: true },
-    { x: 16, y: 58, width: 68, height: 6, fontSize: 20, align: 'center' as const, bold: true },
-    { x: 22, y: 67, width: 56, height: 5, fontSize: 16, align: 'center' as const, bold: false },
-    { x: 32, y: 75, width: 36, height: 6, fontSize: 20, align: 'center' as const, bold: true },
-    { x: 8, y: 91, width: 34, height: 4, fontSize: 11, align: 'left' as const, bold: true },
-    { x: 58, y: 91, width: 34, height: 4, fontSize: 11, align: 'right' as const, bold: true }
-  ];
-  const fallback = fallbackPositions[index] || { x: 20, y: 20, width: 40, height: 8, fontSize: 16, align: 'center' as const, bold: false };
-  const type = element.type || 'text';
-
-  return {
-    id: element.id || `ctel_${Math.random().toString(36).slice(2, 9)}`,
-    type,
-    label: element.label || (type === 'image' ? 'Imagem' : 'Texto'),
-    placeholder: element.placeholder || element.text || '',
-    text: element.text || '',
-    imageUrl: element.imageUrl || '',
-    x: Number.isFinite(element.x) ? element.x : fallback.x,
-    y: Number.isFinite(element.y) ? element.y : fallback.y,
-    width: Number.isFinite(element.width) ? element.width : fallback.width,
-    height: Number.isFinite(element.height) ? element.height : (type === 'image' ? 14 : fallback.height),
-    fontFamily: element.fontFamily || 'Arial',
-    fontSize: Number.isFinite(element.fontSize) ? element.fontSize : fallback.fontSize,
-    color: element.color || '#0f172a',
-    bold: element.bold !== undefined ? element.bold : fallback.bold,
-    italic: element.italic === true,
-    align: element.align || fallback.align,
-    order: Number.isFinite(element.order) ? element.order : index + 1
-  };
-};
-
-const normalizeCertificateTemplate = (template?: Partial<CertificateTemplate>, eventId = ''): CertificateTemplate => ({
-  ...DEFAULT_CERTIFICATE_TEMPLATE,
-  ...template,
-  eventId: template?.eventId || eventId,
-  elements: (Array.isArray(template?.elements) && template.elements.length > 0
-    ? template.elements
-    : DEFAULT_CERTIFICATE_TEMPLATE.elements
-  ).map(getCertificateElementDefaults)
-});
-
-const DEFAULT_CLOAKROOM_LABEL_CONFIG: CloakroomLabelConfig = {
-  showEventName: false,
-  showLabelType: false,
-  showTicketNumber: true,
-  showParticipantName: true,
-  showDescription: true,
-  showVolumeCount: false,
-  showDateTime: false,
-  showOperator: false,
-  lineOrder: ['participantName', 'description', 'ticketNumber'],
-  fontSizes: {
-    participantName: 24,
-    description: 13,
-    ticketNumber: 34,
-    volumeCount: 11,
-    eventName: 11,
-    labelType: 11,
-    dateTime: 10,
-    operator: 10
-  }
-};
-
-type ActiveTab =
-  | 'dashboard'
-  | 'eventos-ativos'
-  | 'evento-dashboard'
-  | 'eventos'
-  | 'participantes'
-  | 'inscricoes-online'
-  | 'checkin'
-  | 'checkin-mobile'
-  | 'checkin-modular'
-  | 'scanner'
-  | 'atividades'
-  | 'presenca-atividade'
-  | 'certificados'
-  | 'areas'
-  | 'chapelaria'
-  | 'relatorios'
-  | 'impressao'
-  | 'etiquetas'
-  | 'usuarios'
-  | 'campos';
-
-const ACTIVE_TAB_STORAGE_KEY = 'credencia_active_tab';
-const CURRENT_EVENT_ID_STORAGE_KEY = 'currentEventId';
-const CURRENT_USER_ROLE_STORAGE_KEY = 'currentUserRole';
-const LEGACY_SELECTED_EVENT_ID_STORAGE_KEY = 'credencia_selected_event_id';
-const ACTIVE_TABS: ActiveTab[] = [
-  'dashboard',
-  'eventos-ativos',
-  'evento-dashboard',
-  'eventos',
-  'participantes',
-  'inscricoes-online',
-  'checkin',
-  'checkin-mobile',
-  'checkin-modular',
-  'scanner',
-  'atividades',
-  'presenca-atividade',
-  'certificados',
-  'areas',
-  'chapelaria',
-  'relatorios',
-  'impressao',
-  'etiquetas',
-  'usuarios',
-  'campos'
-];
-
-const isActiveTab = (value: string | null): value is ActiveTab => {
-  return !!value && ACTIVE_TABS.includes(value as ActiveTab);
-};
-
-const readStoredToken = () => {
-  const saved = localStorage.getItem('credencia_token');
-  return saved && saved !== 'undefined' && saved !== 'null' ? saved : null;
-};
-
-const readStoredActiveTab = (): ActiveTab | null => {
-  const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-  if (!isActiveTab(savedTab)) return null;
-  return savedTab === 'checkin-mobile' ? null : savedTab;
-};
-
-const readStoredUser = (): User | null => {
-  const saved = localStorage.getItem('credencia_user');
-  if (!saved || saved === 'undefined' || saved === 'null') return null;
-
-  try {
-    return JSON.parse(saved) || null;
-  } catch (error) {
-    localStorage.removeItem('credencia_user');
-    return null;
-  }
-};
-
-const fixMojibake = (value?: string) => {
-  if (!value || !/[ÃÂ]/.test(value)) return value || '';
-  try {
-    return decodeURIComponent(escape(value));
-  } catch (error) {
-    return value;
-  }
-};
-
-const escapeCertificateHtml = (value?: string) => fixMojibake(value)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#039;');
-
-const replaceCertificatePlaceholders = (
-  value: string,
-  participant: Participant,
-  event: Event,
-  certificate: Certificate,
-  activity?: CertificateActivityView
-) => {
-  const replacements: Record<string, string> = {
-    '{{participant.name}}': participant.name || '',
-    '{{event.name}}': event.name || '',
-    '{{activity.title}}': activity?.title || '',
-    '{{activity.speakerName}}': activity?.speakerName || '',
-    '{{activity.workloadHours}}': String(activity?.workloadHours || ''),
-    '{{certificate.totalHours}}': String(certificate.totalHours || 0),
-    '{{certificate.code}}': certificate.certificateCode || '',
-    '{{certificate.issuedAt}}': certificate.issuedAt ? new Date(certificate.issuedAt).toLocaleString('pt-BR') : ''
-  };
-
-  return Object.entries(replacements).reduce(
-    (text, [placeholder, replacement]) => text.split(placeholder).join(fixMojibake(replacement)),
-    value || ''
-  );
-};
-
-const normalizeParticipantSearch = (value?: string) => fixMojibake(value || '')
-  .toLowerCase()
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[._\-+/ ]/g, '');
-
-const getParticipantSearchScore = (participant: Participant, query: string) => {
-  const name = normalizeParticipantSearch(participant.name);
-  const badgeName = normalizeParticipantSearch(participant.badgeName || '');
-  const firstName = normalizeParticipantSearch(participant.name.split(/\s+/)[0] || '');
-  const badgeFirstName = normalizeParticipantSearch((participant.badgeName || '').split(/\s+/)[0] || '');
-  const cpf = normalizeParticipantSearch(participant.cpf || '');
-  const ticketCode = normalizeParticipantSearch(participant.ticketCode || '');
-  const id = normalizeParticipantSearch(participant.id || '');
-
-  if (firstName.startsWith(query)) return 0;
-  if (badgeFirstName.startsWith(query)) return 1;
-  if (name.startsWith(query)) return 2;
-  if (badgeName.startsWith(query)) return 3;
-  if (cpf.startsWith(query)) return 4;
-  if (ticketCode.startsWith(query) || id.startsWith(query) || query.includes(ticketCode) || query.includes(id)) return 5;
-  if (name.includes(query)) return 6;
-  if (badgeName.includes(query)) return 7;
-  if (cpf.includes(query) || ticketCode.includes(query) || id.includes(query)) return 8;
-  return 99;
-};
+import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement, ActiveTab, ActivityAttendanceView, CertificateActivityView, CertificateLookupResult, ImportTargetField, ImportTemplate, ReportActionLog, ReportAreaAccessLog, ReportBrandConfig, ReportCertificate, ReportConfig, ReportOptionKey, Toast } from './types';
+import { CATEGORY_TAGS } from './constants/categories';
+import { CERTIFICATE_ELEMENT_PRESETS, DEFAULT_CERTIFICATE_TEMPLATE, getCertificateElementDefaults, normalizeCertificateTemplate } from './constants/certificates';
+import { DEFAULT_CLOAKROOM_LABEL_CONFIG } from './constants/cloakroom';
+import { DEFAULT_IMPORT_FIELD_ORDER, IMPORT_TARGET_OPTIONS, IMPORT_TEMPLATES_STORAGE_KEY } from './constants/importTemplates';
+import { ACTIVE_TAB_STORAGE_KEY, CURRENT_EVENT_ID_STORAGE_KEY, CURRENT_USER_ROLE_STORAGE_KEY, LEGACY_SELECTED_EVENT_ID_STORAGE_KEY } from './constants/navigation';
+import { ALL_PERMISSION_IDS, PERMISSION_GROUPS, PERMISSION_PRESETS, formatUserRoleLabel, legacyPermissionsForRole, normalizePermissions } from './constants/permissions';
+import { DEFAULT_REPORT_BRAND_CONFIG, DEFAULT_REPORT_CONFIG, REPORT_CONFIG_GROUPS, REPORT_IMAGE_ACCEPT, REPORT_IMAGE_FORMATS, REPORT_OPTION_KEYS } from './constants/reports';
+import { escapeCertificateHtml, replaceCertificatePlaceholders } from './utils/certificate';
+import { getParticipantSearchScore, normalizeParticipantSearch } from './utils/participantSearch';
+import { readStoredActiveTab, readStoredToken, readStoredUser } from './utils/sessionStorage';
+import { fixMojibake } from './utils/text';
 
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
@@ -1034,7 +354,7 @@ export default function App() {
       return await res.json();
     } catch (e: any) {
       console.error(`API Call failed to [${endpoint}]:`, e);
-      addToast(e.message || 'Erro de comunicação com o servidor', 'error');
+      addToast(e.message || 'Erro de comunicaÃ§Ã£o com o servidor', 'error');
       throw e;
     }
   };
@@ -1079,13 +399,13 @@ export default function App() {
 
     const supportedTypes = REPORT_IMAGE_ACCEPT.split(',');
     if (!supportedTypes.includes(file.type)) {
-      addToast(`Formato não suportado. Use: ${REPORT_IMAGE_FORMATS}.`, 'error');
+      addToast(`Formato nÃ£o suportado. Use: ${REPORT_IMAGE_FORMATS}.`, 'error');
       return;
     }
 
     const maxSizeMb = 2;
     if (file.size > maxSizeMb * 1024 * 1024) {
-      addToast(`Imagem muito grande. Use um arquivo de até ${maxSizeMb} MB.`, 'error');
+      addToast(`Imagem muito grande. Use um arquivo de atÃ© ${maxSizeMb} MB.`, 'error');
       return;
     }
 
@@ -1093,7 +413,7 @@ export default function App() {
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
       if (!result) {
-        addToast('Não foi possível carregar a imagem.', 'error');
+        addToast('NÃ£o foi possÃ­vel carregar a imagem.', 'error');
         return;
       }
 
@@ -1137,7 +457,7 @@ export default function App() {
     setCertificateTemplate(prev => ({
       ...prev,
       id: `ctpl_${Math.random().toString(36).slice(2, 9)}`,
-      name: `${prev.name || 'Template'} - cópia`,
+      name: `${prev.name || 'Template'} - cÃ³pia`,
       elements: prev.elements.map((element, index) => ({
         ...element,
         id: `ctel_${Math.random().toString(36).slice(2, 9)}`,
@@ -1271,7 +591,7 @@ export default function App() {
       addToast(`Bem-vindo de volta, ${data.user.name}!`, 'success');
     } catch (err: any) {
       // failed PIN attempts are warned
-      addToast(err.message || 'Código PIN incorreto', 'error');
+      addToast(err.message || 'CÃ³digo PIN incorreto', 'error');
       throw err;
     } finally {
       setAuthLoading(false);
@@ -1308,7 +628,7 @@ export default function App() {
     setEvents([]);
     setParticipants([]);
     setStats(null);
-    addToast('Sessão encerrada com sucesso', 'info');
+    addToast('SessÃ£o encerrada com sucesso', 'info');
   };
 
   // Signup/Registration Handler
@@ -1351,7 +671,7 @@ export default function App() {
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profileForm.name || !profileForm.email) {
-      addToast('Nome e e-mail são obrigatórios para seu perfil.', 'error');
+      addToast('Nome e e-mail sÃ£o obrigatÃ³rios para seu perfil.', 'error');
       return;
     }
 
@@ -1463,7 +783,7 @@ export default function App() {
       const data = await apiCall('/api/users');
       setUsersList(data);
     } catch (e) {
-      console.error('Erro ao ler lista de usuários:', e);
+      console.error('Erro ao ler lista de usuÃ¡rios:', e);
     } finally {
       setIsLoadingUsers(false);
     }
@@ -1478,14 +798,14 @@ export default function App() {
       const data = await apiCall(`/api/events/${eventId}/users`);
       setEventUsers(data);
     } catch (e) {
-      console.error('Erro ao carregar vínculos de operadores por evento:', e);
+      console.error('Erro ao carregar vÃ­nculos de operadores por evento:', e);
     }
   };
 
   const handleSaveEventUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventUserForm.eventId || !eventUserForm.userId || !eventUserForm.role) {
-      addToast('Selecione evento, usuário e permissão do vínculo.', 'error');
+      addToast('Selecione evento, usuÃ¡rio e permissÃ£o do vÃ­nculo.', 'error');
       return;
     }
 
@@ -1503,7 +823,7 @@ export default function App() {
         const exists = prev.some(link => link.id === saved.id);
         return exists ? prev.map(link => link.id === saved.id ? saved : link) : [...prev, saved];
       });
-      addToast('Vínculo entre usuário e evento salvo com sucesso!', 'success');
+      addToast('VÃ­nculo entre usuÃ¡rio e evento salvo com sucesso!', 'success');
     } catch (e) {}
   };
 
@@ -1518,11 +838,11 @@ export default function App() {
   };
 
   const handleDeleteEventUser = async (link: EventUser) => {
-    if (!window.confirm('Remover este vínculo entre usuário e evento?')) return;
+    if (!window.confirm('Remover este vÃ­nculo entre usuÃ¡rio e evento?')) return;
     try {
       await apiCall(`/api/events/${link.eventId}/users/${link.id}`, { method: 'DELETE' });
       setEventUsers(prev => prev.filter(item => item.id !== link.id));
-      addToast('Vínculo removido com sucesso.', 'info');
+      addToast('VÃ­nculo removido com sucesso.', 'info');
     } catch (e) {}
   };
 
@@ -1530,7 +850,7 @@ export default function App() {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userForm.name || !userForm.email || (!userForm.id && !userForm.password)) {
-      addToast('Nome, E-mail e Senha são campos obrigatórios para novos operadores.', 'error');
+      addToast('Nome, E-mail e Senha sÃ£o campos obrigatÃ³rios para novos operadores.', 'error');
       return;
     }
 
@@ -1552,10 +872,10 @@ export default function App() {
 
       if (isEdit) {
         setUsersList(prev => prev.map(u => u.id === saved.id ? saved : u));
-        addToast(`Usuário "${saved.name}" atualizado com sucesso!`, 'success');
+        addToast(`UsuÃ¡rio "${saved.name}" atualizado com sucesso!`, 'success');
       } else {
         setUsersList(prev => [...prev, saved]);
-        addToast(`Usuário "${saved.name}" criado com login e senha prontos!`, 'success');
+        addToast(`UsuÃ¡rio "${saved.name}" criado com login e senha prontos!`, 'success');
       }
 
       if (userForm.eventId) {
@@ -1576,7 +896,7 @@ export default function App() {
           });
         }
 
-        addToast(`Vínculo de "${saved.name}" com evento criado.`, 'success');
+        addToast(`VÃ­nculo de "${saved.name}" com evento criado.`, 'success');
       }
 
       setIsUserModalOpen(false);
@@ -1598,14 +918,14 @@ export default function App() {
   // Delete credentials of an operator/admin
   const handleDeleteUser = async (id: string) => {
     if (id === currentUser?.id) {
-      addToast('Você não pode excluir sua própria conta atualmente ativa.', 'error');
+      addToast('VocÃª nÃ£o pode excluir sua prÃ³pria conta atualmente ativa.', 'error');
       return;
     }
-    if (!window.confirm('Excluir este login removerá definitivamente o acesso dele ao sistema. Confirmar exclusão?')) return;
+    if (!window.confirm('Excluir este login removerÃ¡ definitivamente o acesso dele ao sistema. Confirmar exclusÃ£o?')) return;
 
     try {
       await apiCall(`/api/users/${id}`, { method: 'DELETE' });
-      addToast('Usuário revogado do sistema.', 'success');
+      addToast('UsuÃ¡rio revogado do sistema.', 'success');
       setUsersList(prev => prev.filter(u => u.id !== id));
     } catch (e) {}
   };
@@ -1820,13 +1140,13 @@ export default function App() {
 
     const supportedTypes = REPORT_IMAGE_ACCEPT.split(',');
     if (!supportedTypes.includes(file.type)) {
-      addToast(`Formato não suportado. Use: ${REPORT_IMAGE_FORMATS}.`, 'error');
+      addToast(`Formato nÃ£o suportado. Use: ${REPORT_IMAGE_FORMATS}.`, 'error');
       return;
     }
 
     const maxSizeMb = 2;
     if (file.size > maxSizeMb * 1024 * 1024) {
-      addToast(`Imagem muito grande. Use um arquivo de até ${maxSizeMb} MB.`, 'error');
+      addToast(`Imagem muito grande. Use um arquivo de atÃ© ${maxSizeMb} MB.`, 'error');
       return;
     }
 
@@ -1834,7 +1154,7 @@ export default function App() {
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
       if (!result) {
-        addToast('Não foi possível carregar a imagem.', 'error');
+        addToast('NÃ£o foi possÃ­vel carregar a imagem.', 'error');
         return;
       }
 
@@ -1899,7 +1219,7 @@ export default function App() {
   const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventForm.name || !eventForm.date || !eventForm.location || !eventForm.capacity) {
-      addToast('Todos os campos são obrigatórios', 'error');
+      addToast('Todos os campos sÃ£o obrigatÃ³rios', 'error');
       return;
     }
 
@@ -1929,7 +1249,7 @@ export default function App() {
   };
 
   const handleDeleteEvent = async (id: string) => {
-    if (!window.confirm('Atenção: A remoção deste evento excluirá em cascata todos os participantes e itens de chapelaria relacionados. Deseja prosseguir?')) return;
+    if (!window.confirm('AtenÃ§Ã£o: A remoÃ§Ã£o deste evento excluirÃ¡ em cascata todos os participantes e itens de chapelaria relacionados. Deseja prosseguir?')) return;
     try {
       await apiCall(`/api/events/${id}`, { method: 'DELETE' });
       addToast('Evento removido do sistema.', 'success');
@@ -1975,7 +1295,7 @@ export default function App() {
       return;
     }
     if (!activityForm.title || !activityForm.roomName || !activityForm.date || !activityForm.startTime || !activityForm.endTime) {
-      addToast('Preencha título, sala, data, início e fim da atividade.', 'error');
+      addToast('Preencha tÃ­tulo, sala, data, inÃ­cio e fim da atividade.', 'error');
       return;
     }
 
@@ -2002,13 +1322,13 @@ export default function App() {
   };
 
   const handleDeleteActivity = async (id: string) => {
-    if (!window.confirm('Excluir esta atividade também removerá suas presenças registradas. Confirmar?')) return;
+    if (!window.confirm('Excluir esta atividade tambÃ©m removerÃ¡ suas presenÃ§as registradas. Confirmar?')) return;
     try {
       await apiCall(`/api/activities/${id}`, { method: 'DELETE' });
       setActivities(prev => prev.filter(item => item.id !== id));
       setActivityAttendances(prev => prev.filter(item => item.activityId !== id));
       if (activityAttendanceActivityId === id) setActivityAttendanceActivityId('');
-      addToast('Atividade excluída.', 'success');
+      addToast('Atividade excluÃ­da.', 'success');
     } catch (err) {}
   };
 
@@ -2026,7 +1346,7 @@ export default function App() {
   const handleSubmitActivityAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEventId || !activityAttendanceActivityId) {
-      setActivityAttendanceFeedback({ type: 'error', title: 'Selecione uma atividade', message: 'Escolha a atividade antes de registrar presença.' });
+      setActivityAttendanceFeedback({ type: 'error', title: 'Selecione uma atividade', message: 'Escolha a atividade antes de registrar presenÃ§a.' });
       return;
     }
     if (!activityAttendanceSearch.trim()) {
@@ -2046,16 +1366,16 @@ export default function App() {
       if (result.status === 'ALREADY_REGISTERED') {
         setActivityAttendanceFeedback({
           type: 'warning',
-          title: 'Participante já registrado nesta atividade',
-          message: result.participant?.name || 'Esta presença já existe.'
+          title: 'Participante jÃ¡ registrado nesta atividade',
+          message: result.participant?.name || 'Esta presenÃ§a jÃ¡ existe.'
         });
         return;
       }
 
       setActivityAttendanceFeedback({
         type: 'success',
-        title: 'Presença registrada',
-        message: result.participant?.name || 'Registro concluído com sucesso.'
+        title: 'PresenÃ§a registrada',
+        message: result.participant?.name || 'Registro concluÃ­do com sucesso.'
       });
       setActivityAttendanceSearch('');
       const updated = await apiCall(`/api/events/${selectedEventId}/activity-attendances?activityId=${activityAttendanceActivityId}`).catch(() => []);
@@ -2066,7 +1386,7 @@ export default function App() {
     } catch (err: any) {
       setActivityAttendanceFeedback({
         type: 'error',
-        title: 'Participante não encontrado',
+        title: 'Participante nÃ£o encontrado',
         message: err?.message || 'Nenhum participante localizado para esta busca.'
       });
     }
@@ -2088,11 +1408,11 @@ export default function App() {
       setActiveCertificate(null);
       setCertificateFeedback(result.attendedActivities?.length
         ? null
-        : { type: 'warning', message: 'Participante não possui presença registrada.' });
+        : { type: 'warning', message: 'Participante nÃ£o possui presenÃ§a registrada.' });
     } catch (err: any) {
       setCertificateLookup(null);
       setActiveCertificate(null);
-      setCertificateFeedback({ type: 'error', message: err?.message || 'Participante não encontrado.' });
+      setCertificateFeedback({ type: 'error', message: err?.message || 'Participante nÃ£o encontrado.' });
     }
   };
 
@@ -2107,7 +1427,7 @@ export default function App() {
       return;
     }
     if (certificateLookup.attendedActivities.length === 0) {
-      setCertificateFeedback({ type: 'warning', message: 'Participante não possui presença registrada.' });
+      setCertificateFeedback({ type: 'warning', message: 'Participante nÃ£o possui presenÃ§a registrada.' });
       return;
     }
 
@@ -2162,15 +1482,15 @@ export default function App() {
         <p>participou da atividade</p>
         <h2>${escapeCertificateHtml(activity.title)}</h2>
         <p>ministrada por</p>
-        <h3>${escapeCertificateHtml(activity.speakerName || 'Palestrante não informado')}</h3>
-        <p>com carga horária de</p>
+        <h3>${escapeCertificateHtml(activity.speakerName || 'Palestrante nÃ£o informado')}</h3>
+        <p>com carga horÃ¡ria de</p>
         <h2>${activeCertificate.certificate.totalHours} horas.</h2>
       `
       : `
         <p>Certificamos que <strong>${escapeCertificateHtml(participant.name)}</strong></p>
         <p>participou do evento</p>
         <h2>${escapeCertificateHtml(event.name)}</h2>
-        <p>com carga horária total de</p>
+        <p>com carga horÃ¡ria total de</p>
         <h2>${activeCertificate.certificate.totalHours} horas.</h2>
       `;
     const win = window.open('', '_blank', 'width=1120,height=760');
@@ -2212,7 +1532,7 @@ export default function App() {
             ${template.elements?.length ? '' : certificateBody}
             <div class="dynamic">${dynamicElements}</div>
             <div class="meta">
-              <div>Código: ${activeCertificate.certificate.certificateCode}</div>
+              <div>CÃ³digo: ${activeCertificate.certificate.certificateCode}</div>
               <div>Emitido em ${new Date(activeCertificate.certificate.issuedAt).toLocaleString('pt-BR')}</div>
             </div>
             </div>
@@ -2232,7 +1552,7 @@ export default function App() {
   const handleSaveParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canCreateParticipants && !participantForm.id) {
-      addToast('Usuário sem permissão para cadastrar participantes neste evento.', 'error');
+      addToast('UsuÃ¡rio sem permissÃ£o para cadastrar participantes neste evento.', 'error');
       return;
     }
     if (!selectedEventId) {
@@ -2240,7 +1560,7 @@ export default function App() {
       return;
     }
     if (!participantForm.id && (!participantForm.name || !participantForm.email)) {
-      addToast('Nome e e-mail são obrigatórios!', 'error');
+      addToast('Nome e e-mail sÃ£o obrigatÃ³rios!', 'error');
       return;
     }
 
@@ -2310,7 +1630,7 @@ export default function App() {
       return;
     }
     if (!scanCode.trim()) {
-      addToast('Insira um CPF ou código do convite.', 'error');
+      addToast('Insira um CPF ou cÃ³digo do convite.', 'error');
       return;
     }
 
@@ -2344,12 +1664,12 @@ export default function App() {
     } catch (err: any) {
       setScanResult({
         success: false,
-        message: err.message || 'Código do participante não localizado ou já credenciado.'
+        message: err.message || 'CÃ³digo do participante nÃ£o localizado ou jÃ¡ credenciado.'
       });
     }
   };
 
-  // Cadastra e efetua Check-in com Impressão de Etiqueta instantânea na recepção
+  // Cadastra e efetua Check-in com ImpressÃ£o de Etiqueta instantÃ¢nea na recepÃ§Ã£o
   const handleCheckinAddParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEventId) {
@@ -2357,7 +1677,7 @@ export default function App() {
       return;
     }
     if (!checkinAddForm.name || !checkinAddForm.email || !checkinAddForm.cpf) {
-      addToast('Preencha os campos obrigatórios!', 'error');
+      addToast('Preencha os campos obrigatÃ³rios!', 'error');
       return;
     }
 
@@ -2377,21 +1697,21 @@ export default function App() {
       setParticipants(prev => [saved, ...prev]);
       addToast('Membro cadastrado e credenciado com sucesso!', 'success');
       
-      // Limpa formulário da recepção
+      // Limpa formulÃ¡rio da recepÃ§Ã£o
       setCheckinAddForm({ name: '', email: '', cpf: '', category: 'Participante', company: '' });
       setShowCheckinAddForm(false);
       
-      // Auto-abre para impressão da etiqueta
+      // Auto-abre para impressÃ£o da etiqueta
       setActiveBadgeParticipant(saved);
       
       // Recarrega dados
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
-      addToast(err.message || 'Erro ao realizar o cadastro de recepção.', 'error');
+      addToast(err.message || 'Erro ao realizar o cadastro de recepÃ§Ã£o.', 'error');
     }
   };
 
-  // Realiza check-in e dispara a impressão de crachá de uma só vez
+  // Realiza check-in e dispara a impressÃ£o de crachÃ¡ de uma sÃ³ vez
   const handleCheckinAndPrint = async (participant: Participant) => {
     try {
       let updatedParticipant = participant;
@@ -2504,8 +1824,8 @@ export default function App() {
 
   const cloakroomLabelLineOptions: Array<{ key: CloakroomLabelLineKey; label: string; showKey: keyof Pick<CloakroomLabelConfig, 'showEventName' | 'showLabelType' | 'showTicketNumber' | 'showParticipantName' | 'showDescription' | 'showVolumeCount' | 'showDateTime' | 'showOperator'> }> = [
     { key: 'participantName', label: 'Nome do participante', showKey: 'showParticipantName' },
-    { key: 'description', label: 'Descrição', showKey: 'showDescription' },
-    { key: 'ticketNumber', label: 'Número / ticket', showKey: 'showTicketNumber' },
+    { key: 'description', label: 'DescriÃ§Ã£o', showKey: 'showDescription' },
+    { key: 'ticketNumber', label: 'NÃºmero / ticket', showKey: 'showTicketNumber' },
     { key: 'volumeCount', label: 'Quantidade de volumes', showKey: 'showVolumeCount' },
     { key: 'eventName', label: 'Nome do evento', showKey: 'showEventName' },
     { key: 'labelType', label: 'Tipo da etiqueta', showKey: 'showLabelType' },
@@ -2595,7 +1915,7 @@ export default function App() {
             <span>${[
               cloakroomLabelConfig.showOperator ? item.registeredByName || '' : '',
               cloakroomLabelConfig.showDateTime ? new Date(item.registeredAt).toLocaleString('pt-BR') : ''
-            ].filter(Boolean).map(escapePrintHtml).join(' • ')}</span>
+            ].filter(Boolean).map(escapePrintHtml).join(' â€¢ ')}</span>
           </div>
         ` : ''}
       </section>
@@ -2778,9 +2098,9 @@ export default function App() {
         body: JSON.stringify({ cloakroomLabelConfig })
       });
       setEvents(prev => prev.map(event => event.id === updated.id ? updated : event));
-      addToast('Configuração da etiqueta da chapelaria salva com sucesso.', 'success');
+      addToast('ConfiguraÃ§Ã£o da etiqueta da chapelaria salva com sucesso.', 'success');
     } catch (error: any) {
-      addToast(error.message || 'Erro ao salvar configuração da etiqueta.', 'error');
+      addToast(error.message || 'Erro ao salvar configuraÃ§Ã£o da etiqueta.', 'error');
     }
   };
 
@@ -2791,7 +2111,7 @@ export default function App() {
       return;
     }
     if (!cloakroomForm.participantName) {
-      addToast('Nome do participante é obrigatório', 'error');
+      addToast('Nome do participante Ã© obrigatÃ³rio', 'error');
       return;
     }
 
@@ -2831,7 +2151,7 @@ export default function App() {
       setCloakroomReturnItem(null);
       setPendingCloakroomReturn(null);
       setCloakroomReturnSearch('');
-      addToast(`Etiqueta #${tagNum} devolvida e concluída com sucesso!`, 'success');
+      addToast(`Etiqueta #${tagNum} devolvida e concluÃ­da com sucesso!`, 'success');
       if (selectedEventId) {
         loadDataForEvent(selectedEventId);
       }
@@ -2839,7 +2159,7 @@ export default function App() {
   };
 
   const handleDeleteCloakroomItem = async (id: string) => {
-    if (!window.confirm('Remover definitivamente este registro de chapelaria do histórico?')) return;
+    if (!window.confirm('Remover definitivamente este registro de chapelaria do histÃ³rico?')) return;
     try {
       await apiCall(`/api/cloakroom/${id}`, { method: 'DELETE' });
       setCloakroom(prev => prev.filter(item => item.id !== id));
@@ -2887,7 +2207,7 @@ export default function App() {
     if (['nome', 'name', 'participante', 'participant'].includes(normalized)) return 'name';
     if (['cpf', 'c p f', 'documento', 'identidade', 'cpf cnpj'].includes(normalized)) return 'cpf';
     if (['email', 'e mail', 'mail'].includes(normalized)) return 'email';
-    if (['empresa', 'company', 'corporação', 'corporacao', 'organizacao', 'organizacao', 'org', 'trabalho'].includes(normalized)) return 'company';
+    if (['empresa', 'company', 'corporaÃ§Ã£o', 'corporacao', 'organizacao', 'organizacao', 'org', 'trabalho'].includes(normalized)) return 'company';
     if (['categoria', 'category', 'grupo'].includes(normalized)) return 'category';
     if (['codigo qr', 'qr code', 'codigo do ingresso', 'ingresso', 'ticket', 'ticket code', 'ticketcode', 'codigo'].includes(normalized)) return 'ticketCode';
     if (['area', 'areas', 'area de acesso', 'areas de acesso', 'acesso', 'acessos', 'allowed areas'].includes(normalized)) return 'areas';
@@ -3168,12 +2488,12 @@ export default function App() {
 
   const confirmBatchImport = async () => {
     if (importRows.some(row => !row.isValid)) {
-      addToast('Corrija todas as inconsistências e erros antes de importar os dados.', 'error');
+      addToast('Corrija todas as inconsistÃªncias e erros antes de importar os dados.', 'error');
       return;
     }
 
     if (importRows.length === 0) {
-      addToast('Sua planilha não possui registros válidos.', 'error');
+      addToast('Sua planilha nÃ£o possui registros vÃ¡lidos.', 'error');
       return;
     }
 
@@ -3218,7 +2538,7 @@ export default function App() {
     } catch (err: any) {
       console.error('Error conducting batch import:', err);
       setImportStep(4);
-      addToast(err.message || 'Erro durante a gravação dos dados da planilha no banco de dados.', 'error');
+      addToast(err.message || 'Erro durante a gravaÃ§Ã£o dos dados da planilha no banco de dados.', 'error');
     } finally {
       setIsImportingInProgress(false);
     }
@@ -3227,7 +2547,7 @@ export default function App() {
   // Generate an instant Template Excel download
   const downloadSampleExcelTemplate = () => {
     const templateData = [
-      { Nome: 'João da Silva', Email: 'joao.silva@email.com', CPF: '12345678901', Empresa: 'Tech Soluções', Categoria: 'Participante' },
+      { Nome: 'JoÃ£o da Silva', Email: 'joao.silva@email.com', CPF: '12345678901', Empresa: 'Tech SoluÃ§Ãµes', Categoria: 'Participante' },
       { Nome: 'Dr. Marcos Souza', Email: 'marcos.s@email.com', CPF: '98765432100', Empresa: 'Universidade Federal', Categoria: 'Palestrante' },
       { Nome: 'Empresa Alpha Ltda', Email: 'contato@alpha.com', CPF: '33344455566', Empresa: 'Alpha Ventures', Categoria: 'Expositor' },
       { Nome: 'Juliana Garcia', Email: 'juliana.g@email.com', CPF: '55566677788', Empresa: 'Inova Digital', Categoria: 'VIP' }
@@ -3239,7 +2559,7 @@ export default function App() {
     
     // Create direct blob buffer download
     XLSX.writeFile(workbook, 'Modelo_Importacao_CREDENCIA.xlsx');
-    addToast('Modelo Excel de importação baixado!', 'success');
+    addToast('Modelo Excel de importaÃ§Ã£o baixado!', 'success');
   };
 
 
@@ -3255,7 +2575,7 @@ export default function App() {
   const exportParticipantsToExcelWithFilter = (presentOnly: boolean, sourceList?: Participant[], fileLabel?: string) => {
     if (!currentEvent) return;
     if (!hasReportSelection()) {
-      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
+      addToast('Selecione pelo menos uma informaÃ§Ã£o para gerar o relatÃ³rio.', 'error');
       return;
     }
 
@@ -3271,7 +2591,7 @@ export default function App() {
       const participantAreaLogs = areaAccessLogs.filter(log => log.participantId === p.id);
       const allowedAreaNames = [...new Set(participantAreaLogs
         .filter(log => log.status === 'ALLOWED')
-        .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Área'))];
+        .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Ãrea'))];
       const deniedCount = participantAreaLogs.filter(log => log.status === 'DENIED').length;
       const participantCertificates = certificates.filter(certificate => certificate.participantId === p.id);
 
@@ -3281,15 +2601,15 @@ export default function App() {
         CPF: p.cpf,
         Empresa: p.company || '',
         Categoria: p.category,
-        'Credenciado?': p.checkedIn ? 'Sim' : 'Não',
-        'Horário do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
+        'Credenciado?': p.checkedIn ? 'Sim' : 'NÃ£o',
+        'HorÃ¡rio do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'NÃ£o realizado',
         'Acessos por Sala': allowedAreaNames.length > 0 ? allowedAreaNames.join(', ') : '-',
         'Acessos Negados': deniedCount,
         'Certificados Emitidos': participantCertificates.length,
-        'Códigos dos Certificados': participantCertificates.map(certificate => certificate.certificateCode).join(', '),
+        'CÃ³digos dos Certificados': participantCertificates.map(certificate => certificate.certificateCode).join(', '),
         'Horas em Certificados': participantCertificates.reduce((sum, certificate) => sum + (Number(certificate.totalHours) || 0), 0),
-        'Operador Responsável': getReportCheckinOperator(p),
-        'Código do Convite': p.ticketCode
+        'Operador ResponsÃ¡vel': getReportCheckinOperator(p),
+        'CÃ³digo do Convite': p.ticketCode
       };
     });
 
@@ -3311,7 +2631,7 @@ export default function App() {
       if (reportConfig.participantPhone) filtered['Telefone'] = findColumn(['telefone', 'whatsapp']);
       if (reportConfig.participantCategory) filtered['Categoria'] = row.Categoria || '';
       if (reportConfig.participantCheckinStatus) filtered['Status do Check-in'] = row['Credenciado?'] || '';
-      if (reportConfig.participantCheckinTime) filtered['Horário do Check-in'] = findColumn(['hor']);
+      if (reportConfig.participantCheckinTime) filtered['HorÃ¡rio do Check-in'] = findColumn(['hor']);
       if (reportConfig.participantAreaAccess) {
         filtered['Acessos por Sala'] = findColumn(['acessos por sala']);
         filtered['Acessos Negados'] = findColumn(['negados']);
@@ -3321,7 +2641,7 @@ export default function App() {
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'RelatÃ³rio');
     XLSX.writeFile(workbook, `Filtro_${titleSuffix}_${currentEvent.name.replace(/\s+/g, '_')}.xlsx`);
     addToast('Planilha gerada com sucesso!', 'success');
   };
@@ -3329,7 +2649,7 @@ export default function App() {
   // Direct CSV printable list
   const triggerPrintableReport = () => {
     if (!hasReportSelection()) {
-      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
+      addToast('Selecione pelo menos uma informaÃ§Ã£o para gerar o relatÃ³rio.', 'error');
       return;
     }
     window.print();
@@ -3450,7 +2770,7 @@ export default function App() {
       const logs = reportAreaAccessLogs.filter(log => log.participantId === participant.id);
       const allowedAreaNames = [...new Set(logs
         .filter(log => log.status === 'ALLOWED')
-        .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Área'))];
+        .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Ãrea'))];
       const deniedCount = logs.filter(log => log.status === 'DENIED').length;
 
       return {
@@ -3651,289 +2971,36 @@ export default function App() {
 
   if (!token || !currentUser) {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-[#030604] text-white flex items-center justify-center p-4 sm:p-6">
-        <img
-          src={credenciaLoginGlass}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover opacity-70"
-        />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(18,224,0,0.28),transparent_28%),linear-gradient(90deg,rgba(3,6,4,0.48),rgba(3,6,4,0.82)_48%,rgba(3,6,4,0.96))]" />
-        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#030604] to-transparent" />
-
-        <div className="relative z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[1fr_430px] gap-8 lg:gap-12 items-center">
-          <section className="min-h-[260px] flex flex-col justify-end lg:min-h-[640px]">
-            <div className="max-w-2xl">
-              <div className="mb-7 flex items-center gap-3">
-                <img src={credenciaLogoIcon} alt="" className="h-14 sm:h-16 w-auto object-contain drop-shadow-[0_18px_32px_rgba(18,224,0,0.22)]" />
-                <div>
-                  <div className="font-display text-2xl sm:text-3xl font-bold tracking-wide text-white">CREDENCIA</div>
-                  <div className="text-sm sm:text-base text-slate-200">Tecnologia para events</div>
-                </div>
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-white/8 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-emerald-100 backdrop-blur-md">
-                <span className="h-2 w-2 rounded-full bg-[#12e000] shadow-[0_0_18px_rgba(18,224,0,0.85)]" />
-                Plataforma de credenciamento
-              </div>
-              <h1 className="mt-5 text-3xl sm:text-5xl font-bold tracking-tight text-white font-display max-w-xl">
-                Operacao elegante para eventos de alta exigencia.
-              </h1>
-              <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-lg leading-relaxed">
-                Controle participantes, check-ins, acessos e impressoes em um fluxo claro para recepcao, supervisao e administracao.
-              </p>
-              <div className="mt-8 grid grid-cols-3 gap-3 max-w-xl">
-                <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
-                  <div className="text-sm font-bold text-white">Check-in</div>
-                  <div className="text-xs text-slate-300 mt-1">Busca, QR Code e presenca.</div>
-                </div>
-                <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
-                  <div className="text-sm font-bold text-white">Acessos</div>
-                  <div className="text-xs text-slate-300 mt-1">Salas, perfis e logs.</div>
-                </div>
-                <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
-                  <div className="text-sm font-bold text-white">Impressao</div>
-                  <div className="text-xs text-slate-300 mt-1">Etiquetas e credenciais.</div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <div className="bg-white/96 border border-white/70 rounded-xl shadow-2xl shadow-black/35 p-6 sm:p-8 backdrop-blur-xl">
-            <div className="mb-7">
-              <div className="mb-5 flex items-center gap-2 lg:hidden">
-                <img src={credenciaLogoIcon} alt="" className="h-10 w-auto object-contain" />
-                <div>
-                  <div className="font-display text-lg font-bold tracking-wide text-slate-950">CREDENCIA</div>
-                  <div className="text-xs text-slate-500">Tecnologia para eventos</div>
-                </div>
-              </div>
-              <h2 className="text-xl font-bold text-slate-950 font-display">
-                {isRegisterMode ? 'Criar acesso' : 'Entrar no sistema'}
-              </h2>
-              <p className="text-sm text-slate-500 mt-1">
-                {isRegisterMode ? 'Cadastre um operador para usar o sistema.' : 'Use seu e-mail e senha para acessar a operação.'}
-              </p>
-            </div>
-
-            {loginMethod === 'pin' && !isRegisterMode ? (
-              <div className="space-y-5">
-                <div className="flex justify-center gap-2 select-none">
-                  {[0, 1, 2, 3, 4, 5].map((idx) => {
-                    const val = pinInput[idx];
-                    const active = pinInput.length === idx;
-                    return (
-                      <div
-                        key={idx}
-                        className={`w-10 h-12 rounded-md border flex items-center justify-center font-bold text-xl transition ${
-                          active
-                            ? 'border-[#1D4ED8] bg-slate-50 text-[#1D4ED8]'
-                            : val
-                              ? 'border-slate-300 bg-slate-100 text-slate-700'
-                              : 'border-slate-200 bg-white text-slate-300'
-                        }`}
-                      >
-                        {authLoading ? <div className="w-2 h-2 rounded-full bg-[#1D4ED8] animate-ping" /> : val ? '*' : ''}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => {
-                        if (pinInput.length < 6 && !authLoading) {
-                          setPinInput(prev => prev + num);
-                        }
-                      }}
-                      className="h-12 bg-white border border-slate-200 rounded-md font-semibold text-slate-900 hover:bg-slate-50 active:scale-98 transition cursor-pointer select-none"
-                    >
-                      {num}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setPinInput('')}
-                    className="h-12 bg-white border border-slate-200 text-slate-600 rounded-md text-xs font-semibold hover:bg-slate-50 transition cursor-pointer select-none"
-                  >
-                    Limpar
-                  </button>
-                  <button
-                    key={0}
-                    type="button"
-                    onClick={() => {
-                      if (pinInput.length < 6 && !authLoading) {
-                        setPinInput(prev => prev + '0');
-                      }
-                    }}
-                    className="h-12 bg-white border border-slate-200 rounded-md font-semibold text-slate-900 hover:bg-slate-50 active:scale-98 transition cursor-pointer select-none"
-                  >
-                    0
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPinInput(prev => prev.slice(0, -1))}
-                    className="h-12 bg-white border border-slate-200 text-slate-600 rounded-md text-xs font-semibold hover:bg-slate-50 transition cursor-pointer select-none"
-                  >
-                    Apagar
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => { setLoginMethod('email'); setPinInput(''); }}
-                  className="w-full py-2.5 text-sm font-semibold text-slate-600 hover:text-[#1D4ED8] transition cursor-pointer"
-                >
-                  Entrar com e-mail e senha
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={isRegisterMode ? handleSignup : handleLogin} className="space-y-4">
-                {isRegisterMode && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                        Nome completo
-                      </label>
-                      <input
-                        type="text"
-                        value={registerNameInput}
-                        onChange={e => setRegisterNameInput(e.target.value)}
-                        placeholder="Nome do operador"
-                        className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                        Organização ou empresa
-                      </label>
-                      <input
-                        type="text"
-                        value={registerOrgInput}
-                        onChange={e => setRegisterOrgInput(e.target.value)}
-                        placeholder="Nome da organizacao"
-                        className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
-                      />
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    E-mail
-                  </label>
-                  <input
-                    type="email"
-                    value={emailInput}
-                    onChange={e => setEmailInput(e.target.value)}
-                    placeholder="email@empresa.com"
-                    className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Senha
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordInput}
-                    onChange={e => setPasswordInput(e.target.value)}
-                    placeholder="Senha"
-                    className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
-                  />
-                </div>
-
-                {isRegisterMode && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                      Nível de acesso
-                    </label>
-                    <select
-                      value={registerRoleInput}
-                      onChange={e => setRegisterRoleInput(e.target.value as UserRole)}
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition cursor-pointer"
-                    >
-                      <option value="admin">Administrador</option>
-                      <option value="operator">Operador</option>
-                    </select>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={authLoading}
-                  className="w-full py-2.5 px-4 bg-[#1D4ED8] hover:bg-[#173FAE] disabled:bg-slate-300 text-white rounded-md text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer transition active:scale-98"
-                >
-                  {authLoading ? (
-                    <>
-                      <RefreshCw className="animate-spin" size={14} />
-                      <span>Entrando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>{isRegisterMode ? 'Criar acesso' : 'Entrar'}</span>
-                      <ArrowRight size={14} />
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {!isRegisterMode && loginMethod === 'email' && (
-              <button
-                type="button"
-                onClick={() => { setLoginMethod('pin'); setPinInput(''); }}
-                className="mt-4 w-full py-2.5 border border-slate-200 rounded-md text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer transition"
-              >
-                Entrar com PIN
-              </button>
-            )}
-
-            <div className="mt-5 text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegisterMode(!isRegisterMode);
-                  setLoginMethod('email');
-                  setEmailInput(isRegisterMode ? 'admin@credencia.com' : '');
-                  setPasswordInput(isRegisterMode ? 'admin123' : '');
-                }}
-                className="text-sm text-[#1D4ED8] hover:text-[#0F172A] font-semibold focus:outline-none transition cursor-pointer select-none"
-              >
-                {isRegisterMode ? 'Voltar para login' : 'Criar acesso administrativo'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-          {toasts.map(t => (
-            <div
-              key={t.id}
-              className={`px-4 py-3.5 rounded-md shadow-xl flex items-center gap-3 text-sm font-medium border bg-white animate-slide-in duration-300 ${
-                t.type === 'success' ? 'border-emerald-200 text-emerald-900' :
-                t.type === 'error' ? 'border-rose-200 text-rose-900' :
-                'border-blue-200 text-blue-900'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${t.type === 'success' ? 'bg-emerald-500' : t.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'}`} />
-              <span>{t.message}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <LoginPage
+        loginMethod={loginMethod}
+        setLoginMethod={setLoginMethod}
+        pinInput={pinInput}
+        setPinInput={setPinInput}
+        authLoading={authLoading}
+        isRegisterMode={isRegisterMode}
+        setIsRegisterMode={setIsRegisterMode}
+        emailInput={emailInput}
+        setEmailInput={setEmailInput}
+        passwordInput={passwordInput}
+        setPasswordInput={setPasswordInput}
+        registerNameInput={registerNameInput}
+        setRegisterNameInput={setRegisterNameInput}
+        registerOrgInput={registerOrgInput}
+        setRegisterOrgInput={setRegisterOrgInput}
+        registerRoleInput={registerRoleInput}
+        setRegisterRoleInput={setRegisterRoleInput}
+        handleLogin={handleLogin}
+        handleSignup={handleSignup}
+        toasts={toasts}
+      />
     );
   }
-
   const roleText = (() => {
     const role = String(currentUser?.role || '').toUpperCase();
     if (role === 'ADMIN' || currentUser?.role === 'admin') return 'Administrador';
-    if (role === 'SUPERVISOR') return 'Operador Nível 1';
-    if (role === 'CHECKIN_CADASTRO') return 'Operador Nível 2';
-    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador Nível 3';
+    if (role === 'SUPERVISOR') return 'Operador NÃ­vel 1';
+    if (role === 'CHECKIN_CADASTRO') return 'Operador NÃ­vel 2';
+    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador NÃ­vel 3';
     return 'Operador';
   })();
 
@@ -3944,7 +3011,7 @@ export default function App() {
     ADMIN: 'Administrador do evento',
     CHECKIN_CADASTRO: 'Check-in + Cadastro',
     CHECKIN: 'Check-in',
-    RELATORIO: 'Relatório'
+    RELATORIO: 'RelatÃ³rio'
   };
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
@@ -3952,17 +3019,17 @@ export default function App() {
     ...(isUserAdmin ? [{ id: 'eventos' as const, label: 'Eventos', icon: Calendar }] : []),
     ...(canManageOperators ? [{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
     ...(canManageParticipants || isUserAdmin ? [{ id: 'participantes' as const, label: 'Participantes', icon: Users }] : []),
-    ...(isUserAdmin ? [{ id: 'inscricoes-online' as const, label: 'Inscrições Online', icon: ClipboardCheck }] : []),
+    ...(isUserAdmin ? [{ id: 'inscricoes-online' as const, label: 'InscriÃ§Ãµes Online', icon: ClipboardCheck }] : []),
     ...(isUserAdmin ? [{ id: 'campos' as const, label: 'Campos de Cadastro', icon: FileText }] : []),
     { id: 'checkin' as const, label: 'Check-in', icon: QrCode },
     ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
     ...(isUserAdmin ? [{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
     ...(isUserAdmin ? [{ id: 'atividades' as const, label: 'Atividades', icon: BookOpen }] : []),
-    { id: 'presenca-atividade' as const, label: 'Presença em Atividade', icon: ClipboardCheck },
+    { id: 'presenca-atividade' as const, label: 'PresenÃ§a em Atividade', icon: ClipboardCheck },
     ...(canIssueCertificates ? [{ id: 'certificados' as const, label: 'Certificados', icon: Award }] : []),
     ...(isUserAdmin ? [{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
-    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
-    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
+    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'RelatÃ³rios', icon: Download }] : []),
+    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'ImpressÃ£o de Etiquetas', icon: Printer }] : []),
   ];
 
   const secondaryNavItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [];
@@ -4217,9 +3284,9 @@ export default function App() {
                 <div className="mt-8 border-t border-slate-100 pt-6">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800 font-display">Vínculos por Evento</h3>
+                      <h3 className="text-sm font-bold text-slate-800 font-display">VÃ­nculos por Evento</h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Defina quais usuários participam de cada evento e qual permissão terão naquele evento.
+                        Defina quais usuÃ¡rios participam de cada evento e qual permissÃ£o terÃ£o naquele evento.
                       </p>
                     </div>
 
@@ -4244,7 +3311,7 @@ export default function App() {
                         onChange={e => setEventUserForm(prev => ({ ...prev, userId: e.target.value }))}
                         className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                       >
-                        <option value="">Selecione o usuário</option>
+                        <option value="">Selecione o usuÃ¡rio</option>
                         {usersList.map(user => (
                           <option key={user.id} value={user.id}>{user.name}</option>
                         ))}
@@ -4296,12 +3363,12 @@ export default function App() {
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                     <div className="flex flex-col md:flex-row md:items-end gap-3">
                       <div className="flex-1">
-                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Permissões do vínculo</label>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">PermissÃµes do vÃ­nculo</label>
                         <input
                           type="search"
                           value={eventPermissionSearch}
                           onChange={e => setEventPermissionSearch(e.target.value)}
-                          placeholder="Buscar permissão para este evento"
+                          placeholder="Buscar permissÃ£o para este evento"
                           className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
@@ -4335,23 +3402,23 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Usuário</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Permissão no Evento</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">UsuÃ¡rio</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">PermissÃ£o no Evento</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">AÃ§Ãµes</th>
                         </tr>
                       </thead>
                       <tbody>
                         {eventUserForm.eventId && eventUsers.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
-                              Nenhum usuário vinculado a este evento.
+                              Nenhum usuÃ¡rio vinculado a este evento.
                             </td>
                           </tr>
                         ) : !eventUserForm.eventId ? (
                           <tr>
                             <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
-                              Selecione um evento para visualizar os vínculos.
+                              Selecione um evento para visualizar os vÃ­nculos.
                             </td>
                           </tr>
                         ) : (
@@ -4360,11 +3427,11 @@ export default function App() {
                             return (
                               <tr key={link.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                                 <td className="p-3 text-sm font-semibold text-slate-800">
-                                  {linkedUser?.name || 'Usuário removido'}
+                                  {linkedUser?.name || 'UsuÃ¡rio removido'}
                                 </td>
                                 <td className="p-3 text-xs text-slate-600">
                                   <div className="font-semibold">{eventUserRoleLabels[link.role] || link.role}</div>
-                                  <div className="text-[11px] text-slate-400">{normalizePermissions(link.permissions?.length ? link.permissions : legacyPermissionsForRole(link.role)).length} permissões</div>
+                                  <div className="text-[11px] text-slate-400">{normalizePermissions(link.permissions?.length ? link.permissions : legacyPermissionsForRole(link.role)).length} permissÃµes</div>
                                 </td>
                                 <td className="p-3 text-center">
                                   <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -4399,7 +3466,7 @@ export default function App() {
                                       type="button"
                                       onClick={() => handleDeleteEventUser(link)}
                                       className="p-1.5 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 border border-rose-200 transition cursor-pointer"
-                                      title="Remover vínculo"
+                                      title="Remover vÃ­nculo"
                                     >
                                       <Trash2 size={14} />
                                     </button>
@@ -4428,7 +3495,7 @@ export default function App() {
             </div>
             <h2 className="text-xl font-bold text-slate-800 font-display mb-2">Primeiro Acesso: Crie seu Primeiro Evento</h2>
             <p className="text-slate-500 max-w-md mb-6">
-              Para liberar o dashboard de monitoramento em tempo real, credenciamento via QR Code e chapelaria, inicie configurando as informações do seu evento.
+              Para liberar o dashboard de monitoramento em tempo real, credenciamento via QR Code e chapelaria, inicie configurando as informaÃ§Ãµes do seu evento.
             </p>
             <button
               onClick={() => {
@@ -4466,7 +3533,7 @@ export default function App() {
               <section className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operação</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operaÃ§Ã£o</p>
                     <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">{currentEvent.name}</h1>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       Painel limpo para acompanhar e operar somente os recursos habilitados neste evento.
@@ -4498,7 +3565,7 @@ export default function App() {
                     value={stats?.totalCheckedIn ?? participants.filter(p => p.checkedIn).length}
                     iconName="UserCheck"
                     description={`${stats?.totalWaiting ?? participants.filter(p => !p.checkedIn).length} pendentes`}
-                    trend={{ text: 'Operação', type: 'success' }}
+                    trend={{ text: 'OperaÃ§Ã£o', type: 'success' }}
                     colorTheme="blue"
                     onClick={() => setActiveTab('checkin')}
                   />
@@ -4506,7 +3573,7 @@ export default function App() {
                     title="Salas"
                     value={eventHasAccessControl ? availableAreas.length : 'Inativo'}
                     iconName="ShieldCheck"
-                    description={eventHasAccessControl ? 'Áreas configuradas' : 'Módulo desligado'}
+                    description={eventHasAccessControl ? 'Ãreas configuradas' : 'MÃ³dulo desligado'}
                     trend={{ text: eventHasAccessControl ? 'Acessos' : 'Opcional', type: eventHasAccessControl ? 'success' : 'warning' }}
                     colorTheme="purple"
                     onClick={eventHasAccessControl ? () => setActiveTab('areas') : undefined}
@@ -4515,7 +3582,7 @@ export default function App() {
                     title="Chapelaria"
                     value={eventHasCloakroom ? cloakroom.filter(c => c.status === 'guardado').length : 'Inativo'}
                     iconName="FolderLock"
-                    description={eventHasCloakroom ? 'Itens guardados agora' : 'Módulo desligado'}
+                    description={eventHasCloakroom ? 'Itens guardados agora' : 'MÃ³dulo desligado'}
                     trend={{ text: eventHasCloakroom ? 'Ativa' : 'Opcional', type: eventHasCloakroom ? 'success' : 'warning' }}
                     colorTheme="amber"
                     onClick={eventHasCloakroom ? () => setActiveTab('chapelaria') : undefined}
@@ -4528,18 +3595,18 @@ export default function App() {
                     <button onClick={() => setActiveTab('participantes')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                       <Users size={18} className="text-slate-500 mb-2" />
                       <div className="font-bold text-slate-900 text-sm">Participantes</div>
-                      <div className="text-xs text-slate-500 mt-1">Cadastro, importação e credenciais.</div>
+                      <div className="text-xs text-slate-500 mt-1">Cadastro, importaÃ§Ã£o e credenciais.</div>
                     </button>
                     <button onClick={() => setActiveTab('checkin')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                       <QrCode size={18} className="text-slate-500 mb-2" />
                       <div className="font-bold text-slate-900 text-sm">Check-in</div>
-                      <div className="text-xs text-slate-500 mt-1">Busca rápida e entrada do participante.</div>
+                      <div className="text-xs text-slate-500 mt-1">Busca rÃ¡pida e entrada do participante.</div>
                     </button>
                     {eventHasAccessControl && (
                       <button onClick={() => setActiveTab('areas')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                         <ShieldCheck size={18} className="text-slate-500 mb-2" />
                         <div className="font-bold text-slate-900 text-sm">Salas e acessos</div>
-                        <div className="text-xs text-slate-500 mt-1">Setores, perfis e validação por área.</div>
+                        <div className="text-xs text-slate-500 mt-1">Setores, perfis e validaÃ§Ã£o por Ã¡rea.</div>
                       </button>
                     )}
                     {eventHasCloakroom && (
@@ -4559,7 +3626,7 @@ export default function App() {
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Eventos ativos</p>
-                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">Escolha o evento da operação</h1>
+                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">Escolha o evento da operaÃ§Ã£o</h1>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       O evento selecionado controla o painel, os participantes, o check-in, o scanner e os acessos.
                     </p>
@@ -4603,7 +3670,7 @@ export default function App() {
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border ${
                               isSelected ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]' : 'bg-slate-50 text-slate-600 border-slate-200'
                             }`}>
-                              {isSelected ? 'Selecionado' : 'Disponível'}
+                              {isSelected ? 'Selecionado' : 'DisponÃ­vel'}
                             </span>
                             <h2 className="text-base font-bold text-slate-950 mt-3 line-clamp-2">{ev.name}</h2>
                           </div>
@@ -4660,7 +3727,7 @@ export default function App() {
             {false && stats && (
               <div className="space-y-6">
                 
-                {/* 4 Cards das Métricas */}
+                {/* 4 Cards das MÃ©tricas */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   
                   <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-100 flex flex-col gap-2 relative overflow-hidden group">
@@ -4682,7 +3749,7 @@ export default function App() {
                       ></div>
                     </div>
                     <span className="text-xs text-slate-400 mt-1">
-                      {stats.totalRegistered > 0 ? Math.round((stats.totalCheckedIn / stats.totalRegistered) * 100) : 0}% concluído
+                      {stats.totalRegistered > 0 ? Math.round((stats.totalCheckedIn / stats.totalRegistered) * 100) : 0}% concluÃ­do
                     </span>
                   </div>
 
@@ -4691,7 +3758,7 @@ export default function App() {
                     <div className="text-3.5xl font-bold text-slate-900 tracking-tight font-display">{stats.totalWaiting}</div>
                     <div className="flex items-center gap-1 text-slate-400 text-xs font-medium">
                       <Clock size={14} className="text-slate-400 shrink-0" />
-                      <span>Disponíveis para check-in imediato</span>
+                      <span>DisponÃ­veis para check-in imediato</span>
                     </div>
                   </div>
 
@@ -4708,15 +3775,15 @@ export default function App() {
 
               </div>
 
-                {/* Gráfico de Horários e Logs Recentes de Check-in */}
+                {/* GrÃ¡fico de HorÃ¡rios e Logs Recentes de Check-in */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
-                  {/* Fluxo por Horário (SVG / CSS Custom Bar Chart altamente customizado) */}
+                  {/* Fluxo por HorÃ¡rio (SVG / CSS Custom Bar Chart altamente customizado) */}
                   <div className="lg:col-span-8 bg-white rounded-2xl shadow-xs border border-slate-100 flex flex-col h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
                       <div>
                         <h3 className="font-bold text-slate-800 font-display">Fluxo de Entrada de Credenciados</h3>
-                        <p className="text-xs text-slate-500">Número de check-ins registrados por faixa horária ativa</p>
+                        <p className="text-xs text-slate-500">NÃºmero de check-ins registrados por faixa horÃ¡ria ativa</p>
                       </div>
                       <span className="px-3 py-1 bg-white text-blue-600 text-xs font-semibold border border-blue-100 rounded-full">
                         Hoje
@@ -4737,7 +3804,7 @@ export default function App() {
                                 entry.count > 0 ? 'bg-blue-600 hover:bg-blue-500 shadow-xs' : 'bg-slate-100'
                               }`} 
                               style={{ height: `${percentHeight || 4}%` }}
-                              title={`Check-ins às ${entry.hour}: ${entry.count}`}
+                              title={`Check-ins Ã s ${entry.hour}: ${entry.count}`}
                             />
                             <span className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap">
                               {entry.hour}
@@ -4748,12 +3815,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Últimos Check-ins realizados */}
+                  {/* Ãšltimos Check-ins realizados */}
                   <div className="lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-100 flex flex-col h-[400px]">
                     <div className="p-6 border-b border-slate-100 bg-gray-50/50 rounded-t-2xl flex items-center justify-between">
                       <div>
-                        <h3 className="font-bold text-slate-800 font-display">Últimos Check-ins</h3>
-                        <p className="text-xs text-slate-500">Transmissão em tempo real</p>
+                        <h3 className="font-bold text-slate-800 font-display">Ãšltimos Check-ins</h3>
+                        <p className="text-xs text-slate-500">TransmissÃ£o em tempo real</p>
                       </div>
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                     </div>
@@ -4807,7 +3874,7 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 2: INFORMAÇÕES DOS EVENTOS --- */}
+            {/* --- TAB 2: INFORMAÃ‡Ã•ES DOS EVENTOS --- */}
             {activeTab === 'eventos' && (
               <EventsPage
                 events={events}
@@ -4847,14 +3914,14 @@ export default function App() {
                     <div className="p-4 bg-emerald-100 rounded-full text-emerald-600 mb-4 shadow-md">
                       <Upload size={40} className="animate-bounce" />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800">Pronto para Validação!</h3>
+                    <h3 className="text-xl font-bold text-slate-800">Pronto para ValidaÃ§Ã£o!</h3>
                     <p className="text-sm text-slate-500 max-w-sm mt-1">
-                      Solte seu arquivo <strong className="text-emerald-700">.xlsx, .xls ou .csv</strong> aqui para processar o preview e a validação em tempo real.
+                      Solte seu arquivo <strong className="text-emerald-700">.xlsx, .xls ou .csv</strong> aqui para processar o preview e a validaÃ§Ã£o em tempo real.
                     </p>
                   </div>
                 )}
                 
-                {/* Cabeçalho Ativo */}
+                {/* CabeÃ§alho Ativo */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-slate-800 font-display">Lista de Participantes</h2>
@@ -4864,7 +3931,7 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Botão Baixar Modelo */}
+                    {/* BotÃ£o Baixar Modelo */}
                     <button
                       onClick={downloadSampleExcelTemplate}
                       className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-sm transition cursor-pointer font-medium"
@@ -4938,7 +4005,7 @@ export default function App() {
                       onChange={e => setSelectedPresenceFilter(e.target.value as any)}
                       className="text-xs bg-slate-100 border-none rounded-xl px-3 py-2 text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer w-full md:w-auto"
                     >
-                      <option value="all">Presença: Todos</option>
+                      <option value="all">PresenÃ§a: Todos</option>
                       <option value="present">Credenciado / Presente</option>
                       <option value="absent">Aguardando / Ausente</option>
                     </select>
@@ -4956,8 +4023,8 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Identidade / CPF</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Empresa</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Categoria</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status Presença</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">Ações e Credencial</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status PresenÃ§a</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">AÃ§Ãµes e Credencial</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -5003,7 +4070,7 @@ export default function App() {
 
                               <td className="p-4">
                                 <p className="text-slate-700 text-xs font-medium max-w-[150px] truncate select-all">
-                                  {p.company || <span className="text-slate-350 italic">Não informada</span>}
+                                  {p.company || <span className="text-slate-350 italic">NÃ£o informada</span>}
                                 </p>
                               </td>
 
@@ -5044,13 +4111,13 @@ export default function App() {
                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                     }`}
                                   >
-                                    {p.checkedIn ? 'Desfazer' : 'Dar Presença'}
+                                    {p.checkedIn ? 'Desfazer' : 'Dar PresenÃ§a'}
                                   </button>
 
                                   <button
                                     onClick={() => setActiveBadgeParticipant(p)}
                                     className="p-1.5 text-slate-600 hover:text-blue-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition"
-                                    title="Gerar e Imprimir Crachá"
+                                    title="Gerar e Imprimir CrachÃ¡"
                                   >
                                     <Printer size={15} />
                                   </button>
@@ -5117,7 +4184,7 @@ export default function App() {
               />
             )}
 
-            {/* --- TAB 4: CHECK-IN RÁPIDO / SCANNER SIMULATOR --- */}
+            {/* --- TAB 4: CHECK-IN RÃPIDO / SCANNER SIMULATOR --- */}
             {activeTab === 'checkin' && (
               <CheckinPage
                 events={events}
@@ -5182,7 +4249,7 @@ export default function App() {
                   <div>
                     <p className="text-xs font-black uppercase tracking-widest text-slate-400">Atividades</p>
                     <h2 className="text-2xl font-black text-slate-950 font-display">Atividades e palestras</h2>
-                    <p className="text-sm text-slate-500 mt-1">Cadastre a agenda do evento ativo e controle quais atividades recebem presença.</p>
+                    <p className="text-sm text-slate-500 mt-1">Cadastre a agenda do evento ativo e controle quais atividades recebem presenÃ§a.</p>
                   </div>
                   <button
                     onClick={resetActivityForm}
@@ -5205,17 +4272,17 @@ export default function App() {
                         <p className="text-xs text-slate-500 mt-1">Apenas administradores podem criar ou alterar atividades.</p>
                       </div>
                       <label className="block text-xs font-bold uppercase text-slate-500">
-                        Título
-                        <input value={activityForm.title} onChange={e => setActivityForm(prev => ({ ...prev, title: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="Inteligência Artificial nos Eventos" />
+                        TÃ­tulo
+                        <input value={activityForm.title} onChange={e => setActivityForm(prev => ({ ...prev, title: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="InteligÃªncia Artificial nos Eventos" />
                       </label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="block text-xs font-bold uppercase text-slate-500">
                           Sala
-                          <input value={activityForm.roomName} onChange={e => setActivityForm(prev => ({ ...prev, roomName: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="Auditório 1" />
+                          <input value={activityForm.roomName} onChange={e => setActivityForm(prev => ({ ...prev, roomName: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="AuditÃ³rio 1" />
                         </label>
                         <label className="block text-xs font-bold uppercase text-slate-500">
                           Palestrante
-                          <input value={activityForm.speakerName} onChange={e => setActivityForm(prev => ({ ...prev, speakerName: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="João Silva" />
+                          <input value={activityForm.speakerName} onChange={e => setActivityForm(prev => ({ ...prev, speakerName: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" placeholder="JoÃ£o Silva" />
                         </label>
                       </div>
                       <label className="block text-xs font-bold uppercase text-slate-500">
@@ -5224,7 +4291,7 @@ export default function App() {
                       </label>
                       <div className="grid grid-cols-3 gap-3">
                         <label className="block text-xs font-bold uppercase text-slate-500">
-                          Início
+                          InÃ­cio
                           <input type="time" value={activityForm.startTime} onChange={e => setActivityForm(prev => ({ ...prev, startTime: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900" />
                         </label>
                         <label className="block text-xs font-bold uppercase text-slate-500">
@@ -5242,7 +4309,7 @@ export default function App() {
                       </label>
                       <div className="flex gap-2">
                         <button type="submit" className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 transition">
-                          {activityForm.id ? 'Salvar alterações' : 'Criar atividade'}
+                          {activityForm.id ? 'Salvar alteraÃ§Ãµes' : 'Criar atividade'}
                         </button>
                         {activityForm.id && (
                           <button type="button" onClick={resetActivityForm} className="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition">
@@ -5264,10 +4331,10 @@ export default function App() {
                           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                             <tr>
                               <th className="text-left p-4">Atividade</th>
-                              <th className="text-left p-4">Data e horário</th>
+                              <th className="text-left p-4">Data e horÃ¡rio</th>
                               <th className="text-left p-4">Carga</th>
                               <th className="text-center p-4">Status</th>
-                              <th className="text-right p-4">Ações</th>
+                              <th className="text-right p-4">AÃ§Ãµes</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -5280,7 +4347,7 @@ export default function App() {
                                   <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)}{activity.speakerName ? ` - ${fixMojibake(activity.speakerName)}` : ''}</p>
                                 </td>
                                 <td className="p-4 text-slate-700">
-                                  {activity.date ? new Date(`${activity.date}T00:00:00`).toLocaleDateString('pt-BR') : '-'} às {activity.startTime} - {activity.endTime}
+                                  {activity.date ? new Date(`${activity.date}T00:00:00`).toLocaleDateString('pt-BR') : '-'} Ã s {activity.startTime} - {activity.endTime}
                                 </td>
                                 <td className="p-4 font-semibold text-slate-700">{activity.workloadHours || 0}h</td>
                                 <td className="p-4 text-center">
@@ -5315,8 +4382,8 @@ export default function App() {
             {activeTab === 'presenca-atividade' && (
               <div className="space-y-6">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Presença em Atividade</p>
-                  <h2 className="text-2xl font-black text-slate-950 font-display">Registro operacional de presença</h2>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">PresenÃ§a em Atividade</p>
+                  <h2 className="text-2xl font-black text-slate-950 font-display">Registro operacional de presenÃ§a</h2>
                   <p className="text-sm text-slate-500 mt-1">Selecione a atividade e leia o QR Code ou busque por nome/CPF.</p>
                 </div>
 
@@ -5374,7 +4441,7 @@ export default function App() {
                     </label>
 
                     <button type="submit" className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-black text-white hover:bg-blue-700 transition">
-                      Registrar presença
+                      Registrar presenÃ§a
                     </button>
 
                     {activityAttendanceFeedback && (
@@ -5385,7 +4452,7 @@ export default function App() {
                             ? 'border-amber-200 bg-amber-50 text-amber-900'
                             : 'border-rose-200 bg-rose-50 text-rose-900'
                       }`}>
-                        <p className="text-xl font-black">{activityAttendanceFeedback.type === 'success' ? '✔' : activityAttendanceFeedback.type === 'warning' ? '⚠' : '✕'} {activityAttendanceFeedback.title}</p>
+                        <p className="text-xl font-black">{activityAttendanceFeedback.type === 'success' ? 'âœ”' : activityAttendanceFeedback.type === 'warning' ? 'âš ' : 'âœ•'} {activityAttendanceFeedback.title}</p>
                         <p className="text-sm font-semibold mt-2">{activityAttendanceFeedback.message}</p>
                       </div>
                     )}
@@ -5394,7 +4461,7 @@ export default function App() {
                   <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex items-center justify-between gap-3 mb-4">
                       <div>
-                        <h3 className="font-black text-slate-900">Presenças registradas</h3>
+                        <h3 className="font-black text-slate-900">PresenÃ§as registradas</h3>
                         <p className="text-xs text-slate-500">{selectedActivityAttendances.length} registro(s) nesta atividade</p>
                       </div>
                       <ClipboardCheck className="text-slate-400" size={22} />
@@ -5403,7 +4470,7 @@ export default function App() {
                       {!activityAttendanceActivityId ? (
                         <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Selecione uma atividade.</p>
                       ) : selectedActivityAttendances.length === 0 ? (
-                        <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhuma presença registrada ainda.</p>
+                        <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhuma presenÃ§a registrada ainda.</p>
                       ) : selectedActivityAttendances.map(att => (
                         <div key={att.id} className="rounded-lg border border-slate-100 p-3">
                           <p className="text-sm font-black text-slate-900">{att.participantName}</p>
@@ -5421,8 +4488,8 @@ export default function App() {
               <div className="space-y-6">
                 <div className="no-print">
                   <p className="text-xs font-black uppercase tracking-widest text-slate-400">Certificados</p>
-                  <h2 className="text-2xl font-black text-slate-950 font-display">Emissão de certificados</h2>
-                  <p className="text-sm text-slate-500 mt-1">Busque um participante e emita certificados com base nas presenças registradas em atividades.</p>
+                  <h2 className="text-2xl font-black text-slate-950 font-display">EmissÃ£o de certificados</h2>
+                  <p className="text-sm text-slate-500 mt-1">Busque um participante e emita certificados com base nas presenÃ§as registradas em atividades.</p>
                 </div>
 
                 {isUserAdmin && (
@@ -5430,9 +4497,9 @@ export default function App() {
                     <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                       <div>
                         <p className="text-xs font-black uppercase tracking-widest text-slate-400">Template de Certificado</p>
-                        <h3 className="text-lg font-black text-slate-950">Configuração por evento</h3>
+                        <h3 className="text-lg font-black text-slate-950">ConfiguraÃ§Ã£o por evento</h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          Configure a base visual do certificado. O editor visual ficará preparado para uma próxima etapa.
+                          Configure a base visual do certificado. O editor visual ficarÃ¡ preparado para uma prÃ³xima etapa.
                         </p>
                       </div>
                       <button
@@ -5456,7 +4523,7 @@ export default function App() {
                         />
                       </label>
                       <label className="block text-xs font-bold uppercase text-slate-500">
-                        Orientação
+                        OrientaÃ§Ã£o
                         <select
                           value={certificateTemplate.orientation}
                           onChange={e => setCertificateTemplate(prev => ({ ...prev, orientation: e.target.value as CertificateTemplate['orientation'] }))}
@@ -5532,7 +4599,7 @@ export default function App() {
                     </div>
 
                     <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-xs font-black uppercase text-slate-500">Placeholders disponíveis</p>
+                      <p className="text-xs font-black uppercase text-slate-500">Placeholders disponÃ­veis</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {DEFAULT_CERTIFICATE_TEMPLATE.elements.map(element => (
                           <span key={element.id} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-mono font-bold text-slate-600 border border-slate-200">
@@ -5540,7 +4607,7 @@ export default function App() {
                           </span>
                         ))}
                       </div>
-                      <p className="mt-2 text-[11px] text-slate-400">Formatos de imagem suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
+                      <p className="mt-2 text-[11px] text-slate-400">Formatos de imagem suportados: {REPORT_IMAGE_FORMATS}. Tamanho mÃ¡ximo: 2 MB.</p>
                     </div>
                   </div>
                 )}
@@ -5552,7 +4619,7 @@ export default function App() {
                         <p className="text-xs font-black uppercase tracking-widest text-slate-500">Editor visual</p>
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={duplicateCertificateTemplate} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700 border border-slate-200">Duplicar</button>
-                          <button type="button" onClick={restoreDefaultCertificateTemplate} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700 border border-slate-200">Restaurar padrão</button>
+                          <button type="button" onClick={restoreDefaultCertificateTemplate} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700 border border-slate-200">Restaurar padrÃ£o</button>
                           <button type="button" onClick={printCertificate} disabled={!activeCertificate} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:bg-slate-300">Imprimir teste</button>
                         </div>
                       </div>
@@ -5685,7 +4752,7 @@ export default function App() {
                                 </label>
                                 <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-600">
                                   <input type="checkbox" checked={selectedCertificateElement.italic === true} onChange={e => updateCertificateElement(selectedCertificateElement.id, { italic: e.target.checked })} />
-                                  Itálico
+                                  ItÃ¡lico
                                 </label>
                               </div>
                             </>
@@ -5791,11 +4858,11 @@ export default function App() {
                           <p className="mb-2 text-xs font-black uppercase text-slate-400">Atividades frequentadas</p>
                           <div className="space-y-2 max-h-[320px] overflow-y-auto">
                             {certificateLookup.attendedActivities.length === 0 ? (
-                              <p className="rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-900">Participante não possui presença registrada.</p>
+                              <p className="rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-900">Participante nÃ£o possui presenÃ§a registrada.</p>
                             ) : certificateLookup.attendedActivities.map(activity => (
                               <div key={activity.id} className="rounded-lg border border-slate-100 p-3">
                                 <p className="text-sm font-black text-slate-900">{fixMojibake(activity.title)}</p>
-                                <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)} | {fixMojibake(activity.speakerName || 'Palestrante não informado')}</p>
+                                <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)} | {fixMojibake(activity.speakerName || 'Palestrante nÃ£o informado')}</p>
                                 <div className="mt-3 flex items-center justify-between gap-3">
                                   <span className="text-xs font-bold text-slate-600">{activity.workloadHours || 0}h</span>
                                   <button
@@ -5818,13 +4885,13 @@ export default function App() {
                     {!activeCertificate || !certificateParticipant || !certificateEvent ? (
                       <div className="flex min-h-[520px] flex-col items-center justify-center text-center text-slate-400 no-print">
                         <Award size={44} />
-                        <p className="mt-3 text-sm font-bold">A prévia do certificado aparecerá aqui após a emissão.</p>
+                        <p className="mt-3 text-sm font-bold">A prÃ©via do certificado aparecerÃ¡ aqui apÃ³s a emissÃ£o.</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
                         <div className="flex items-center justify-between gap-3 no-print">
                           <div>
-                            <p className="text-xs font-black uppercase text-slate-400">Prévia</p>
+                            <p className="text-xs font-black uppercase text-slate-400">PrÃ©via</p>
                             <p className="text-sm font-bold text-slate-700">{activeCertificate.certificate.certificateCode}</p>
                           </div>
                           <button
@@ -5889,8 +4956,8 @@ export default function App() {
                               <p className="text-xl leading-relaxed">participou da atividade</p>
                               <p className="text-3xl font-black text-slate-950">{fixMojibake(certificateActivity.title)}</p>
                               <p className="text-xl leading-relaxed">ministrada por</p>
-                              <p className="text-2xl font-black text-slate-950">{fixMojibake(certificateActivity.speakerName || 'Palestrante não informado')}</p>
-                              <p className="text-xl leading-relaxed">com carga horária de</p>
+                              <p className="text-2xl font-black text-slate-950">{fixMojibake(certificateActivity.speakerName || 'Palestrante nÃ£o informado')}</p>
+                              <p className="text-xl leading-relaxed">com carga horÃ¡ria de</p>
                               <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
                             </div>
                           ) : (
@@ -5898,13 +4965,13 @@ export default function App() {
                               <p className="text-xl leading-relaxed">Certificamos que <b>{certificateParticipant.name}</b></p>
                               <p className="text-xl leading-relaxed">participou do evento</p>
                               <p className="text-3xl font-black text-slate-950">{certificateEvent.name}</p>
-                              <p className="text-xl leading-relaxed">com carga horária total de</p>
+                              <p className="text-xl leading-relaxed">com carga horÃ¡ria total de</p>
                               <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
                             </div>
                           )}
 
                           <div className="mt-12 grid grid-cols-1 gap-2 text-xs font-bold text-slate-500">
-                            <p>Código: {activeCertificate.certificate.certificateCode}</p>
+                            <p>CÃ³digo: {activeCertificate.certificate.certificateCode}</p>
                             <p>Emitido em {new Date(activeCertificate.certificate.issuedAt).toLocaleString('pt-BR')}</p>
                           </div>
                           <div className="mt-8 grid grid-cols-1 gap-1 text-sm font-bold text-slate-600">
@@ -5931,7 +4998,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-bold text-slate-800 font-display">Controle Integrado de Chapelaria</h2>
                     <p className="text-sm text-slate-500">
-                      Entrada automatizada de pertences sob etiquetas numéricas sequenciais. Evento ativo: <b>{currentEvent?.name}</b>
+                      Entrada automatizada de pertences sob etiquetas numÃ©ricas sequenciais. Evento ativo: <b>{currentEvent?.name}</b>
                     </p>
                   </div>
                   <button
@@ -5950,7 +5017,7 @@ export default function App() {
                   {[
                     { id: 'store' as const, label: 'Guardar Pertences' },
                     { id: 'return' as const, label: 'Retirar Pertences' },
-                    { id: 'history' as const, label: 'Histórico' },
+                    { id: 'history' as const, label: 'HistÃ³rico' },
                     ...(isUserAdmin ? [{ id: 'settings' as const, label: 'Etiqueta' }] : [])
                   ].map(tab => (
                     <button
@@ -5998,7 +5065,7 @@ export default function App() {
                             >
                               <div className="font-black text-slate-950 text-base">{participant.name}</div>
                               <div className="text-xs text-slate-500 mt-1">
-                                {participant.category}{participant.company ? ` • ${participant.company}` : ''} • {participant.ticketCode}
+                                {participant.category}{participant.company ? ` â€¢ ${participant.company}` : ''} â€¢ {participant.ticketCode}
                               </div>
                             </button>
                           ))}
@@ -6046,7 +5113,7 @@ export default function App() {
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-black text-slate-950">Observações</h3>
+                        <h3 className="text-lg font-black text-slate-950">ObservaÃ§Ãµes</h3>
                         <textarea
                           value={cloakroomDescription}
                           onChange={event => setCloakroomDescription(event.target.value)}
@@ -6059,7 +5126,7 @@ export default function App() {
 
                     <div className="space-y-4">
                       <div className="bg-slate-950 text-white rounded-lg p-5 shadow-xs">
-                        <p className="text-xs font-black uppercase tracking-wider text-blue-200">Resumo da impressão</p>
+                        <p className="text-xs font-black uppercase tracking-wider text-blue-200">Resumo da impressÃ£o</p>
                         <div className="mt-4 rounded-xl bg-white/8 border border-white/10 p-4">
                           <div className="flex items-center justify-between py-2 text-lg"><span>Volume(s)</span><b>{cloakroomVolumeCount}</b></div>
                           <div className="flex items-center justify-between py-2 text-lg"><span>Etiqueta principal</span><b>1</b></div>
@@ -6071,7 +5138,7 @@ export default function App() {
                         </div>
 
                         <div className="mt-4 rounded-xl bg-blue-500/15 border border-blue-300/20 p-4">
-                          <span className="block text-xs font-black uppercase tracking-wider text-blue-100">Próximo Ticket</span>
+                          <span className="block text-xs font-black uppercase tracking-wider text-blue-100">PrÃ³ximo Ticket</span>
                           <b className="block text-4xl font-black font-mono text-white mt-1">{nextCloakroomTicket}</b>
                         </div>
 
@@ -6088,7 +5155,7 @@ export default function App() {
                         <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-5 shadow-xs">
                           <div className="flex items-center gap-2 text-emerald-800 font-black text-lg">
                             <CheckCircle2 size={24} />
-                            <span>REGISTRO CONCLUÍDO</span>
+                            <span>REGISTRO CONCLUÃDO</span>
                           </div>
                           <div className="mt-4 text-sm text-slate-700">
                             <span className="block text-xs font-black uppercase tracking-wider text-slate-500">Ticket</span>
@@ -6099,7 +5166,7 @@ export default function App() {
                                 <span key={tag} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg font-mono text-sm font-black text-emerald-800">{tag}</span>
                               ))}
                             </div>
-                            <p className="mt-4 text-emerald-700 font-black">Impressão realizada com sucesso</p>
+                            <p className="mt-4 text-emerald-700 font-black">ImpressÃ£o realizada com sucesso</p>
                           </div>
                         </div>
                       )}
@@ -6138,7 +5205,7 @@ export default function App() {
                                 className="w-full text-left p-3 hover:bg-blue-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer"
                               >
                                 <div className="font-bold text-slate-900 text-sm">{participant.name}</div>
-                                <div className="text-xs text-slate-500 mt-0.5">{participant.category}{participant.company ? ` • ${participant.company}` : ''} • {participant.ticketCode}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{participant.category}{participant.company ? ` â€¢ ${participant.company}` : ''} â€¢ {participant.ticketCode}</div>
                               </button>
                             ))}
                           </div>
@@ -6146,8 +5213,8 @@ export default function App() {
                         {cloakroomSelectedParticipant && (
                           <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
                             <div className="font-black text-slate-950">{cloakroomSelectedParticipant.name}</div>
-                            <div className="text-sm text-slate-600 mt-1">{cloakroomSelectedParticipant.category}{cloakroomSelectedParticipant.company ? ` • ${cloakroomSelectedParticipant.company}` : ''}</div>
-                            <div className="text-xs font-mono text-blue-700 mt-2">Código: {cloakroomSelectedParticipant.ticketCode}</div>
+                            <div className="text-sm text-slate-600 mt-1">{cloakroomSelectedParticipant.category}{cloakroomSelectedParticipant.company ? ` â€¢ ${cloakroomSelectedParticipant.company}` : ''}</div>
+                            <div className="text-xs font-mono text-blue-700 mt-2">CÃ³digo: {cloakroomSelectedParticipant.ticketCode}</div>
                           </div>
                         )}
                       </div>
@@ -6166,14 +5233,14 @@ export default function App() {
 
                       <div>
                         <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Passo 3</p>
-                        <h3 className="text-lg font-bold text-slate-900 mt-1">Descrição dos volumes</h3>
+                        <h3 className="text-lg font-bold text-slate-900 mt-1">DescriÃ§Ã£o dos volumes</h3>
                         <textarea value={cloakroomDescription} onChange={event => setCloakroomDescription(event.target.value)} placeholder="Mochila preta, casaco azul, mala de bordo..." rows={3} className="w-full mt-3 px-3 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
                       </div>
                     </div>
 
                     <div className="space-y-4">
                       <div className="bg-slate-950 text-white rounded-lg p-5 shadow-xs">
-                        <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Resumo da impressão</p>
+                        <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Resumo da impressÃ£o</p>
                         <div className="mt-4 space-y-3 text-sm">
                           <div className="flex justify-between"><span>Volume(s)</span><b>{cloakroomVolumeCount}</b></div>
                           <div className="flex justify-between"><span>Etiqueta principal</span><b>1</b></div>
@@ -6187,7 +5254,7 @@ export default function App() {
                         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-5">
                           <div className="flex items-center gap-2 text-emerald-800 font-black"><CheckCircle2 size={20} /><span>Pertences registrados com sucesso</span></div>
                           <div className="mt-4 text-sm text-slate-700">
-                            <p>Número: <b className="font-mono text-slate-950">{cloakroomSuccess.tagNumber}</b></p>
+                            <p>NÃºmero: <b className="font-mono text-slate-950">{cloakroomSuccess.tagNumber}</b></p>
                             <p className="mt-2">Volumes:</p>
                             <div className="flex flex-wrap gap-2 mt-2">{(cloakroomSuccess.volumeTags || []).map(tag => <span key={tag} className="px-2.5 py-1 bg-white border border-emerald-200 rounded font-mono text-xs font-bold">{tag}</span>)}</div>
                           </div>
@@ -6211,7 +5278,7 @@ export default function App() {
                             <button key={item.id} onClick={() => { setCloakroomReturnItem(item); setCloakroomReturnSearch(String(item.tagNumber)); }} className="w-full text-left p-3 hover:bg-amber-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer">
                               <div className="flex items-center justify-between gap-3"><span className="font-mono font-black text-amber-700">#{item.tagNumber}</span><span className="text-xs text-slate-500">{item.volumeCount || 1} volume(s)</span></div>
                               <div className="font-bold text-slate-900 text-sm mt-1">{item.participantName}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">{item.itemDescription || 'Sem descrição'}</div>
+                              <div className="text-xs text-slate-500 mt-0.5">{item.itemDescription || 'Sem descriÃ§Ã£o'}</div>
                             </button>
                           ))}
                         </div>
@@ -6225,7 +5292,7 @@ export default function App() {
                           <div className="mt-4 space-y-2 text-sm text-slate-700">
                             <p><b>Participante:</b> {cloakroomReturnItem.participantName}</p>
                             <p><b>Volumes:</b> {cloakroomReturnItem.volumeCount || 1}</p>
-                            <p><b>Descrição:</b> {cloakroomReturnItem.itemDescription || '-'}</p>
+                            <p><b>DescriÃ§Ã£o:</b> {cloakroomReturnItem.itemDescription || '-'}</p>
                             <p><b>Entrada:</b> {new Date(cloakroomReturnItem.registeredAt).toLocaleString('pt-BR')}</p>
                             <p><b>Operador entrada:</b> {cloakroomReturnItem.registeredByName || '-'}</p>
                           </div>
@@ -6234,7 +5301,7 @@ export default function App() {
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-400"><FolderLock className="mx-auto mb-3" size={32} /><p className="font-semibold">Busque uma etiqueta para entrega.</p></div>
                       )}
-                      {cloakroomReturnSuccess && <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-5 text-emerald-800 font-black flex items-center gap-2"><CheckCircle2 size={20} /><span>Entrega concluída: #{cloakroomReturnSuccess.tagNumber}</span></div>}
+                      {cloakroomReturnSuccess && <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-5 text-emerald-800 font-black flex items-center gap-2"><CheckCircle2 size={20} /><span>Entrega concluÃ­da: #{cloakroomReturnSuccess.tagNumber}</span></div>}
                     </div>
                   </div>
                 )}
@@ -6244,7 +5311,7 @@ export default function App() {
 
                 <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900">Histórico da chapelaria</h3>
+                    <h3 className="text-lg font-bold text-slate-900">HistÃ³rico da chapelaria</h3>
                     <p className="text-xs text-slate-500">{filteredCloakroomHistory.length} registros encontrados.</p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -6263,12 +5330,12 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Nº Etiqueta</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Especificação do Item</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">NÂº Etiqueta</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">EspecificaÃ§Ã£o do Item</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Dono / Participante</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Registro / Entrada</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">Operações</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">OperaÃ§Ãµes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -6277,7 +5344,7 @@ export default function App() {
                             <td colSpan={6} className="p-12 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={32} />
                               <p className="font-semibold text-slate-500">Chapelaria sem volumes no evento.</p>
-                              <p className="text-xs mt-1">Gere novos números sequenciais para pertences de integrantes acima.</p>
+                              <p className="text-xs mt-1">Gere novos nÃºmeros sequenciais para pertences de integrantes acima.</p>
                             </td>
                           </tr>
                         ) : (
@@ -6302,7 +5369,7 @@ export default function App() {
                                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                   item.status === 'guardado' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
                                 }`}>
-                                  {item.status === 'guardado' ? 'Com a Organização' : 'Retirado / Devolvido'}
+                                  {item.status === 'guardado' ? 'Com a OrganizaÃ§Ã£o' : 'Retirado / Devolvido'}
                                 </span>
                               </td>
 
@@ -6327,7 +5394,7 @@ export default function App() {
                                   ) : (
                                     <span className="text-slate-400 font-medium text-xs flex items-center gap-1">
                                       <Check size={14} className="text-emerald-500" />
-                                      <span>Concluído</span>
+                                      <span>ConcluÃ­do</span>
                                     </span>
                                   )}
 
@@ -6358,10 +5425,10 @@ export default function App() {
                     <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Configuração da etiqueta</p>
-                          <h3 className="text-lg font-bold text-slate-900 mt-1">Informações impressas na Chapelaria</h3>
+                          <p className="text-xs font-bold uppercase tracking-wider text-blue-600">ConfiguraÃ§Ã£o da etiqueta</p>
+                          <h3 className="text-lg font-bold text-slate-900 mt-1">InformaÃ§Ãµes impressas na Chapelaria</h3>
                           <p className="text-sm text-slate-500 mt-1">
-                            Escolha quais dados aparecem nas etiquetas principal e de volume. Esta configuração vale para o evento atual.
+                            Escolha quais dados aparecem nas etiquetas principal e de volume. Esta configuraÃ§Ã£o vale para o evento atual.
                           </p>
                         </div>
                         <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">Admin</span>
@@ -6371,9 +5438,9 @@ export default function App() {
                         {[
                           { key: 'showEventName' as const, label: 'Nome do evento' },
                           { key: 'showLabelType' as const, label: 'Tipo da etiqueta' },
-                          { key: 'showTicketNumber' as const, label: 'Número / ticket' },
+                          { key: 'showTicketNumber' as const, label: 'NÃºmero / ticket' },
                           { key: 'showParticipantName' as const, label: 'Nome do participante' },
-                          { key: 'showDescription' as const, label: 'Descrição dos volumes' },
+                          { key: 'showDescription' as const, label: 'DescriÃ§Ã£o dos volumes' },
                           { key: 'showVolumeCount' as const, label: 'Quantidade de volumes' },
                           { key: 'showDateTime' as const, label: 'Data e hora de entrada' },
                           { key: 'showOperator' as const, label: 'Operador de entrada' }
@@ -6435,7 +5502,7 @@ export default function App() {
                                     className="w-8 h-8 rounded border border-slate-200 bg-white disabled:opacity-35 text-slate-700 font-black"
                                     title="Subir linha"
                                   >
-                                    ↑
+                                    â†‘
                                   </button>
                                   <button
                                     type="button"
@@ -6448,7 +5515,7 @@ export default function App() {
                                     className="w-8 h-8 rounded border border-slate-200 bg-white disabled:opacity-35 text-slate-700 font-black"
                                     title="Descer linha"
                                   >
-                                    ↓
+                                    â†“
                                   </button>
                                 </div>
                               </div>
@@ -6464,7 +5531,7 @@ export default function App() {
                           className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-black transition cursor-pointer"
                         >
                           <CheckCircle2 size={17} />
-                          <span>Salvar configuração</span>
+                          <span>Salvar configuraÃ§Ã£o</span>
                         </button>
                         <button
                           type="button"
@@ -6472,13 +5539,13 @@ export default function App() {
                           className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold transition cursor-pointer"
                         >
                           <RefreshCw size={16} />
-                          <span>Restaurar padrão</span>
+                          <span>Restaurar padrÃ£o</span>
                         </button>
                       </div>
                     </div>
 
                     <div className="bg-slate-950 text-white rounded-lg p-5 shadow-xs">
-                      <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Prévia da etiqueta</p>
+                      <p className="text-xs font-bold uppercase tracking-wider text-blue-200">PrÃ©via da etiqueta</p>
                       <div className="mt-4 bg-white text-black rounded-md p-4 min-h-[160px] flex flex-col justify-center gap-1">
                         {getCloakroomLabelOrder().map(key => {
                           const option = cloakroomLabelLineOptions.find(item => item.key === key);
@@ -6515,7 +5582,7 @@ export default function App() {
                     </div>
 
                     {false && <div className="bg-slate-950 text-white rounded-lg p-5 shadow-xs">
-                      <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Prévia da etiqueta</p>
+                      <p className="text-xs font-bold uppercase tracking-wider text-blue-200">PrÃ©via da etiqueta</p>
                       <div className="mt-4 bg-white text-black rounded-md p-4 min-h-[160px] flex flex-col justify-between">
                         {(cloakroomLabelConfig.showLabelType || cloakroomLabelConfig.showEventName) && (
                           <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-wider">
@@ -6539,7 +5606,7 @@ export default function App() {
                               {[
                                 cloakroomLabelConfig.showOperator ? currentUser?.name || 'Operador' : '',
                                 cloakroomLabelConfig.showDateTime ? new Date().toLocaleString('pt-BR') : ''
-                              ].filter(Boolean).join(' • ')}
+                              ].filter(Boolean).join(' â€¢ ')}
                             </span>
                           </div>
                         )}
@@ -6551,22 +5618,22 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 6: RELATÓRIOS --- */}
+            {/* --- TAB 6: RELATÃ“RIOS --- */}
             {activeTab === 'relatorios' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-3">
                       {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
-                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatório" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
+                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatÃ³rio" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
                       )}
                       <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Relatórios</p>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">RelatÃ³rios</p>
                         <h2 className="text-2xl font-bold text-slate-900 font-display mt-1">Dashboard de credenciamento</h2>
                       </div>
                     </div>
                     <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-                      Acompanhe presença, categorias e horários do evento atual sem alterar as exportações existentes.
+                      Acompanhe presenÃ§a, categorias e horÃ¡rios do evento atual sem alterar as exportaÃ§Ãµes existentes.
                     </p>
                   </div>
 
@@ -6590,7 +5657,7 @@ export default function App() {
                       className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
                     >
                       <Printer size={15} />
-                      <span>Imprimir relatório</span>
+                      <span>Imprimir relatÃ³rio</span>
                     </button>
                   </div>
                 </div>
@@ -6600,7 +5667,7 @@ export default function App() {
                     { title: 'Total de participantes', value: reportSummary.total, icon: Users, color: 'bg-blue-50 text-blue-700 border-blue-100' },
                     { title: 'Check-ins realizados', value: reportSummary.checkedIn, icon: UserCheck, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
                     { title: 'Participantes pendentes', value: reportSummary.pending, icon: Clock, color: 'bg-amber-50 text-amber-700 border-amber-100' },
-                    { title: 'Percentual de presença', value: `${reportSummary.attendanceRate}%`, icon: BarChart3, color: 'bg-violet-50 text-violet-700 border-violet-100' }
+                    { title: 'Percentual de presenÃ§a', value: `${reportSummary.attendanceRate}%`, icon: BarChart3, color: 'bg-violet-50 text-violet-700 border-violet-100' }
                   ].map(card => {
                     const Icon = card.icon;
                     return (
@@ -6628,7 +5695,7 @@ export default function App() {
                         disabled
                         className="w-full px-3 py-3 bg-slate-100 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700"
                       >
-                        <option>{currentEvent?.name || 'Evento não selecionado'}</option>
+                        <option>{currentEvent?.name || 'Evento nÃ£o selecionado'}</option>
                       </select>
                     </div>
                     <div>
@@ -6679,13 +5746,13 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <Sliders size={17} className="text-slate-500" />
-                        <span>Configurar relatório</span>
+                        <span>Configurar relatÃ³rio</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Escolha quais informações devem sair no relatório impresso ou exportado.
+                        Escolha quais informaÃ§Ãµes devem sair no relatÃ³rio impresso ou exportado.
                       </p>
                       <p className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
-                        Este relatório será gerado com {getReportSelectedSectionCount()} seções selecionadas
+                        Este relatÃ³rio serÃ¡ gerado com {getReportSelectedSectionCount()} seÃ§Ãµes selecionadas
                       </p>
                     </div>
 
@@ -6702,14 +5769,14 @@ export default function App() {
                         onClick={() => setAllReportOptions(false)}
                         className="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition cursor-pointer"
                       >
-                        Limpar seleção
+                        Limpar seleÃ§Ã£o
                       </button>
                       <button
                         type="button"
                         onClick={resetReportOptions}
                         className="px-3 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 text-xs font-bold transition cursor-pointer"
                       >
-                        Restaurar padrão
+                        Restaurar padrÃ£o
                       </button>
                     </div>
                   </div>
@@ -6757,7 +5824,7 @@ export default function App() {
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Prévia simples</h4>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">PrÃ©via simples</h4>
                       <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 space-y-2">
                         <div className="h-3 w-28 rounded bg-slate-900" />
                         {reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate ? (
@@ -6783,7 +5850,7 @@ export default function App() {
                         )}
                       </div>
                       <p className="mt-3 text-xs text-slate-500">
-                        {getReportSelectedOptionCount()} informação(ões) selecionada(s). Os filtros atuais continuam sendo aplicados.
+                        {getReportSelectedOptionCount()} informaÃ§Ã£o(Ãµes) selecionada(s). Os filtros atuais continuam sendo aplicados.
                       </p>
                     </div>
                   </div>
@@ -6794,10 +5861,10 @@ export default function App() {
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <FileText size={17} className="text-slate-500" />
-                        <span>Identidade visual do relatório</span>
+                        <span>Identidade visual do relatÃ³rio</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Configure uma logo no topo e uma marca d'água para a versão impressa do relatório.
+                        Configure uma logo no topo e uma marca d'Ã¡gua para a versÃ£o impressa do relatÃ³rio.
                       </p>
                     </div>
 
@@ -6841,10 +5908,10 @@ export default function App() {
                           className="hidden"
                         />
                       </label>
-                      <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
+                      <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho mÃ¡ximo: 2 MB.</p>
                       {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
                         <div className="h-16 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-2">
-                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatório" className="max-h-full max-w-full object-contain" />
+                          <img src={reportBrandConfig.logoUrl} alt="PrÃ©via da logo do relatÃ³rio" className="max-h-full max-w-full object-contain" />
                         </div>
                       )}
                     </div>
@@ -6857,18 +5924,18 @@ export default function App() {
                           onChange={event => setReportBrandConfig(prev => ({ ...prev, showWatermark: event.target.checked }))}
                           className="rounded border-slate-300"
                         />
-                        Exibir marca d'água na impressão
+                        Exibir marca d'Ã¡gua na impressÃ£o
                       </label>
                       <input
                         type="url"
                         value={reportBrandConfig.watermarkUrl}
                         onChange={event => setReportBrandConfig(prev => ({ ...prev, watermarkUrl: event.target.value }))}
-                        placeholder="URL da imagem da marca d'água"
+                        placeholder="URL da imagem da marca d'Ã¡gua"
                         className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <label className="flex items-center justify-center gap-2 w-full px-3 py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-lg text-sm font-bold text-slate-700 cursor-pointer transition">
                         <Upload size={16} />
-                        <span>Fazer upload da marca d'água</span>
+                        <span>Fazer upload da marca d'Ã¡gua</span>
                         <input
                           type="file"
                           accept={REPORT_IMAGE_ACCEPT}
@@ -6879,7 +5946,7 @@ export default function App() {
                           className="hidden"
                         />
                       </label>
-                      <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
+                      <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho mÃ¡ximo: 2 MB.</p>
                       <div>
                         <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                           <span>Opacidade</span>
@@ -6902,7 +5969,7 @@ export default function App() {
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
                   <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
                     <div className="flex items-center justify-between gap-3 mb-5">
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Check-ins por horário</h3>
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Check-ins por horÃ¡rio</h3>
                       <History size={17} className="text-slate-400" />
                     </div>
                     <div className="space-y-3">
@@ -6991,7 +6058,7 @@ export default function App() {
                           <span>Acessos por sala</span>
                         </h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          Exibe liberações e negações registradas pelo controle de acesso do evento.
+                          Exibe liberaÃ§Ãµes e negaÃ§Ãµes registradas pelo controle de acesso do evento.
                         </p>
                       </div>
                       <div className="flex items-center gap-3 text-xs font-bold">
@@ -7036,7 +6103,7 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <Award size={17} className="text-slate-500" />
-                        <span>Relatório de Certificados</span>
+                        <span>RelatÃ³rio de Certificados</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
                         Participantes com certificados emitidos nos filtros atuais.
@@ -7074,12 +6141,12 @@ export default function App() {
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                         <tr>
-                          <th className="text-left p-3">Código</th>
+                          <th className="text-left p-3">CÃ³digo</th>
                           <th className="text-left p-3">Participante</th>
                           <th className="text-left p-3">Tipo</th>
                           <th className="text-left p-3">Atividade</th>
                           <th className="text-left p-3">Horas</th>
-                          <th className="text-left p-3">Emissão</th>
+                          <th className="text-left p-3">EmissÃ£o</th>
                           <th className="text-left p-3">Operador</th>
                         </tr>
                       </thead>
@@ -7120,10 +6187,10 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <FolderLock size={17} className="text-slate-500" />
-                        <span>Relatório da Chapelaria</span>
+                        <span>RelatÃ³rio da Chapelaria</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Entradas, devoluções e volumes registrados na chapelaria do evento atual.
+                        Entradas, devoluÃ§Ãµes e volumes registrados na chapelaria do evento atual.
                       </p>
                     </div>
                     <p className="text-xs font-bold text-slate-500">
@@ -7163,11 +6230,11 @@ export default function App() {
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Ticket</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Participante</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Volumes</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Descrição</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">DescriÃ§Ã£o</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Entrada</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador entrada</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Devolução</th>
+                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">DevoluÃ§Ã£o</th>
                           <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador retirada</th>
                         </tr>
                       </thead>
@@ -7176,7 +6243,7 @@ export default function App() {
                           <tr>
                             <td colSpan={9} className="p-10 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={30} />
-                              <p className="font-semibold text-slate-500">Nenhuma movimentação de chapelaria nos filtros atuais.</p>
+                              <p className="font-semibold text-slate-500">Nenhuma movimentaÃ§Ã£o de chapelaria nos filtros atuais.</p>
                             </td>
                           </tr>
                         ) : (
@@ -7219,7 +6286,7 @@ export default function App() {
                 <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatório</h3>
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatÃ³rio</h3>
                       <p className="text-xs text-slate-500">{reportParticipants.length} registros nos filtros atuais.</p>
                     </div>
                   </div>
@@ -7231,10 +6298,10 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">CPF</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Categoria</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Horário do check-in</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">HorÃ¡rio do check-in</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos por sala</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Certificados</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsável</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsÃ¡vel</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -7253,7 +6320,7 @@ export default function App() {
                             <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
                               <td className="p-4">
                                 <div className="font-bold text-slate-800 text-sm">{p.name}</div>
-                                <div className="text-xs text-slate-400">{p.email || 'E-mail não informado'}</div>
+                                <div className="text-xs text-slate-400">{p.email || 'E-mail nÃ£o informado'}</div>
                               </td>
                               <td className="p-4 font-mono text-xs text-slate-700">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
                               <td className="p-4">
@@ -7281,7 +6348,7 @@ export default function App() {
                                 {areaAccess && areaAccess.total > 0 ? (
                                   <div className="space-y-1">
                                     <div className="font-semibold text-slate-800">
-                                      {areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}
+                                      {areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberaÃ§Ã£o'}
                                     </div>
                                     {areaAccess.deniedCount > 0 && (
                                       <div className="text-rose-600 font-semibold">{areaAccess.deniedCount} negado(s)</div>
@@ -7313,14 +6380,14 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 7: CONFIGURAÇÃO DE ETIQUETAS DE CRACHÁ --- */}
+            {/* --- TAB 7: CONFIGURAÃ‡ÃƒO DE ETIQUETAS DE CRACHÃ --- */}
             {activeTab === 'impressao' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Impressão de Etiquetas</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração de etiquetas e crachás</h2>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">ImpressÃ£o de Etiquetas</p>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">ConfiguraÃ§Ã£o de etiquetas e crachÃ¡s</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Configure o modelo de impressão, fontes, campos exibidos e layout das credenciais do evento.
+                    Configure o modelo de impressÃ£o, fontes, campos exibidos e layout das credenciais do evento.
                   </p>
                 </div>
 
@@ -7348,14 +6415,14 @@ export default function App() {
               />
             )}
 
-            {/* --- TAB 11: CONFIGURAÇÃO DOS CAMPOS DE CADASTRO --- */}
+            {/* --- TAB 11: CONFIGURAÃ‡ÃƒO DOS CAMPOS DE CADASTRO --- */}
             {activeTab === 'campos' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Campos de Cadastro</p>
-                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração dos campos de cadastro</h2>
+                  <h2 className="text-xl font-bold text-slate-800 font-display mt-1">ConfiguraÃ§Ã£o dos campos de cadastro</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Defina os campos exibidos nos cadastros e formulários rápidos dos participantes.
+                    Defina os campos exibidos nos cadastros e formulÃ¡rios rÃ¡pidos dos participantes.
                   </p>
                 </div>
 
@@ -7369,13 +6436,13 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 8: GERENCIAMENTO DE USUÁRIOS DO SISTEMA --- */}
+            {/* --- TAB 8: GERENCIAMENTO DE USUÃRIOS DO SISTEMA --- */}
             {activeTab === 'usuarios' && (
               <div className="bg-white rounded-xl shadow-xs border border-slate-205 p-6 animate-fade-in">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800 font-display">Operadores do Sistema</h2>
-                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e níveis de acesso dos operadores e administradores.</p>
+                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e nÃ­veis de acesso dos operadores e administradores.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -7414,7 +6481,7 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">E-mail de Login</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Perfil</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Registro</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">AÃ§Ãµes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -7438,9 +6505,9 @@ export default function App() {
                                   'bg-blue-100 text-blue-800'
                                 }`}>
                                   {String(u.role).toUpperCase() === 'ADMIN' ? 'Administrador' :
-                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Operador Nível 1' :
-                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Operador Nível 2' :
-                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ? 'Operador Nível 3' :
+                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Operador NÃ­vel 1' :
+                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Operador NÃ­vel 2' :
+                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ? 'Operador NÃ­vel 3' :
                                    String(u.role)}
                                 </span>
                               </td>
@@ -7466,7 +6533,7 @@ export default function App() {
                                       setIsUserModalOpen(true);
                                     }}
                                     className="p-1.5 bg-slate-50 hover:bg-slate-150 rounded-lg text-slate-550 border border-slate-200 hover:text-blue-600 transition cursor-pointer"
-                                    title="Editar usuário"
+                                    title="Editar usuÃ¡rio"
                                   >
                                     <Edit size={14} />
                                   </button>
@@ -7474,7 +6541,7 @@ export default function App() {
                                     onClick={() => handleDeleteUser(u.id)}
                                     disabled={u.id === currentUser?.id}
                                     className="p-1.5 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 border border-rose-200 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-                                    title="Excluir código de acesso"
+                                    title="Excluir cÃ³digo de acesso"
                                   >
                                     <Trash2 size={14} />
                                   </button>
@@ -7525,7 +6592,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- PRINT SHADOW LOG: APENAS VISÍVEL DURANTE O PRINT REAL --- */}
+      {/* --- PRINT SHADOW LOG: APENAS VISÃVEL DURANTE O PRINT REAL --- */}
       <div className="hidden print:block relative p-8 bg-white text-black min-h-screen overflow-hidden">
         {reportBrandConfig.showWatermark && reportBrandConfig.watermarkUrl && (
           <img
@@ -7538,7 +6605,7 @@ export default function App() {
 
         <div className="relative z-10 border-b-2 border-slate-900 pb-4 mb-5 flex items-center justify-between gap-6">
           <div>
-            <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
+            <h1 className="text-2xl font-bold font-display uppercase">RelatÃ³rio Central de Credenciamento</h1>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-650">
               {reportConfig.eventName && <span>Evento: {currentEvent?.name}</span>}
               {reportConfig.eventDate && <span>Data do evento: {currentEvent?.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : '-'}</span>}
@@ -7550,7 +6617,7 @@ export default function App() {
           {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
             <img
               src={reportBrandConfig.logoUrl}
-              alt="Logo do relatório"
+              alt="Logo do relatÃ³rio"
               className="max-h-16 max-w-[180px] object-contain"
             />
           )}
@@ -7578,7 +6645,7 @@ export default function App() {
             )}
             {reportConfig.summaryAttendanceRate && (
               <div className="border border-zinc-300 rounded p-3">
-                <p className="text-[10px] uppercase font-bold text-zinc-500">Percentual de presença</p>
+                <p className="text-[10px] uppercase font-bold text-zinc-500">Percentual de presenÃ§a</p>
                 <p className="text-xl font-black">{reportSummary.attendanceRate}%</p>
               </div>
             )}
@@ -7587,11 +6654,11 @@ export default function App() {
 
         {(reportConfig.checkinsByHour || reportConfig.participantsByCategory || reportConfig.presenceBreakdown || reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
           <div className="relative z-10 mb-6 space-y-5">
-            <h2 className="text-sm font-black uppercase border-b border-black pb-2">Gráficos e estatísticas</h2>
+            <h2 className="text-sm font-black uppercase border-b border-black pb-2">GrÃ¡ficos e estatÃ­sticas</h2>
 
             {reportConfig.checkinsByHour && (
               <div>
-                <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">Check-ins por horário</h3>
+                <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">Check-ins por horÃ¡rio</h3>
                 <table className="w-full text-left text-[10px] text-slate-950">
                   <tbody>
                     {reportCheckinsByHour.length === 0 ? (
@@ -7642,7 +6709,7 @@ export default function App() {
             {(reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
               <div>
                 <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">
-                  {reportConfig.areaAccess && reportConfig.areaAccessDecisions ? 'Acessos por sala, liberações e negações' : reportConfig.areaAccess ? 'Acessos por sala' : 'Liberações e negações de acesso'}
+                  {reportConfig.areaAccess && reportConfig.areaAccessDecisions ? 'Acessos por sala, liberaÃ§Ãµes e negaÃ§Ãµes' : reportConfig.areaAccess ? 'Acessos por sala' : 'LiberaÃ§Ãµes e negaÃ§Ãµes de acesso'}
                 </h3>
                 <table className="w-full text-left text-[10px] text-slate-950">
                   <thead>
@@ -7681,7 +6748,7 @@ export default function App() {
                 {reportConfig.participantPhone && <th className="py-2">Telefone</th>}
                 {reportConfig.participantCategory && <th className="py-2">Categoria</th>}
                 {reportConfig.participantCheckinStatus && <th className="py-2">Status do check-in</th>}
-                {reportConfig.participantCheckinTime && <th className="py-2">Horário do check-in</th>}
+                {reportConfig.participantCheckinTime && <th className="py-2">HorÃ¡rio do check-in</th>}
                 {reportConfig.participantAreaAccess && <th className="py-2">Sala/acesso liberado ou negado</th>}
               </tr>
             </thead>
@@ -7700,7 +6767,7 @@ export default function App() {
                     {reportConfig.participantAreaAccess && (
                       <td className="py-2">
                         {areaAccess && areaAccess.total > 0
-                          ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
+                          ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberaÃ§Ã£o'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
                           : '-'}
                       </td>
                     )}
@@ -7720,12 +6787,12 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-4">
-              {eventForm.id ? 'Editar Informações do Evento' : 'Cadastrar Novo Evento'}
+              {eventForm.id ? 'Editar InformaÃ§Ãµes do Evento' : 'Cadastrar Novo Evento'}
             </h3>
             
             <form onSubmit={handleSaveEvent} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Título do Evento</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">TÃ­tulo do Evento</label>
                 <input
                   type="text"
                   required
@@ -7737,7 +6804,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Data de Realização</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Data de RealizaÃ§Ã£o</label>
                 <input
                   type="date"
                   required
@@ -7748,7 +6815,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Local / Endereço</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Local / EndereÃ§o</label>
                 <input
                   type="text"
                   required
@@ -7772,7 +6839,7 @@ export default function App() {
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase">Módulos do evento</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase">MÃ³dulos do evento</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2 cursor-pointer">
                     <input
@@ -7859,7 +6926,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">CPF (Opcional - apenas números)</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">CPF (Opcional - apenas nÃºmeros)</label>
                 <input
                   type="text"
                   maxLength={11}
@@ -7876,7 +6943,7 @@ export default function App() {
                   type="text"
                   value={participantForm.company || ''}
                   onChange={e => setParticipantForm(prev => ({ ...prev, company: e.target.value }))}
-                  placeholder="Ex: Nome da Empresa ou Órgão"
+                  placeholder="Ex: Nome da Empresa ou Ã“rgÃ£o"
                   className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
                 />
               </div>
@@ -7897,11 +6964,11 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Áreas Autorizadas (Controle de Acesso)</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Ãreas Autorizadas (Controle de Acesso)</label>
                 <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
                   {availableAreas.length === 0 ? (
                     <div className="col-span-3 text-xs text-slate-400 py-1.5 text-center">
-                      Nenhuma área configurada para este evento.
+                      Nenhuma Ã¡rea configurada para este evento.
                     </div>
                   ) : (
                     availableAreas.map(arr => {
@@ -7909,7 +6976,7 @@ export default function App() {
                       const selectedAreas = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
                       const checked = selectedAreas.includes(arr.id);
                       return (
-                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ? 'opacity-50' : ''}`} title={!isActive ? 'Área Inativa' : ''}>
+                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ? 'opacity-50' : ''}`} title={!isActive ? 'Ãrea Inativa' : ''}>
                           <input
                             type="checkbox"
                             checked={checked}
@@ -7981,19 +7048,19 @@ export default function App() {
             <form onSubmit={handleSaveCloakroomItem} className="space-y-4">
               
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome do Proprietário / Detentor</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome do ProprietÃ¡rio / Detentor</label>
                 <input
                   type="text"
                   required
                   value={cloakroomForm.participantName}
                   onChange={e => setCloakroomForm(prev => ({ ...prev, participantName: e.target.value }))}
-                  placeholder="Ex: Roberta Mendes ou Número do CPF"
+                  placeholder="Ex: Roberta Mendes ou NÃºmero do CPF"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-88 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Especificações do Pertence</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">EspecificaÃ§Ãµes do Pertence</label>
                 <textarea
                   required
                   value={cloakroomForm.itemDescription}
@@ -8026,16 +7093,16 @@ export default function App() {
       )}
 
 
-      {/* 4. IMPRESSÃO DE CRACHÁ / CREDENCIAL MODAL OVERLAY */}
+      {/* 4. IMPRESSÃƒO DE CRACHÃ / CREDENCIAL MODAL OVERLAY */}
       {pendingCloakroomReturn && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-100 p-6 text-center">
             <div className="mx-auto w-14 h-14 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
               <AlertTriangle size={28} />
             </div>
-            <h3 className="mt-4 text-xl font-black text-slate-950">Confirmar devolução</h3>
+            <h3 className="mt-4 text-xl font-black text-slate-950">Confirmar devoluÃ§Ã£o</h3>
             <p className="mt-2 text-sm text-slate-600">
-              Deseja confirmar a devolução do item etiqueta
+              Deseja confirmar a devoluÃ§Ã£o do item etiqueta
               <b className="font-mono text-slate-950"> #{pendingCloakroomReturn.tagNumber}</b>?
             </p>
             {pendingCloakroomReturn.participantName && (
@@ -8107,9 +7174,9 @@ export default function App() {
               </div>
 
               <div className="space-y-1 text-left bg-slate-50 p-3 rounded-lg text-[11px] text-slate-600">
-                <p>• <b>CPF:</b> <span className="font-mono">{selectedQrParticipant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</span></p>
-                <p>• <b>Ticket:</b> <span className="font-mono">{selectedQrParticipant.ticketCode}</span></p>
-                <p>• <b>ID:</b> <span className="font-mono">{selectedQrParticipant.id}</span></p>
+                <p>â€¢ <b>CPF:</b> <span className="font-mono">{selectedQrParticipant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</span></p>
+                <p>â€¢ <b>Ticket:</b> <span className="font-mono">{selectedQrParticipant.ticketCode}</span></p>
+                <p>â€¢ <b>ID:</b> <span className="font-mono">{selectedQrParticipant.id}</span></p>
               </div>
 
               <div className="pt-2 flex gap-3">
@@ -8121,7 +7188,7 @@ export default function App() {
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
                 >
                   <Printer size={13} />
-                  <span>Imprimir Crachá</span>
+                  <span>Imprimir CrachÃ¡</span>
                 </button>
                 <button
                   onClick={() => setSelectedQrParticipant(null)}
@@ -8135,7 +7202,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. MEU PERFIL E ALTERAÇÃO DE SENHA MODAL */}
+      {/* 5. MEU PERFIL E ALTERAÃ‡ÃƒO DE SENHA MODAL */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
@@ -8188,7 +7255,7 @@ export default function App() {
                   type="password"
                   value={profileForm.password}
                   onChange={e => setProfileForm(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -8258,7 +7325,7 @@ export default function App() {
                   required={!userForm.id}
                   value={userForm.password}
                   onChange={e => setUserForm(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -8295,12 +7362,12 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Pesquisar permissão</label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Pesquisar permissÃ£o</label>
                     <input
                       type="search"
                       value={permissionSearch}
                       onChange={e => setPermissionSearch(e.target.value)}
-                      placeholder="Buscar por módulo ou permissão"
+                      placeholder="Buscar por mÃ³dulo ou permissÃ£o"
                       className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -8323,7 +7390,7 @@ export default function App() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
                     <ShieldCheck size={16} className="text-blue-600" />
-                    Permissões do Sistema
+                    PermissÃµes do Sistema
                   </h4>
                   {renderPermissionAccordion({
                     selected: userForm.permissions,
@@ -8346,7 +7413,7 @@ export default function App() {
                       onChange={e => setUserForm(prev => ({ ...prev, eventId: e.target.value }))}
                       className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                      <option value="">Criar sem vínculo agora</option>
+                      <option value="">Criar sem vÃ­nculo agora</option>
                       {events.map(event => (
                         <option key={event.id} value={event.id}>{event.name}</option>
                       ))}
@@ -8354,7 +7421,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Permissão no Evento</label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">PermissÃ£o no Evento</label>
                     <select
                       value={userForm.eventRole}
                       onChange={e => setUserForm(prev => ({ ...prev, eventRole: e.target.value as EventUserRole }))}
@@ -8375,7 +7442,7 @@ export default function App() {
                       disabled={!userForm.eventId}
                       className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                     />
-                    Vínculo ativo neste evento
+                    VÃ­nculo ativo neste evento
                   </label>
 
                   {userForm.eventId && (
@@ -8585,8 +7652,8 @@ export default function App() {
                           </div>
                         </div>
                         <div className="flex gap-1">
-                          <button type="button" disabled={index === 0} onClick={() => moveImportField(field, -1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">↑</button>
-                          <button type="button" disabled={index === visibleFields.length - 1} onClick={() => moveImportField(field, 1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">↓</button>
+                          <button type="button" disabled={index === 0} onClick={() => moveImportField(field, -1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">â†‘</button>
+                          <button type="button" disabled={index === visibleFields.length - 1} onClick={() => moveImportField(field, 1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">â†“</button>
                         </div>
                       </div>
                     ))}
@@ -8772,3 +7839,5 @@ export default function App() {
     </div>
   );
 }
+
+

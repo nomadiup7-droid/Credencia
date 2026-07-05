@@ -1,3 +1,5 @@
+import type React from 'react';
+
 // Definition of types for the Accreditation & Check-in System
 
 export type UserRole = 'ADMIN' | 'OPERADOR' | 'VISUALIZADOR' | 'CHECKIN' | 'CHECKIN_CADASTRO' | 'admin' | 'operator' | 'SUPERVISOR' | 'ATENDENTE';
@@ -380,4 +382,149 @@ export interface AccessProfile {
   eventId?: string;
   event_id?: string;
 }
+
+export interface Toast {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
+
+export type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'category' | 'ticketCode' | 'areas' | 'profile' | 'ignore';
+
+export interface ImportTemplate {
+  id: string;
+  name: string;
+  eventId?: string;
+  global: boolean;
+  mapping: Record<string, ImportTargetField>;
+  fieldOrder: ImportTargetField[];
+  updatedAt: string;
+}
+
+export interface PermissionDefinition {
+  id: string;
+  label: string;
+}
+
+export interface PermissionGroupDefinition {
+  id: string;
+  title: string;
+  icon: React.ElementType;
+  permissions: PermissionDefinition[];
+}
+
+export interface ReportAreaAccessLog {
+  id: string;
+  participantId: string;
+  areaId: string;
+  status: 'ALLOWED' | 'DENIED';
+  userId: string;
+  timestamp: string;
+  participantName?: string;
+  participantCpf?: string;
+  areaName?: string;
+  operatorName?: string;
+}
+
+export interface ReportActionLog {
+  id: string;
+  eventId: string;
+  userId: string;
+  participantId?: string;
+  action: string;
+  timestamp: string;
+  participantName?: string;
+  operatorName?: string;
+}
+
+export interface ActivityAttendanceView {
+  id: string;
+  eventId: string;
+  activityId: string;
+  participantId: string;
+  checkedAt: string;
+  checkedByUserId: string;
+  participantName?: string;
+  participantCpf?: string;
+  participantCategory?: string;
+  operatorName?: string;
+}
+
+export interface CertificateActivityView extends Activity {
+  checkedAt?: string;
+  attendanceId?: string;
+}
+
+export interface CertificateLookupResult {
+  participant: Participant;
+  event: Event;
+  attendedActivities: CertificateActivityView[];
+  totalHours: number;
+  certificates: Certificate[];
+}
+
+export interface ReportCertificate extends Certificate {
+  participantName?: string;
+  participantCpf?: string;
+  participantCategory?: string;
+  activityTitle?: string;
+  activitySpeakerName?: string;
+  operatorName?: string;
+}
+
+export interface ReportBrandConfig {
+  showLogo: boolean;
+  logoUrl: string;
+  showWatermark: boolean;
+  watermarkUrl: string;
+  watermarkOpacity: number;
+}
+
+export type ReportOptionKey =
+  | 'summaryTotal'
+  | 'summaryCheckedIn'
+  | 'summaryPending'
+  | 'summaryAttendanceRate'
+  | 'eventName'
+  | 'eventDate'
+  | 'eventCategory'
+  | 'eventStatusFilter'
+  | 'issuedAt'
+  | 'checkinsByHour'
+  | 'participantsByCategory'
+  | 'presenceBreakdown'
+  | 'areaAccess'
+  | 'areaAccessDecisions'
+  | 'participantName'
+  | 'participantCpf'
+  | 'participantEmail'
+  | 'participantPhone'
+  | 'participantCategory'
+  | 'participantCheckinStatus'
+  | 'participantCheckinTime'
+  | 'participantAreaAccess';
+
+export type ReportConfig = Record<ReportOptionKey, boolean>;
+
+export type ActiveTab =
+  | 'dashboard'
+  | 'eventos-ativos'
+  | 'evento-dashboard'
+  | 'eventos'
+  | 'participantes'
+  | 'inscricoes-online'
+  | 'checkin'
+  | 'checkin-mobile'
+  | 'checkin-modular'
+  | 'scanner'
+  | 'atividades'
+  | 'presenca-atividade'
+  | 'certificados'
+  | 'areas'
+  | 'chapelaria'
+  | 'relatorios'
+  | 'impressao'
+  | 'etiquetas'
+  | 'usuarios'
+  | 'campos';
 
