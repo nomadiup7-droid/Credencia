@@ -32,28 +32,33 @@ export default function StatsCard({
 
   const themes = {
     blue: {
-      accent: 'bg-[#1D4ED8]',
-      icon: 'text-[#1D4ED8]',
-      pill: 'bg-slate-100 text-slate-700 border-slate-200'
+      accent: 'from-[#12e000] to-[#8fff86]',
+      icon: 'text-emerald-700',
+      halo: 'bg-emerald-400/12',
+      pill: 'bg-emerald-50 text-emerald-800 border-emerald-200'
     },
     purple: {
-      accent: 'bg-[#0F172A]',
-      icon: 'text-[#0F172A]',
+      accent: 'from-slate-950 to-slate-700',
+      icon: 'text-slate-900',
+      halo: 'bg-slate-900/8',
       pill: 'bg-slate-100 text-slate-700 border-slate-200'
     },
     emerald: {
-      accent: 'bg-emerald-600',
+      accent: 'from-emerald-500 to-lime-300',
       icon: 'text-emerald-700',
+      halo: 'bg-emerald-400/12',
       pill: 'bg-emerald-50 text-emerald-800 border-emerald-200'
     },
     amber: {
-      accent: 'bg-amber-600',
+      accent: 'from-amber-500 to-lime-300',
       icon: 'text-amber-700',
+      halo: 'bg-amber-300/16',
       pill: 'bg-amber-50 text-amber-800 border-amber-200'
     },
     rose: {
-      accent: 'bg-rose-700',
+      accent: 'from-rose-600 to-rose-300',
       icon: 'text-rose-700',
+      halo: 'bg-rose-300/12',
       pill: 'bg-rose-50 text-rose-800 border-rose-200'
     }
   };
@@ -64,7 +69,7 @@ export default function StatsCard({
     return (
       <div
         id={id}
-        className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col gap-3 relative overflow-hidden animate-pulse"
+        className="cx-card p-5 flex flex-col gap-3 relative overflow-hidden animate-pulse"
       >
         <div className="flex justify-between items-center">
           <div className="h-4 w-28 bg-slate-205 bg-slate-200 rounded"></div>
@@ -92,11 +97,12 @@ export default function StatsCard({
           onClick();
         }
       }}
-      className={`bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between gap-3 relative overflow-hidden ${
-        onClick ? 'cursor-pointer hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20' : ''
+      className={`cx-card flex flex-col justify-between gap-3 relative overflow-hidden ${
+        onClick ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-400/20' : ''
       }`}
     >
-      <div className={`h-1 w-full ${activeTheme.accent}`} />
+      <div className={`h-1 w-full bg-gradient-to-r ${activeTheme.accent}`} />
+      <div className={`pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full blur-2xl ${activeTheme.halo}`} />
 
       <div className="flex justify-between items-start px-5 pt-4">
         <div className="flex flex-col gap-1 min-w-0">
@@ -108,7 +114,7 @@ export default function StatsCard({
           </span>
         </div>
         
-        <div className={`w-9 h-9 rounded-md shrink-0 border border-slate-200 bg-white flex items-center justify-center ${activeTheme.icon}`}>
+        <div className={`w-10 h-10 rounded-xl shrink-0 border border-slate-200/80 bg-white/70 shadow-sm backdrop-blur flex items-center justify-center ${activeTheme.icon}`}>
           {IconComponent && <IconComponent size={18} />}
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import * as XLSX from 'xlsx';
+import * as XLSX from '@e965/xlsx';
 import {
   Calendar,
   Users,
@@ -88,6 +88,7 @@ export default function App() {
     : normalizePermissions(currentUser?.permissions?.length ? currentUser.permissions : legacyPermissionsForRole(currentEventRole || currentUser?.role));
   const hasSystemPermission = (permission: string) => effectivePermissions.includes(permission);
   const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin' || eventRole === 'ADMIN';
+  const canCreateEvents = hasSystemPermission('events.create');
   const canManageOperators = isUserAdmin || hasSystemPermission('operators.managePermissions');
   const canCreateParticipants = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('participants.create') || hasSystemPermission('checkin.createParticipant');
   const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('certificates.issue');
@@ -97,8 +98,8 @@ export default function App() {
   // Login Form States
   const [loginMethod, setLoginMethod] = useState<'pin' | 'email'>('email');
   const [pinInput, setPinInput] = useState('');
-  const [emailInput, setEmailInput] = useState('admin@credencia.com');
-  const [passwordInput, setPasswordInput] = useState('admin123');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
   // New Login/Sign Up and Profile Editing States
@@ -182,6 +183,9 @@ export default function App() {
   const [activityAttendances, setActivityAttendances] = useState<ActivityAttendanceView[]>([]);
   const [certificates, setCertificates] = useState<ReportCertificate[]>([]);
   const [loadingMain, setLoadingMain] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const loadEventsRequestRef = useRef(0);
+  const loadDataRequestRef = useRef(0);
 
   // Filter / Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -351,10 +355,18 @@ export default function App() {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || errData.message || `HTTP error! status: ${res.status}`);
       }
+      if (res.status === 204) return null;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) return null;
       return await res.json();
     } catch (e: any) {
-      console.error(`API Call failed to [${endpoint}]:`, e);
-      addToast(e.message || 'Erro de comunicação com o servidor', 'error');
+      if (e?.name === 'AbortError') throw e;
+      const isNetworkError = e instanceof TypeError || String(e?.message || '').toLowerCase().includes('failed to fetch');
+      const message = isNetworkError
+        ? 'Nao foi possivel conectar ao servidor. Verifique se o sistema esta rodando.'
+        : (e.message || 'Erro de comunicacao com o servidor');
+      console.error(`API Call failed to [${endpoint}]:`, { message: e?.message, name: e?.name });
+      addToast(message, 'error');
       throw e;
     }
   };
@@ -866,7 +878,13 @@ export default function App() {
           email: userForm.email,
           role: userForm.role,
           permissions: userForm.permissions,
-          ...(userForm.password ? { password: userForm.password } : {})
+          ...(userForm.password ? { password: userForm.password } : {}),
+          ...(!isEdit && userForm.eventId ? {
+            eventId: userForm.eventId,
+            eventRole: userForm.eventRole,
+            eventPermissions: userForm.permissions,
+            eventActive: userForm.eventActive
+          } : {})
         })
       });
 
@@ -998,8 +1016,11 @@ export default function App() {
 
   // --- Fetch Operations ---
   const loadEvents = async () => {
+    const requestId = ++loadEventsRequestRef.current;
+    setLoadingEvents(true);
     try {
       const data: Event[] = await apiCall('/api/events');
+      if (requestId !== loadEventsRequestRef.current) return;
       setEvents(data);
 
       if (data.length === 0) {
@@ -1025,11 +1046,20 @@ export default function App() {
 
       persistSelectedEvent('');
       setActiveTab('eventos-ativos');
-    } catch (e) {}
+    } catch (e) {
+      if ((e as any)?.name !== 'AbortError') {
+        setEvents([]);
+      }
+    } finally {
+      if (requestId === loadEventsRequestRef.current) {
+        setLoadingEvents(false);
+      }
+    }
   };
 
   const loadDataForEvent = async (eventId: string) => {
     if (!eventId) return;
+    const requestId = ++loadDataRequestRef.current;
     setLoadingMain(true);
     try {
       // Load current areas and access profiles for the event dynamically
@@ -1042,6 +1072,7 @@ export default function App() {
         apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => []),
         apiCall(`/api/events/${eventId}/certificates`).catch(() => [])
       ]);
+      if (requestId !== loadDataRequestRef.current) return;
       setAvailableAreas(areasData || []);
       setAccessProfiles(profilesData || []);
       setAreaAccessLogs(Array.isArray(accessLogsData) ? accessLogsData : []);
@@ -1057,20 +1088,36 @@ export default function App() {
           apiCall(`/api/events/${eventId}/cloakroom`),
           apiCall(`/api/events/${eventId}/dashboard`)
         ]);
+        if (requestId !== loadDataRequestRef.current) return;
         setParticipants(plist);
         setCloakroom(clist);
         setStats(statData);
       } else {
         // Non-admin can only request the event participants list
         const plist = await apiCall(`/api/events/${eventId}/participants`);
+        if (requestId !== loadDataRequestRef.current) return;
         setParticipants(plist);
         setCloakroom([]);
         setStats(null);
       }
     } catch (e) {
-      console.error('Error loading event operational details:', e);
+      if ((e as any)?.name !== 'AbortError') {
+        console.error('Error loading event operational details:', { message: (e as any)?.message });
+        setAvailableAreas([]);
+        setAccessProfiles([]);
+        setAreaAccessLogs([]);
+        setActionLogs([]);
+        setActivities([]);
+        setActivityAttendances([]);
+        setCertificates([]);
+        setParticipants([]);
+        setCloakroom([]);
+        setStats(null);
+      }
     } finally {
-      setLoadingMain(false);
+      if (requestId === loadDataRequestRef.current) {
+        setLoadingMain(false);
+      }
     }
   };
 
@@ -1091,6 +1138,17 @@ export default function App() {
   const currentEvent = useMemo(() => {
     return events.find(e => e.id === selectedEventId) || null;
   }, [events, selectedEventId]);
+
+  const eventParticipantStats = useMemo(() => {
+    const summary = new Map<string, { total: number; checked: number }>();
+    participants.forEach(participant => {
+      const current = summary.get(participant.eventId) || { total: 0, checked: 0 };
+      current.total += 1;
+      if (participant.checkedIn) current.checked += 1;
+      summary.set(participant.eventId, current);
+    });
+    return summary;
+  }, [participants]);
 
   useEffect(() => {
     if (!currentEvent) return;
@@ -2215,6 +2273,50 @@ export default function App() {
     return 'ignore';
   };
 
+  const hasImportHeaderSignal = (row: any[]) => {
+    const mappedColumns = row
+      .map(cell => guessImportTarget(String(cell || '')))
+      .filter(target => target !== 'ignore');
+    return mappedColumns.includes('name') || mappedColumns.length >= 2;
+  };
+
+  const buildRowsFromWorksheet = (worksheet: XLSX.WorkSheet) => {
+    const matrix = XLSX.utils.sheet_to_json<any[]>(worksheet, {
+      header: 1,
+      defval: '',
+      blankrows: false,
+      raw: false
+    });
+
+    const nonEmptyRows = matrix
+      .map(row => Array.isArray(row) ? row : [])
+      .filter(row => row.some(cell => String(cell ?? '').trim() !== ''));
+
+    if (nonEmptyRows.length === 0) {
+      return { headers: [] as string[], rows: [] as any[] };
+    }
+
+    const firstRow = nonEmptyRows[0];
+    const hasHeader = hasImportHeaderSignal(firstRow);
+    const maxColumns = Math.max(...nonEmptyRows.map(row => row.length));
+    const headers = hasHeader
+      ? Array.from({ length: maxColumns }, (_, index) => {
+          const header = String(firstRow[index] ?? '').trim();
+          return header || `Coluna ${index + 1}`;
+        })
+      : Array.from({ length: maxColumns }, (_, index) => index === 0 ? 'Nome' : `Coluna ${index + 1}`);
+
+    const dataRows = hasHeader ? nonEmptyRows.slice(1) : nonEmptyRows;
+    const rows = dataRows
+      .filter(row => row.some(cell => String(cell ?? '').trim() !== ''))
+      .map(row => headers.reduce<Record<string, any>>((acc, header, index) => {
+        acc[header] = row[index] ?? '';
+        return acc;
+      }, {}));
+
+    return { headers, rows };
+  };
+
   const loadImportTemplates = () => {
     try {
       const stored = localStorage.getItem(IMPORT_TEMPLATES_STORAGE_KEY);
@@ -2443,7 +2545,7 @@ export default function App() {
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const rawRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        const { headers, rows: rawRows } = buildRowsFromWorksheet(worksheet);
 
         if (!rawRows || rawRows.length === 0) {
           addToast('A planilha esta vazia ou nao possui dados legiveis.', 'error');
@@ -2451,7 +2553,6 @@ export default function App() {
           return;
         }
 
-        const headers = Object.keys(rawRows[0] || {});
         if (headers.length === 0) {
           addToast('Nao foi possivel ler os cabecalhos da planilha.', 'error');
           setImportFileIsLoading(false);
@@ -3115,12 +3216,12 @@ export default function App() {
   })();
 
   return (
-    <div className={`min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ? 'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
+    <div className={`cx-app-shell min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ? 'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 no-print">
         {toasts.map(t => (
           <div
             key={t.id}
-            className={`px-4 py-3 rounded-md shadow-lg flex items-center gap-3 text-sm font-medium border bg-white select-none ${
+            className={`cx-glass px-4 py-3 rounded-xl flex items-center gap-3 text-sm font-semibold select-none ${
               t.type === 'success' ? 'border-emerald-200 text-emerald-900' :
               t.type === 'error' ? 'border-rose-200 text-rose-900' :
               'border-blue-200 text-blue-900'
@@ -3136,7 +3237,7 @@ export default function App() {
         ))}
       </div>
 
-      <header className={`${shouldUseFullscreenCheckin ? 'hidden' : 'bg-white border-b border-slate-200 no-print shrink-0'}`}>
+      <header className={`${shouldUseFullscreenCheckin ? 'hidden' : 'cx-premium-header no-print shrink-0'}`}>
         <div className="px-5 lg:px-8 py-4 flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
@@ -3153,13 +3254,13 @@ export default function App() {
             </div>
 
             <div className="flex items-center justify-between lg:justify-end gap-3">
-              {isUserAdmin && (
+              {canCreateEvents && (
                 <button
                   onClick={() => {
                     setEventForm({ id: '', name: '', date: '', location: '', capacity: 200, enableAccessControl: true, enableCloakroom: false, enableScanner: true });
                     setIsEventModalOpen(true);
                   }}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold bg-[#1D4ED8] hover:bg-[#173FAE] text-white rounded-md transition cursor-pointer"
+                  className="cx-button-primary inline-flex items-center gap-2 px-3 py-2 text-sm font-bold rounded-xl cursor-pointer"
                 >
                   <Plus size={15} />
                   <span>Novo evento</span>
@@ -3171,7 +3272,7 @@ export default function App() {
                   href="/checkin/mobile"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold bg-emerald-400 hover:bg-emerald-300 text-slate-950 rounded-md transition cursor-pointer"
+                  className="cx-button-secondary inline-flex items-center gap-2 px-3 py-2 text-sm font-bold rounded-xl cursor-pointer"
                   title="Abrir Check-in Mobile em tela separada"
                 >
                   <QrCode size={15} />
@@ -3181,7 +3282,7 @@ export default function App() {
 
               <button
                 onClick={() => setIsDarkTheme(prev => !prev)}
-                className="inline-flex items-center justify-center w-10 h-10 rounded-md border border-slate-200 text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                className="cx-button-secondary inline-flex items-center justify-center w-10 h-10 rounded-xl text-slate-700 cursor-pointer"
                 title={isDarkTheme ? 'Usar tema claro' : 'Usar tema escuro'}
               >
                 {isDarkTheme ? <Sun size={16} /> : <Moon size={16} />}
@@ -3196,9 +3297,9 @@ export default function App() {
                   });
                   setIsProfileModalOpen(true);
                 }}
-                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 transition cursor-pointer"
+                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200/80 bg-white/70 hover:bg-white transition cursor-pointer backdrop-blur"
               >
-                <div className="w-7 h-7 rounded bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">
                   {currentUser?.name.substring(0, 2).toUpperCase()}
                 </div>
                 <div className="text-left">
@@ -3209,7 +3310,7 @@ export default function App() {
 
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-slate-200 text-slate-700 hover:bg-slate-100 transition cursor-pointer text-sm font-semibold"
+                className="cx-button-secondary inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold cursor-pointer"
                 title="Sair"
               >
                 <LogOut size={15} />
@@ -3218,7 +3319,7 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="relative flex flex-wrap gap-1 pb-1">
+          <nav className="relative flex flex-wrap gap-1.5 pb-1">
             {navItems.map(item => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -3229,9 +3330,9 @@ export default function App() {
                     setActiveTab(item.id as any);
                     setIsMoreMenuOpen(false);
                   }}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
+                  className={`cx-nav-item inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
                     isActive
-                      ? 'bg-[#0F172A] text-white'
+                      ? 'cx-nav-active'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
                   }`}
                 >
@@ -3245,9 +3346,9 @@ export default function App() {
               <div className="relative">
                 <button
                   onClick={() => setIsMoreMenuOpen(prev => !prev)}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
+                  className={`cx-nav-item inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
                     isMoreActive || isMoreMenuOpen
-                      ? 'bg-[#0F172A] text-white'
+                      ? 'cx-nav-active'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
                   }`}
                 >
@@ -3256,7 +3357,7 @@ export default function App() {
                 </button>
 
                 {isMoreMenuOpen && (
-                  <div className="absolute left-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-lg shadow-xl p-1.5 z-50">
+                  <div className="cx-glass absolute left-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-50">
                     {secondaryNavItems.map(item => {
                       const Icon = item.icon;
                       const isActive = activeTab === item.id;
@@ -3488,7 +3589,12 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto no-print">
         {/* DETECT AN EMPTY EVENT STATE */}
-        {events.length === 0 ? (
+        {loadingEvents ? (
+          <div className="flex-grow flex flex-col items-center justify-center gap-3 bg-[#f7f7f2]">
+            <RefreshCw className="animate-spin text-blue-500" size={32} />
+            <p className="text-slate-500 font-medium text-sm">Carregando eventos...</p>
+          </div>
+        ) : events.length === 0 ? (
           <div className="flex-1 p-8 flex flex-col items-center justify-center text-center bg-[#f7f7f2]">
             <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4">
               <Calendar size={32} />
@@ -3497,15 +3603,17 @@ export default function App() {
             <p className="text-slate-500 max-w-md mb-6">
               Para liberar o dashboard de monitoramento em tempo real, credenciamento via QR Code e chapelaria, inicie configurando as informações do seu evento.
             </p>
-            <button
-              onClick={() => {
-                setEventForm({ id: '', name: '', date: '', location: '', capacity: 200, enableAccessControl: true, enableCloakroom: false, enableScanner: true });
-                setIsEventModalOpen(true);
-              }}
-              className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl shadow-lg shadow-blue-500/10 transition"
-            >
-              Criar Evento Agora
-            </button>
+            {canCreateEvents && (
+              <button
+                onClick={() => {
+                  setEventForm({ id: '', name: '', date: '', location: '', capacity: 200, enableAccessControl: true, enableCloakroom: false, enableScanner: true });
+                  setIsEventModalOpen(true);
+                }}
+                className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl shadow-lg shadow-blue-500/10 transition"
+              >
+                Criar Evento Agora
+              </button>
+            )}
           </div>
         ) : loadingMain ? (
           <div className="flex-grow flex flex-col items-center justify-center gap-3 bg-[#f7f7f2]">
@@ -3539,7 +3647,7 @@ export default function App() {
                       Painel limpo para acompanhar e operar somente os recursos habilitados neste evento.
                     </p>
                   </div>
-                  {isUserAdmin && (
+                  {canCreateEvents && (
                     <button
                       onClick={() => editEvent(currentEvent)}
                       className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 transition cursor-pointer"
@@ -3631,7 +3739,7 @@ export default function App() {
                       O evento selecionado controla o painel, os participantes, o check-in, o scanner e os acessos.
                     </p>
                   </div>
-                  {isUserAdmin && (
+                  {canCreateEvents && (
                     <button
                       onClick={() => {
                         setEventForm({ id: '', name: '', date: '', location: '', capacity: 200, enableAccessControl: true, enableCloakroom: false, enableScanner: true });
@@ -3648,10 +3756,9 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {events.map(ev => {
                     const isSelected = ev.id === selectedEventId;
-                    const eventParticipants = participants.filter(p => p.eventId === ev.id);
-                    const checked = eventParticipants.filter(p => p.checkedIn).length;
-                    const hasLoadedStats = isSelected && eventParticipants.length > 0;
-                    const percent = hasLoadedStats ? Math.round((checked / eventParticipants.length) * 100) : 0;
+                    const eventStats = eventParticipantStats.get(ev.id) || { total: 0, checked: 0 };
+                    const hasLoadedStats = isSelected && eventStats.total > 0;
+                    const percent = hasLoadedStats ? Math.round((eventStats.checked / eventStats.total) * 100) : 0;
                     return (
                       <button
                         key={ev.id}
@@ -3693,7 +3800,7 @@ export default function App() {
                         <div className="mt-5">
                           <div className="flex justify-between text-xs font-semibold text-slate-500 mb-2">
                             <span>Check-ins</span>
-                            <span>{hasLoadedStats ? `${checked}/${eventParticipants.length} (${percent}%)` : 'Carrega ao selecionar'}</span>
+                            <span>{hasLoadedStats ? `${eventStats.checked}/${eventStats.total} (${percent}%)` : 'Carrega ao selecionar'}</span>
                           </div>
                           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full bg-[#1D4ED8] rounded-full transition-all" style={{ width: `${percent}%` }} />
@@ -7343,6 +7450,61 @@ export default function App() {
                 </select>
               </div>
 
+              {!userForm.id && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <Calendar size={16} className="text-emerald-700" />
+                      Evento que este operador pode acessar
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Selecione o evento e o nivel de acesso ja no momento da criacao do usuario.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Evento</label>
+                      <select
+                        value={userForm.eventId}
+                        onChange={e => setUserForm(prev => ({ ...prev, eventId: e.target.value }))}
+                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="">Criar sem vinculo com evento</option>
+                        {events.map(event => (
+                          <option key={event.id} value={event.id}>{event.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Permissao neste evento</label>
+                      <select
+                        value={userForm.eventRole}
+                        onChange={e => setUserForm(prev => ({ ...prev, eventRole: e.target.value as EventUserRole }))}
+                        disabled={!userForm.eventId}
+                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        {(Object.keys(eventUserRoleLabels) as EventUserRole[]).map(role => (
+                          <option key={role} value={role}>{eventUserRoleLabels[role]}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={userForm.eventActive}
+                      onChange={e => setUserForm(prev => ({ ...prev, eventActive: e.target.checked }))}
+                      disabled={!userForm.eventId}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-50"
+                    />
+                    Vinculo ativo neste evento
+                  </label>
+                </div>
+              )}
+
               <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-[220px_1fr_auto_auto] gap-3 items-end">
                   <div>
@@ -7404,7 +7566,7 @@ export default function App() {
               </div>
 
               
-              {!userForm.id && (
+              {false && !userForm.id && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Vincular ao Evento</label>

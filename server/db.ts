@@ -74,7 +74,7 @@ const DEFAULT_USERS: DBUser[] = [
     email: 'admin@credencia.com',
     role: 'ADMIN',
     pin: '1111',
-    passwordHash: 'admin123',
+    passwordHash: '$2b$12$u4ncDY.7NmAmYz2kDCOXvelqQPNAyRudvoxYCxPfn.dTCiFRn7cCa',
     organizationId: 'org1',
     createdAt: new Date('2026-01-01T10:00:00Z').toISOString()
   },
@@ -84,7 +84,7 @@ const DEFAULT_USERS: DBUser[] = [
     email: 'supervisor@credencia.com',
     role: 'SUPERVISOR',
     pin: '2222',
-    passwordHash: 'sup123',
+    passwordHash: '$2b$12$NmG6CzS47uRNER9ncP71R.e.R3uFQLpccE5sVMV/t4uq.Gqw61tN.',
     organizationId: 'org1',
     createdAt: new Date('2026-01-02T11:00:00Z').toISOString()
   },
@@ -94,7 +94,7 @@ const DEFAULT_USERS: DBUser[] = [
     email: 'atendente@credencia.com',
     role: 'ATENDENTE',
     pin: '3333',
-    passwordHash: 'at123',
+    passwordHash: '$2b$12$K2RRq16D1px7Fm2Iv/4KMu7ysHTc.pFnAwTYI3rFuEazldUDvTQXO',
     organizationId: 'org1',
     createdAt: new Date('2026-01-03T12:00:00Z').toISOString()
   },
@@ -104,7 +104,7 @@ const DEFAULT_USERS: DBUser[] = [
     email: 'admin@beta.com',
     role: 'ADMIN',
     pin: '4444',
-    passwordHash: 'beta123',
+    passwordHash: '$2b$12$LKh4mreAIgKeHrx0fSJzkeUqWRIlqcLOtTifCoakPRKlQZcOXXqA6',
     organizationId: 'org2',
     createdAt: new Date('2026-01-04T10:00:00Z').toISOString()
   }
@@ -472,10 +472,20 @@ class Database {
   private saveLocal(): void {
     if (this.useSupabase) return;
     try {
-      fs.writeFileSync(DB_FILE_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
+      const tempPath = `${DB_FILE_PATH}.tmp`;
+      fs.writeFileSync(tempPath, JSON.stringify(this.data, null, 2), 'utf-8');
+      fs.renameSync(tempPath, DB_FILE_PATH);
     } catch (e) {
       console.error('Error saving database:', e);
     }
+  }
+
+  getProviderInfo() {
+    return {
+      provider: this.useSupabase ? 'supabase' : 'local-json',
+      persistent: true,
+      localFile: this.useSupabase ? undefined : DB_FILE_PATH
+    };
   }
 
   // --- Organizations CRUD ---
@@ -1146,9 +1156,11 @@ class Database {
     const created: Participant[] = [];
     for (const item of batch) {
       const cleanCpf = item.cpf?.replace(/\D/g, '');
-      const existing = this.data.participants.find(
-        p => p.eventId === eventId && p.cpf?.replace(/\D/g, '') === cleanCpf
-      );
+      const existing = cleanCpf
+        ? this.data.participants.find(
+            p => p.eventId === eventId && p.cpf?.replace(/\D/g, '') === cleanCpf
+          )
+        : undefined;
       if (!existing) {
         const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
         const allowedAreaIds = Array.isArray(item.allowedAreaIds)

@@ -1,67 +1,49 @@
 import { User, UserRole } from '../types';
+import { apiRequest } from './api';
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('credencia_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-  };
-};
+interface AuthResponse {
+  token: string;
+  user: User;
+}
 
-const serviceFetch = async (endpoint: string, options: RequestInit = {}) => {
-  const res = await fetch(endpoint, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...options.headers
-    }
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `Erro de autenticação! Status: ${res.status}`);
+const persistAuth = (data: AuthResponse) => {
+  if (data.token && data.user) {
+    localStorage.setItem('credencia_token', data.token);
+    localStorage.setItem('credencia_user', JSON.stringify(data.user));
   }
-  return res.json();
 };
 
 export const authService = {
-  async login(email: string, password: string): Promise<{ token: string; user: User }> {
-    const data = await serviceFetch('/api/auth/login', {
+  async login(email: string, password: string): Promise<AuthResponse> {
+    const data = await apiRequest<AuthResponse>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
-    if (data.token && data.user) {
-      localStorage.setItem('credencia_token', data.token);
-      localStorage.setItem('credencia_user', JSON.stringify(data.user));
-    }
+    persistAuth(data);
     return data;
   },
 
-  async loginPin(pin: string): Promise<{ token: string; user: User }> {
-    const data = await serviceFetch('/api/auth/login-pin', {
+  async loginPin(pin: string): Promise<AuthResponse> {
+    const data = await apiRequest<AuthResponse>('/api/auth/login-pin', {
       method: 'POST',
       body: JSON.stringify({ pin })
     });
-    if (data.token && data.user) {
-      localStorage.setItem('credencia_token', data.token);
-      localStorage.setItem('credencia_user', JSON.stringify(data.user));
-    }
+    persistAuth(data);
     return data;
   },
 
   async signUp(userData: { name: string; email: string; password?: string; role?: UserRole; orgName?: string }): Promise<{ user: User; token?: string }> {
-    const data = await serviceFetch('/api/auth/signup', {
+    return apiRequest<{ user: User; token?: string }>('/api/auth/signup', {
       method: 'POST',
       body: JSON.stringify(userData)
     });
-    return data;
   },
 
   async getCurrentUser(): Promise<User> {
-    const data = await serviceFetch('/api/auth/me');
-    if (data.user) {
-      localStorage.setItem('credencia_user', JSON.stringify(data.user));
-    }
-    return data.user || data;
+    const data = await apiRequest<{ user?: User } | User>('/api/auth/me');
+    const user = 'user' in data && data.user ? data.user : data as User;
+    localStorage.setItem('credencia_user', JSON.stringify(user));
+    return user;
   },
 
   logout(): void {

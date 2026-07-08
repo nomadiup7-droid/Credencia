@@ -1,46 +1,31 @@
 import { Participant } from '../types';
+import { apiRequest } from './api';
 import { getParticipantsFromCache, saveParticipantsToCache } from './offlineService';
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('credencia_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-  };
-};
+type ParticipantBatchPayload = Record<string, unknown>;
 
-const serviceFetch = async (endpoint: string, options: RequestInit = {}) => {
-  const res = await fetch(endpoint, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...options.headers
-    }
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `Erro na requisição. Status: ${res.status}`);
+const normalizeParticipantList = (data: unknown): Participant[] => {
+  if (Array.isArray(data)) return data as Participant[];
+  if (data && typeof data === 'object' && Array.isArray((data as { participants?: unknown[] }).participants)) {
+    return (data as { participants: Participant[] }).participants;
   }
-  return res.json();
+  if (data && typeof data === 'object' && Array.isArray((data as { data?: unknown[] }).data)) {
+    return (data as { data: Participant[] }).data;
+  }
+  return [];
 };
 
 export const participantService = {
-  /**
-   * Obtém a lista de participantes vinculados a um evento. Se offline, retorna do cache local.
-   */
   async getParticipants(eventId: string): Promise<Participant[]> {
     if (!eventId) return [];
 
-    const isOffline = !navigator.onLine;
-    if (isOffline) {
-      console.log(`[Offline] Lendo participantes do cache local para o evento: ${eventId}`);
+    if (!navigator.onLine) {
       return getParticipantsFromCache(eventId);
     }
 
     try {
-      const data = await serviceFetch(`/api/events/${eventId}/participants`);
-      const participants = Array.isArray(data) ? data : (data.participants || []);
-      // Atualiza o cache local
+      const data = await apiRequest<Participant[] | { participants?: Participant[]; data?: Participant[] }>(`/api/events/${eventId}/participants`);
+      const participants = normalizeParticipantList(data);
       saveParticipantsToCache(eventId, participants);
       return participants;
     } catch (error) {
@@ -49,87 +34,69 @@ export const participantService = {
     }
   },
 
-  /**
-   * Cria um participante associado a um evento.
-   */
   async createParticipant(eventId: string, participantData: Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'ticketCode'>): Promise<Participant> {
-    const data = await serviceFetch(`/api/events/${eventId}/participants`, {
+    const data = await apiRequest<Participant>(`/api/events/${eventId}/participants`, {
       method: 'POST',
       body: JSON.stringify(participantData)
     });
-    
-    // Atualiza o cache local pós cadastrar online
+
     try {
       const cached = getParticipantsFromCache(eventId);
-      cached.push(data);
-      saveParticipantsToCache(eventId, cached);
-    } catch (e) {
-      console.error('Erro ao atualizar cache local pós cadastro', e);
+      saveParticipantsToCache(eventId, [...cached, data]);
+    } catch (error) {
+      console.warn('Erro ao atualizar cache local apos cadastro:', error);
     }
 
     return data;
   },
 
-  /**
-   * Atualiza um participante.
-   */
   async updateParticipant(participantId: string, eventId: string, updates: Partial<Participant>): Promise<Participant> {
-    const data = await serviceFetch(`/api/participants/${participantId}`, {
+    const data = await apiRequest<Participant>(`/api/participants/${participantId}`, {
       method: 'PUT',
       body: JSON.stringify(updates)
     });
 
-    // Atualiza cache local
     if (eventId) {
       try {
         const cached = getParticipantsFromCache(eventId);
-        const updated = cached.map(p => p.id === participantId ? { ...p, ...data } : p);
+        const updated = cached.map(participant => participant.id === participantId ? { ...participant, ...data } : participant);
         saveParticipantsToCache(eventId, updated);
-      } catch (e) {
-        console.error('Erro ao atualizar cache local pós edição', e);
+      } catch (error) {
+        console.warn('Erro ao atualizar cache local apos edicao:', error);
       }
     }
 
     return data;
   },
 
-  /**
-   * Deleta um participante.
-   */
   async deleteParticipant(participantId: string, eventId: string): Promise<boolean> {
-    await serviceFetch(`/api/participants/${participantId}`, {
+    await apiRequest(`/api/participants/${participantId}`, {
       method: 'DELETE'
     });
 
-    // Atualiza cache local
     if (eventId) {
       try {
         const cached = getParticipantsFromCache(eventId);
-        const filtered = cached.filter(p => p.id !== participantId);
-        saveParticipantsToCache(eventId, filtered);
-      } catch (e) {
-        console.error('Erro ao atualizar cache local pós remoção', e);
+        saveParticipantsToCache(eventId, cached.filter(participant => participant.id !== participantId));
+      } catch (error) {
+        console.warn('Erro ao atualizar cache local apos remocao:', error);
       }
     }
 
     return true;
   },
 
-  /**
-   * Importa lote de participantes via planilha.
-   */
-  async importBatch(eventId: string, participantsList: any[]): Promise<any> {
-    const data = await serviceFetch(`/api/events/${eventId}/participants/batch`, {
+  async importBatch(eventId: string, participantsList: ParticipantBatchPayload[]): Promise<unknown> {
+    const data = await apiRequest(`/api/events/${eventId}/participants/batch`, {
       method: 'POST',
       body: JSON.stringify({ participants: participantsList })
     });
 
-    // Atualiza o cache local
     try {
       const updatedList = await this.getParticipants(eventId);
       saveParticipantsToCache(eventId, updatedList);
-    } catch (e) {
-      console.error('Erro ao reatualizar cache local após importação por lotes', e);
+    } catch (error) {
+      console.warn('Erro ao reatualizar cache local apos importacao por lotes:', error);
     }
 
     return data;

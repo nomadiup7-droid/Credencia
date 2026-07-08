@@ -54,9 +54,10 @@ export default function LoginPage({
       <img
         src={credenciaLoginGlass}
         alt=""
-        className="absolute inset-0 h-full w-full object-cover opacity-70"
+        className="absolute inset-0 h-full w-full object-cover opacity-80 scale-[1.02]"
       />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(18,224,0,0.28),transparent_28%),linear-gradient(90deg,rgba(3,6,4,0.48),rgba(3,6,4,0.82)_48%,rgba(3,6,4,0.96))]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(18,224,0,0.30),transparent_28%),radial-gradient(circle_at_78%_14%,rgba(255,255,255,0.10),transparent_30%),linear-gradient(90deg,rgba(3,6,4,0.42),rgba(3,6,4,0.78)_48%,rgba(3,6,4,0.96))]" />
+      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.08),transparent_18%,transparent_72%,rgba(18,224,0,0.08))]" />
       <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#030604] to-transparent" />
 
       <div className="relative z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[1fr_430px] gap-8 lg:gap-12 items-center">
@@ -66,37 +67,39 @@ export default function LoginPage({
               <img src={credenciaLogoIcon} alt="" className="h-14 sm:h-16 w-auto object-contain drop-shadow-[0_18px_32px_rgba(18,224,0,0.22)]" />
               <div>
                 <div className="font-display text-2xl sm:text-3xl font-bold tracking-wide text-white">CREDENCIA</div>
-                <div className="text-sm sm:text-base text-slate-200">Tecnologia para events</div>
+                <div className="text-sm sm:text-base text-slate-200">Tecnologia para eventos</div>
               </div>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-white/8 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-emerald-100 backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-[#12e000] shadow-[0_0_18px_rgba(18,224,0,0.85)]" />
               Plataforma de credenciamento
             </div>
-            <h1 className="mt-5 text-3xl sm:text-5xl font-bold tracking-tight text-white font-display max-w-xl">
-              Operacao elegante para eventos de alta exigencia.
+            <h1 className="mt-5 text-3xl sm:text-5xl font-bold tracking-tight text-white font-display max-w-xl leading-[0.98]">
+              Operação elegante para eventos de alta exigência.
             </h1>
             <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-lg leading-relaxed">
-              Controle participantes, check-ins, acessos e impressoes em um fluxo claro para recepcao, supervisao e administracao.
+              Controle participantes, check-ins, acessos e impressões em um fluxo claro para recepção, supervisão e administração.
             </p>
             <div className="mt-8 grid grid-cols-3 gap-3 max-w-xl">
-              <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
+              <div className="border border-white/12 bg-white/8 rounded-xl p-4 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                 <div className="text-sm font-bold text-white">Check-in</div>
-                <div className="text-xs text-slate-300 mt-1">Busca, QR Code e presenca.</div>
+                <div className="text-xs text-slate-300 mt-1">Busca, QR Code e presença.</div>
               </div>
-              <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
+              <div className="border border-white/12 bg-white/8 rounded-xl p-4 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                 <div className="text-sm font-bold text-white">Acessos</div>
                 <div className="text-xs text-slate-300 mt-1">Salas, perfis e logs.</div>
               </div>
-              <div className="border border-white/12 bg-white/8 rounded-lg p-4 backdrop-blur-md">
-                <div className="text-sm font-bold text-white">Impressao</div>
+              <div className="border border-white/12 bg-white/8 rounded-xl p-4 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <div className="text-sm font-bold text-white">Impressão</div>
                 <div className="text-xs text-slate-300 mt-1">Etiquetas e credenciais.</div>
               </div>
             </div>
           </div>
         </section>
 
-        <div className="bg-white/96 border border-white/70 rounded-xl shadow-2xl shadow-black/35 p-6 sm:p-8 backdrop-blur-xl">
+        <div className="relative overflow-hidden rounded-[1.35rem] border border-white/70 bg-white/92 p-6 shadow-2xl shadow-black/35 backdrop-blur-2xl sm:p-8">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
+          <div className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-[#12e000]/10 blur-3xl" />
           <div className="mb-7">
             <div className="mb-5 flex items-center gap-2 lg:hidden">
               <img src={credenciaLogoIcon} alt="" className="h-10 w-auto object-contain" />
@@ -200,7 +203,7 @@ export default function LoginPage({
                       value={registerNameInput}
                       onChange={e => setRegisterNameInput(e.target.value)}
                       placeholder="Nome do operador"
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
                     />
                   </div>
 
@@ -213,7 +216,7 @@ export default function LoginPage({
                       value={registerOrgInput}
                       onChange={e => setRegisterOrgInput(e.target.value)}
                       placeholder="Nome da organizacao"
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
                     />
                   </div>
                 </>
@@ -228,7 +231,7 @@ export default function LoginPage({
                   value={emailInput}
                   onChange={e => setEmailInput(e.target.value)}
                   placeholder="email@empresa.com"
-                  className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
+                  className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
                 />
               </div>
 
@@ -241,7 +244,7 @@ export default function LoginPage({
                   value={passwordInput}
                   onChange={e => setPasswordInput(e.target.value)}
                   placeholder="Senha"
-                  className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition placeholder-slate-400"
+                  className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
                 />
               </div>
 
@@ -253,7 +256,7 @@ export default function LoginPage({
                   <select
                     value={registerRoleInput}
                     onChange={e => setRegisterRoleInput(e.target.value as UserRole)}
-                    className="w-full px-3 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-md text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition cursor-pointer"
+                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 outline-none backdrop-blur-sm focus:border-emerald-400 cursor-pointer"
                   >
                     <option value="admin">Administrador</option>
                     <option value="operator">Operador</option>
@@ -264,7 +267,7 @@ export default function LoginPage({
               <button
                 type="submit"
                 disabled={authLoading}
-                className="w-full py-2.5 px-4 bg-[#1D4ED8] hover:bg-[#173FAE] disabled:bg-slate-300 text-white rounded-md text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer transition active:scale-98"
+                className="cx-button-primary flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold disabled:bg-slate-300"
               >
                 {authLoading ? (
                   <>
@@ -285,7 +288,7 @@ export default function LoginPage({
             <button
               type="button"
               onClick={() => { setLoginMethod('pin'); setPinInput(''); }}
-              className="mt-4 w-full py-2.5 border border-slate-200 rounded-md text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer transition"
+              className="cx-button-secondary mt-4 w-full rounded-xl py-3 text-sm font-semibold cursor-pointer"
             >
               Entrar com PIN
             </button>
@@ -297,10 +300,10 @@ export default function LoginPage({
               onClick={() => {
                 setIsRegisterMode(!isRegisterMode);
                 setLoginMethod('email');
-                setEmailInput(isRegisterMode ? 'admin@credencia.com' : '');
-                setPasswordInput(isRegisterMode ? 'admin123' : '');
+                setEmailInput('');
+                setPasswordInput('');
               }}
-              className="text-sm text-[#1D4ED8] hover:text-[#0F172A] font-semibold focus:outline-none transition cursor-pointer select-none"
+              className="text-sm text-emerald-700 hover:text-slate-950 font-semibold focus:outline-none transition cursor-pointer select-none"
             >
               {isRegisterMode ? 'Voltar para login' : 'Criar acesso administrativo'}
             </button>

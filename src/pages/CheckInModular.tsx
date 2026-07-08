@@ -1527,8 +1527,8 @@ export default function CheckInModular({
                       <button
                         type="button"
                         onClick={() => setIsRegisterOpen(true)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-bold transition hover:opacity-90 shadow-xs cursor-pointer text-white"
-                        style={{ backgroundColor: config.colors.primary }}
+                        className="checkin-new-participant-button cx-button-primary flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-bold transition hover:opacity-90 shadow-xs cursor-pointer text-slate-950"
+                        style={{ background: 'linear-gradient(135deg, #12e000, #8fff86)', color: '#061009' }}
                       >
                         <UserPlus size={14} />
                         <span>Novo Participante (Inscrição Rápida)</span>

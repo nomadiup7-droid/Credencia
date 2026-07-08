@@ -1,6 +1,7 @@
 import express from 'express';
 import { db } from '../server/db';
-import { UserRole, ActionLogAction } from '../src/types';
+import { ActionLogAction } from '../src/types';
+import { authenticateToken } from '../server/auth';
 
 const router = express.Router();
 
@@ -23,44 +24,6 @@ const writeLegacyLog = async (log: any) => {
     await db.createLog(log);
   } catch (error) {
     console.error('Legacy audit log failed:', error);
-  }
-};
-
-// Self-contained Authentication Middleware
-const authenticateToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  try {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader) {
-      res.status(401).json({ error: 'Token de autenticação ausente' });
-      return;
-    }
-
-    const token = authHeader.split(' ')[1];
-    if (!token) {
-      res.status(401).json({ error: 'Token malformado' });
-      return;
-    }
-
-    const parts = token.split('-');
-    if (parts[0] !== 'credencia' || parts[1] !== 'token' || parts.length < 5) {
-      res.status(403).json({ error: 'Token inválido ou expirado' });
-      return;
-    }
-
-    const dbUserId = parts[2];
-    const role = parts[3] as UserRole;
-    const email = parts.slice(4).join('-');
-
-    const user = await db.getUserById(dbUserId);
-    if (!user || user.email.toLowerCase() !== email.toLowerCase() || user.role !== role) {
-      res.status(403).json({ error: 'Acesso recusado' });
-      return;
-    }
-
-    (req as any).user = user;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Erro interno ao autenticar requisição' });
   }
 };
 

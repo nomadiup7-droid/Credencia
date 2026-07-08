@@ -834,8 +834,8 @@ export default function CheckinPage({
               {canCreateParticipants && (
                 <button
                   onClick={() => setIsRegisterModalOpen(true)}
-                  className="flex items-center gap-2 px-6 py-4 text-white text-base font-black rounded-xl shadow-lg transition cursor-pointer active:scale-[0.98]"
-                  style={{ backgroundColor: config.primaryColor }}
+                  className="checkin-new-participant-button cx-button-primary flex items-center gap-2 px-6 py-4 text-slate-950 text-base font-black rounded-xl shadow-lg transition cursor-pointer active:scale-[0.98]"
+                  style={{ background: 'linear-gradient(135deg, #12e000, #8fff86)', color: '#061009' }}
                 >
                   <Plus size={22} />
                   <span>+ Novo Participante</span>

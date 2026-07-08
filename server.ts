@@ -3,11 +3,14 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { UserRole, EventUserRole, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus } from './src/types';
+import { UserRole, EventUserRole, EventUser, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus } from './src/types';
 import checkInRouter from './routes/checkin';
+import { authenticateToken, hashPassword, requireAdmin, signAuthToken, verifyPassword } from './server/auth';
+import { getPagination, logApiError, normalizeSearch, paginateArray, sendError, sendSuccess, sortRecords } from './server/apiResponse';
+import { openApiDocument } from './server/openapi';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Enable standard body parsers
 app.use(express.json({ limit: '10mb' }));
@@ -15,59 +18,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Mount custom check-in router
 app.use('/api/checkin', checkInRouter);
-
-// Simple Auth Middleware
-const authenticateToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader) {
-    res.status(401).json({ error: 'Token de autenticação ausente' });
-    return;
-  }
-
-  const token = authHeader.split(' ')[1]; // "Bearer [token]"
-  if (!token) {
-    res.status(401).json({ error: 'Token malformado' });
-    return;
-  }
-
-  // Token format: "credencia-token-[userId]-[role]-[email]"
-  const parts = token.split('-');
-  if (parts[0] !== 'credencia' || parts[1] !== 'token' || parts.length < 5) {
-    res.status(403).json({ error: 'Token inválido ou expirado' });
-    return;
-  }
-
-  const userId = parts[2];
-  const role = parts[3] as UserRole;
-  const email = parts.slice(4).join('-');
-
-  const user = await db.getUserById(userId);
-  if (!user || user.email.toLowerCase() !== email.toLowerCase() || user.role !== role) {
-    res.status(403).json({ error: 'Acesso não autorizado' });
-    return;
-  }
-
-  // Attach user telemetry to request with organizationId
-  (req as any).user = { 
-    id: user.id, 
-    name: user.name, 
-    email: user.email, 
-    role: user.role, 
-    permissions: user.permissions || [],
-    organizationId: user.organizationId || 'org1' 
-  };
-  next();
-};
-
-// Require Admin Role for specific routes (Allowing all authenticated organization members to access in order to view and manage everything)
-const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const user = (req as any).user;
-  if (!user) {
-    res.status(403).json({ error: 'Não autenticado ou acesso negado' });
-    return;
-  }
-  next();
-};
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: ['CAN_CHECKIN', 'CAN_CREATE_PARTICIPANT', 'CAN_REPRINT', 'CAN_OVERRIDE_CHECKIN'],
@@ -127,13 +77,21 @@ const permissionsForRole = (role?: string): string[] => {
 
 const resolveEventPermissions = async (user: any, eventId?: string): Promise<string[]> => {
   const globalRole = String(user?.role || '').toUpperCase();
-  if (globalRole === 'ADMIN' || user?.role === 'admin') return ALL_SYSTEM_PERMISSIONS;
+  const activeLinks = user?.id
+    ? (await db.getEventUsers()).filter(link => link.userId === user.id && link.active)
+    : [];
+  if ((globalRole === 'ADMIN' || user?.role === 'admin') && activeLinks.length === 0) return ALL_SYSTEM_PERMISSIONS;
 
   if (eventId) {
     const eventLink = await db.getEventUser(eventId, user.id);
     if (eventLink?.active) {
-      return uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role));
+      const linkPermissions = uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role));
+      const userPermissions = uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role));
+      return userPermissions.length
+        ? linkPermissions.filter(permission => userPermissions.includes(permission))
+        : linkPermissions;
     }
+    if (activeLinks.length > 0) return [];
   }
 
   return uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role));
@@ -141,6 +99,30 @@ const resolveEventPermissions = async (user: any, eventId?: string): Promise<str
 
 const hasEventPermission = async (user: any, eventId: string | undefined, permission: string) =>
   (await resolveEventPermissions(user, eventId)).includes(permission);
+
+const canAccessEvent = async (user: any, eventId: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  const activeLinks = (await db.getEventUsers()).filter(link => link.userId === user.id && link.active);
+  if ((globalRole === 'ADMIN' || user?.role === 'admin') && activeLinks.length === 0) return true;
+  const eventLink = await db.getEventUser(eventId, user.id);
+  return eventLink?.active === true;
+};
+
+const canCreateEventsForUser = async (user: any) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  const activeLinks = (await db.getEventUsers()).filter(link => link.userId === user.id && link.active);
+  if ((globalRole === 'ADMIN' || user?.role === 'admin') && activeLinks.length === 0) return true;
+  return uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role)).includes('events.create');
+};
+
+const requireEventCreatePermission = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  if (!user || !(await canCreateEventsForUser(user))) {
+    res.status(403).json({ error: 'Usuário sem permissão para criar eventos' });
+    return;
+  }
+  next();
+};
 
 const canManageUsers = async (user: any, eventId?: string) => {
   const globalRole = String(user?.role || '').toUpperCase();
@@ -190,6 +172,289 @@ const writeActionLog = async (log: { eventId?: string; userId?: string; particip
     console.error('ActionLog failed:', error);
   }
 };
+
+const getOrganizationEventIds = async (organizationId: string) => {
+  const events = await db.getEvents(organizationId);
+  return new Set(events.map(event => event.id));
+};
+
+const sanitizeUserForApi = async (user: any) => {
+  const org = await db.getOrganizationById(user.organizationId || 'org1');
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    permissions: uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)),
+    organizationId: user.organizationId || 'org1',
+    organizationName: org ? org.name : 'Organização'
+  };
+};
+
+const getVisibleEventsForUser = async (user: any) => {
+  const events = await db.getEvents(user.organizationId);
+  const isAdmin = String(user.role || '').toUpperCase() === 'ADMIN' || user.role === 'admin';
+  const activeLinks = (await db.getEventUsers()).filter(link => link.userId === user.id && link.active);
+
+  if (isAdmin && activeLinks.length === 0) {
+    return events.map(event => ({
+      ...event,
+      currentUserRole: 'ADMIN',
+      currentUserPermissions: ALL_SYSTEM_PERMISSIONS
+    }));
+  }
+
+  const userPermissions = uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role));
+  const roleByEventId = new Map(activeLinks.map(link => [link.eventId, link.role]));
+  const permissionsByEventId = new Map(activeLinks.map(link => [
+    link.eventId,
+    uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
+      .filter(permission => userPermissions.includes(permission))
+  ]));
+
+  return events
+    .filter(event => roleByEventId.has(event.id))
+    .map(event => ({
+      ...event,
+      currentUserRole: roleByEventId.get(event.id),
+      currentUserPermissions: permissionsByEventId.get(event.id)
+    }));
+};
+
+const apiV1 = express.Router();
+
+apiV1.get('/health', (_req, res) => {
+  sendSuccess(res, {
+    status: 'ok',
+    version: 'v1',
+    timestamp: new Date().toISOString(),
+    provider: db.getProviderInfo()
+  }, 'API disponível');
+});
+
+apiV1.get('/openapi.json', (_req, res) => {
+  res.json(openApiDocument);
+});
+
+apiV1.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      sendError(res, 400, 'E-mail e senha são obrigatórios', [
+        { code: 'VALIDATION_ERROR', message: 'Informe e-mail e senha' }
+      ]);
+      return;
+    }
+
+    const user = await db.getUserByEmail(email);
+    const passwordCheck = await verifyPassword(password, user?.passwordHash);
+    if (!user || !passwordCheck.valid) {
+      sendError(res, 401, 'E-mail ou senha inválidos', [
+        { code: 'INVALID_CREDENTIALS', message: 'Credenciais inválidas' }
+      ]);
+      return;
+    }
+
+    if (passwordCheck.needsRehash) {
+      await db.updateUser(user.id, { passwordHash: await hashPassword(password) });
+    }
+
+    sendSuccess(res, {
+      token: signAuthToken(user),
+      user: await sanitizeUserForApi(user)
+    }, 'Login realizado com sucesso');
+  } catch (error) {
+    logApiError('POST /api/v1/auth/login', error);
+    sendError(res, 500, 'Erro ao realizar login');
+  }
+});
+
+apiV1.get('/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    sendSuccess(res, {
+      user: {
+        ...(await sanitizeUserForApi(user)),
+        permissions: await resolveEventPermissions(user)
+      }
+    }, 'Usuário autenticado');
+  } catch (error) {
+    logApiError('GET /api/v1/auth/me', error);
+    sendError(res, 500, 'Erro ao carregar usuário autenticado');
+  }
+});
+
+apiV1.get('/events', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const search = normalizeSearch(req.query.search);
+    const pagination = getPagination(req.query);
+    const events = await getVisibleEventsForUser(user);
+    const filtered = search
+      ? events.filter(event => [event.name, event.location, event.description].some(value => normalizeSearch(value).includes(search)))
+      : events;
+    const sorted = sortRecords(filtered as Record<string, unknown>[], req.query.sort || 'date', req.query.order);
+    const { data, meta } = paginateArray(sorted, pagination);
+    sendSuccess(res, data, 'Eventos carregados', 200, meta);
+  } catch (error) {
+    logApiError('GET /api/v1/events', error);
+    sendError(res, 500, 'Erro ao carregar eventos');
+  }
+});
+
+apiV1.get('/events/:eventId/participants', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { eventId } = req.params;
+    const event = await db.getEventById(eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      sendError(res, 404, 'Evento não encontrado ou acesso restrito');
+      return;
+    }
+    if (!(await canAccessEvent(user, eventId))) {
+      sendError(res, 403, 'Usuário sem acesso a este evento');
+      return;
+    }
+
+    const search = normalizeSearch(req.query.search);
+    const status = normalizeSearch(req.query.status || 'all');
+    const pagination = getPagination(req.query);
+    const participants = await db.getParticipants(eventId);
+    const filtered = participants.filter(participant => {
+      const statusMatches =
+        status === 'all' ||
+        !status ||
+        (status === 'checkedin' && participant.checkedIn) ||
+        (status === 'pending' && !participant.checkedIn);
+      const searchMatches = !search || [
+        participant.name,
+        participant.badgeName,
+        participant.cpf,
+        participant.email,
+        participant.ticketCode,
+        participant.company
+      ].some(value => normalizeSearch(value).includes(search));
+      return statusMatches && searchMatches;
+    });
+    const sorted = sortRecords(filtered as unknown as Record<string, unknown>[], req.query.sort || 'name', req.query.order);
+    const { data, meta } = paginateArray(sorted, pagination);
+    sendSuccess(res, data, 'Participantes carregados', 200, meta);
+  } catch (error) {
+    logApiError('GET /api/v1/events/:eventId/participants', error);
+    sendError(res, 500, 'Erro ao carregar participantes');
+  }
+});
+
+apiV1.get('/areas', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
+    if (eventId) {
+      const event = await db.getEventById(eventId);
+      if (!event || event.organizationId !== user.organizationId || !(await canAccessEvent(user, eventId))) {
+        sendError(res, 404, 'Evento não encontrado ou acesso restrito');
+        return;
+      }
+    }
+
+    const search = normalizeSearch(req.query.search);
+    const pagination = getPagination(req.query);
+    const areas = await db.getAreas(eventId || undefined);
+    const organizationEventIds = eventId ? new Set([eventId]) : await getOrganizationEventIds(user.organizationId);
+    const scopedAreas = areas.filter(area => organizationEventIds.has(area.eventId || area.event_id || ''));
+    const filtered = search
+      ? scopedAreas.filter(area => normalizeSearch(area.name).includes(search))
+      : scopedAreas;
+    const sorted = sortRecords(filtered as unknown as Record<string, unknown>[], req.query.sort || 'name', req.query.order);
+    const { data, meta } = paginateArray(sorted, pagination);
+    sendSuccess(res, data, 'Áreas carregadas', 200, meta);
+  } catch (error) {
+    logApiError('GET /api/v1/areas', error);
+    sendError(res, 500, 'Erro ao carregar áreas');
+  }
+});
+
+apiV1.get('/reports/summary', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
+    if (!eventId) {
+      sendError(res, 400, 'eventId é obrigatório', [
+        { code: 'VALIDATION_ERROR', field: 'eventId', message: 'Informe o evento do relatório' }
+      ]);
+      return;
+    }
+
+    const event = await db.getEventById(eventId);
+    if (!event || event.organizationId !== user.organizationId || !(await canAccessEvent(user, eventId))) {
+      sendError(res, 404, 'Evento não encontrado ou acesso restrito');
+      return;
+    }
+
+    const participants = await db.getParticipants(eventId);
+    const actionLogs = await db.getActionLogs(eventId);
+    const cloakroomItems = await db.getCloakroom(eventId);
+    const checkedIn = participants.filter(participant => participant.checkedIn).length;
+    const pending = participants.length - checkedIn;
+
+    sendSuccess(res, {
+      event: { id: event.id, name: event.name, date: event.date },
+      participants: {
+        total: participants.length,
+        checkedIn,
+        pending,
+        attendancePercent: participants.length ? Math.round((checkedIn / participants.length) * 100) : 0
+      },
+      access: {
+        allowed: actionLogs.filter(log => log.action === 'ACCESS_ALLOWED').length,
+        denied: actionLogs.filter(log => log.action === 'ACCESS_DENIED').length
+      },
+      cloakroom: {
+        total: cloakroomItems.length,
+        stored: cloakroomItems.filter(item => item.status === 'guardado').length,
+        returned: cloakroomItems.filter(item => item.status === 'retirado').length
+      }
+    }, 'Resumo carregado');
+  } catch (error) {
+    logApiError('GET /api/v1/reports/summary', error);
+    sendError(res, 500, 'Erro ao carregar resumo do relatório');
+  }
+});
+
+apiV1.all(['/checkin', '/scanner/validate', '/labels'], (_req, res) => {
+  sendError(res, 501, 'Contrato documentado para integração futura. Use os endpoints legados enquanto a v1 operacional é expandida.', [
+    { code: 'NOT_IMPLEMENTED', message: 'Endpoint preparado para versão v1 futura' }
+  ]);
+});
+
+app.use('/api/v1', apiV1);
+
+app.get('/api/docs/openapi.json', (_req, res) => {
+  res.json(openApiDocument);
+});
+
+app.get('/api/docs', (_req, res) => {
+  res.type('html').send(`
+    <!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Credencia API</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; color: #111827; }
+          code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+          a { color: #2563eb; }
+        </style>
+      </head>
+      <body>
+        <h1>Credencia API v1</h1>
+        <p>A API versionada está disponível em <code>/api/v1</code>.</p>
+        <p>Documento OpenAPI: <a href="/api/v1/openapi.json">/api/v1/openapi.json</a></p>
+        <p>Os endpoints legados em <code>/api</code> continuam ativos para compatibilidade com o frontend atual.</p>
+      </body>
+    </html>
+  `);
+});
 
 const writeLegacyLog = async (log: any) => {
   try {
@@ -787,16 +1052,19 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const user = await db.getUserByEmail(email);
-  if (!user || user.passwordHash !== password) {
+  const passwordCheck = await verifyPassword(password, user?.passwordHash);
+  if (!user || !passwordCheck.valid) {
     res.status(401).json({ error: 'E-mail ou senha inválidos' });
     return;
   }
 
+  if (passwordCheck.needsRehash) {
+    await db.updateUser(user.id, { passwordHash: await hashPassword(password) });
+  }
+
   // Get organization details if available
   const org = await db.getOrganizationById(user.organizationId || 'org1');
-
-  // Craft a simple token for identification
-  const token = `credencia-token-${user.id}-${user.role}-${user.email}`;
+  const token = signAuthToken(user);
 
   res.json({
     token,
@@ -827,7 +1095,7 @@ app.post('/api/auth/login-pin', async (req, res) => {
   }
 
   const org = await db.getOrganizationById(user.organizationId || 'org1');
-  const token = `credencia-token-${user.id}-${user.role}-${user.email}`;
+  const token = signAuthToken(user);
   const permissions = uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role));
 
   res.json({
@@ -898,12 +1166,12 @@ app.post('/api/auth/signup', async (req, res) => {
   const newUser = await db.createUser({
     name,
     email,
-    passwordHash: password,
+    passwordHash: await hashPassword(password),
     role: assignedRole,
     organizationId: targetOrgId
   });
 
-  const token = `credencia-token-${newUser.id}-${newUser.role}-${newUser.email}`;
+  const token = signAuthToken(newUser);
   res.status(201).json({
     token,
     user: {
@@ -941,7 +1209,7 @@ app.get('/api/users', authenticateToken, requireUserManagementPermission, async 
 
 // User manager manually creates a system user
 app.post('/api/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
-  const { name, email, password, role, permissions } = req.body;
+  const { name, email, password, role, permissions, eventId, eventRole, eventPermissions, eventActive } = req.body;
   if (!name || !email || !password || !role) {
     res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     return;
@@ -954,14 +1222,37 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
   }
 
   const user = (req as any).user;
+  let createdEventLink: EventUser | undefined;
+  if (eventId) {
+    const event = await db.getEventById(eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+    if (eventRole && !EVENT_USER_ROLES.includes(eventRole)) {
+      res.status(400).json({ error: 'Permissão de evento inválida' });
+      return;
+    }
+  }
+
   const createdUser = await db.createUser({
     name,
     email,
-    passwordHash: password,
+    passwordHash: await hashPassword(password),
     role: role as UserRole,
     permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
     organizationId: user.organizationId || 'org1'
   });
+
+  if (eventId) {
+    createdEventLink = await db.createEventUser({
+      eventId,
+      userId: createdUser.id,
+      role: eventRole || 'CHECKIN',
+      permissions: uniquePermissions(Array.isArray(eventPermissions) && eventPermissions.length ? eventPermissions : permissionsForRole(eventRole || 'CHECKIN')),
+      active: eventActive !== false
+    });
+  }
 
   res.status(201).json({
     id: createdUser.id,
@@ -969,7 +1260,8 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
     email: createdUser.email,
     role: createdUser.role,
     permissions: uniquePermissions(createdUser.permissions?.length ? createdUser.permissions : permissionsForRole(createdUser.role)),
-    createdAt: createdUser.createdAt
+    createdAt: createdUser.createdAt,
+    eventLink: createdEventLink
   });
 });
 
@@ -991,6 +1283,10 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     res.status(404).json({ error: 'Usuário não encontrado' });
     return;
   }
+  if ((user.organizationId || 'org1') !== (requester.organizationId || 'org1')) {
+    res.status(404).json({ error: 'Usuário não encontrado' });
+    return;
+  }
 
   // If email changes, check duplicate user email
   if (email && email.toLowerCase() !== user.email.toLowerCase()) {
@@ -1004,7 +1300,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const updates: any = {};
   if (name) updates.name = name;
   if (email) updates.email = email;
-  if (password) updates.passwordHash = password;
+  if (password) updates.passwordHash = await hashPassword(password);
   // Only managers can change another user's role and permissions.
   if (role && canManageTarget) {
     updates.role = role as UserRole;
@@ -1036,6 +1332,12 @@ app.delete('/api/users/:id', authenticateToken, requireUserManagementPermission,
 
   if (requester.id === targetId) {
     res.status(400).json({ error: 'Você não pode excluir sua própria conta.' });
+    return;
+  }
+
+  const targetUser = await db.getUserById(targetId);
+  if (!targetUser || (targetUser.organizationId || 'org1') !== (requester.organizationId || 'org1')) {
+    res.status(404).json({ error: 'Usuário não encontrado.' });
     return;
   }
 
@@ -1155,8 +1457,10 @@ app.get('/api/events', authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const events = await db.getEvents(user.organizationId);
     const isAdmin = String(user.role || '').toUpperCase() === 'ADMIN' || user.role === 'admin';
+    const activeLinks = (await db.getEventUsers())
+      .filter(link => link.userId === user.id && link.active);
 
-    if (isAdmin) {
+    if (isAdmin && activeLinks.length === 0) {
       res.json(events.map(event => ({
         ...event,
         currentUserRole: 'ADMIN',
@@ -1165,12 +1469,11 @@ app.get('/api/events', authenticateToken, async (req, res) => {
       return;
     }
 
-    const activeLinks = (await db.getEventUsers())
-      .filter(link => link.userId === user.id && link.active);
     const roleByEventId = new Map(activeLinks.map(link => [link.eventId, link.role]));
     const permissionsByEventId = new Map(activeLinks.map(link => [
       link.eventId,
       uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
+        .filter(permission => uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)).includes(permission))
     ]));
     const linkedEvents = events
       .filter(event => roleByEventId.has(event.id))
@@ -1180,12 +1483,7 @@ app.get('/api/events', authenticateToken, async (req, res) => {
         currentUserPermissions: permissionsByEventId.get(event.id)
       }));
 
-    // Preserves existing operators while event-user links are still being configured.
-    res.json(linkedEvents.length > 0 ? linkedEvents : events.map(event => ({
-      ...event,
-      currentUserRole: user.role,
-      currentUserPermissions: uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role))
-    })));
+    res.json(linkedEvents);
   } catch (error: any) {
     console.error('Error in GET /api/events:', error);
     res.status(500).json({ error: 'Erro de servidor ao carregar eventos' });
@@ -1201,25 +1499,24 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
       return;
     }
     const isAdmin = String(user.role || '').toUpperCase() === 'ADMIN' || user.role === 'admin';
-    if (isAdmin) {
+    const activeLinks = (await db.getEventUsers())
+      .filter(link => link.userId === user.id && link.active);
+    if (isAdmin && activeLinks.length === 0) {
       res.json({ ...event, currentUserRole: 'ADMIN', currentUserPermissions: ALL_SYSTEM_PERMISSIONS });
       return;
     }
 
-    const activeLinks = (await db.getEventUsers())
-      .filter(link => link.userId === user.id && link.active);
     const eventLink = activeLinks.find(link => link.eventId === event.id);
-    if (activeLinks.length > 0 && !eventLink) {
+    if (!eventLink) {
       res.status(403).json({ error: 'Usuário sem acesso a este evento' });
       return;
     }
 
     res.json({
       ...event,
-      currentUserRole: eventLink?.role || user.role,
-      currentUserPermissions: eventLink?.active
-        ? uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role))
-        : uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role))
+      currentUserRole: eventLink.role,
+      currentUserPermissions: uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role))
+        .filter(permission => uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)).includes(permission))
     });
   } catch (error: any) {
     console.error('Error in GET /api/events/:id:', error);
@@ -1227,7 +1524,7 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/events', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/events', authenticateToken, requireEventCreatePermission, async (req, res) => {
   const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig } = req.body;
   if (!name || !date || !location || !capacity) {
     res.status(400).json({ error: 'Todos os campos do evento são obrigatórios' });
@@ -1308,7 +1605,23 @@ app.get('/api/events/:eventId/participants', authenticateToken, async (req, res)
     return;
   }
 
+  if (!(await canAccessEvent(user, req.params.eventId))) {
+    res.status(403).json({ error: 'Usuário sem acesso a este evento' });
+    return;
+  }
+
   const plist = await db.getParticipants(req.params.eventId);
+  const limit = Math.max(0, Number(req.query.limit) || 0);
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  if (limit > 0) {
+    res.json({
+      data: plist.slice(offset, offset + limit),
+      total: plist.length,
+      limit,
+      offset
+    });
+    return;
+  }
   res.json(plist);
 });
 
@@ -1663,6 +1976,11 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
     return;
   }
 
+  if (!(await canAccessEvent(user, eventId))) {
+    res.status(403).json({ error: 'Usuário sem acesso a este evento' });
+    return;
+  }
+
   if (!code) {
     res.json({ error: 'Código do QR Code ou CPF não fornecido' });
     return;
@@ -1798,6 +2116,11 @@ app.get('/api/events/:eventId/activities', authenticateToken, async (req, res) =
       return;
     }
 
+    if (!(await canAccessEvent(user, req.params.eventId))) {
+      res.status(403).json({ error: 'Usuário sem acesso a este evento' });
+      return;
+    }
+
     const activities = await db.getActivities(req.params.eventId);
     res.json(activities);
   } catch (error: any) {
@@ -1887,6 +2210,11 @@ app.get('/api/events/:eventId/activity-attendances', authenticateToken, async (r
     const event = await db.getEventById(req.params.eventId);
     if (!event || event.organizationId !== user.organizationId) {
       res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    if (!(await canAccessEvent(user, req.params.eventId))) {
+      res.status(403).json({ error: 'Usuário sem acesso a este evento' });
       return;
     }
 
@@ -2177,6 +2505,11 @@ app.get('/api/events/:eventId/certificates', authenticateToken, async (req, res)
       return;
     }
 
+    if (!(await canAccessEvent(user, req.params.eventId))) {
+      res.status(403).json({ error: 'Usuário sem acesso a este evento' });
+      return;
+    }
+
     const [certificates, participants, activities, users] = await Promise.all([
       db.getCertificates(req.params.eventId),
       db.getParticipants(req.params.eventId),
@@ -2458,9 +2791,22 @@ app.post('/api/fields', authenticateToken, requireAdmin, async (req, res) => {
 // --- ACCESS CONTROL BY AREAS ENDPOINTS ---
 app.get('/api/areas', authenticateToken, async (req, res) => {
   try {
+    const user = (req as any).user;
     const { eventId } = req.query;
+    if (eventId) {
+      const event = await db.getEventById(String(eventId));
+      if (!event || event.organizationId !== user.organizationId) {
+        res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+        return;
+      }
+    }
     const areas = await db.getAreas(eventId as string);
-    res.json(areas);
+    if (eventId) {
+      res.json(areas);
+      return;
+    }
+    const eventIds = await getOrganizationEventIds(user.organizationId);
+    res.json(areas.filter(area => eventIds.has(area.eventId || area.event_id || '')));
   } catch (error: any) {
     res.status(500).json({ error: 'Erro ao listar áreas' });
   }
@@ -2510,9 +2856,22 @@ app.delete('/api/areas/:id', authenticateToken, requireAccessAreaAdmin, async (r
 // --- ACCESS PROFILE ENDPOINTS ---
 app.get('/api/access-profiles', authenticateToken, async (req, res) => {
   try {
+    const user = (req as any).user;
     const { eventId } = req.query;
+    if (eventId) {
+      const event = await db.getEventById(String(eventId));
+      if (!event || event.organizationId !== user.organizationId) {
+        res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+        return;
+      }
+    }
     const profiles = await db.getAccessProfiles(eventId as string);
-    res.json(profiles);
+    if (eventId) {
+      res.json(profiles);
+      return;
+    }
+    const eventIds = await getOrganizationEventIds(user.organizationId);
+    res.json(profiles.filter(profile => eventIds.has(profile.eventId || profile.event_id || '')));
   } catch (error: any) {
     res.status(500).json({ error: 'Erro ao listar perfis de acesso' });
   }
@@ -2520,16 +2879,23 @@ app.get('/api/access-profiles', authenticateToken, async (req, res) => {
 
 app.post('/api/access-profiles', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const user = (req as any).user;
     const { name, area_ids, eventId, event_id } = req.body;
     if (!name) {
       res.status(400).json({ error: 'O nome do perfil é obrigatório' });
       return;
     }
+    const profileEventId = eventId || event_id;
+    const event = profileEventId ? await db.getEventById(profileEventId) : undefined;
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
     const newProfile = await db.createAccessProfile({ 
       name, 
       area_ids: Array.isArray(area_ids) ? area_ids : [], 
-      eventId: eventId || event_id,
-      event_id: eventId || event_id 
+      eventId: profileEventId,
+      event_id: profileEventId 
     });
     res.status(201).json(newProfile);
   } catch (error: any) {
@@ -2539,6 +2905,25 @@ app.post('/api/access-profiles', authenticateToken, requireAdmin, async (req, re
 
 app.put('/api/access-profiles/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const user = (req as any).user;
+    const current = await db.getAccessProfileById(req.params.id);
+    if (!current) {
+      res.status(404).json({ error: 'Perfil de acesso não encontrado' });
+      return;
+    }
+    const currentEvent = await db.getEventById(current.eventId || current.event_id || '');
+    if (!currentEvent || currentEvent.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Perfil de acesso não encontrado' });
+      return;
+    }
+    const nextEventId = req.body?.eventId || req.body?.event_id;
+    if (nextEventId && nextEventId !== (current.eventId || current.event_id)) {
+      const nextEvent = await db.getEventById(nextEventId);
+      if (!nextEvent || nextEvent.organizationId !== user.organizationId) {
+        res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+        return;
+      }
+    }
     const updated = await db.updateAccessProfile(req.params.id, req.body);
     if (!updated) {
       res.status(404).json({ error: 'Perfil de acesso não encontrado' });
@@ -2552,6 +2937,17 @@ app.put('/api/access-profiles/:id', authenticateToken, requireAdmin, async (req,
 
 app.delete('/api/access-profiles/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const user = (req as any).user;
+    const current = await db.getAccessProfileById(req.params.id);
+    if (!current) {
+      res.status(404).json({ error: 'Perfil de acesso não encontrado' });
+      return;
+    }
+    const event = await db.getEventById(current.eventId || current.event_id || '');
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Perfil de acesso não encontrado' });
+      return;
+    }
     const deleted = await db.deleteAccessProfile(req.params.id);
     if (!deleted) {
       res.status(404).json({ error: 'Perfil de acesso não encontrado' });
@@ -2565,12 +2961,17 @@ app.delete('/api/access-profiles/:id', authenticateToken, requireAdmin, async (r
 
 app.get('/api/access-control/logs', authenticateToken, async (req, res) => {
   try {
+    const user = (req as any).user;
     const rawLogs = await db.getAreaAccessLogs();
-    const areas = await db.getAreas();
-    const participants = await db.getParticipants();
-    const users = await db.getUsers();
+    const eventIds = await getOrganizationEventIds(user.organizationId);
+    const areas = (await db.getAreas()).filter(area => eventIds.has(area.eventId || area.event_id || ''));
+    const areaIds = new Set(areas.map(area => area.id));
+    const scopedLogs = rawLogs.filter(log => areaIds.has(log.areaId));
+    const participantsByEvent = await Promise.all([...eventIds].map(eventId => db.getParticipants(eventId)));
+    const participants = participantsByEvent.flat();
+    const users = await db.getUsers(user.organizationId);
 
-    const enrichedLogs = rawLogs.map(log => {
+    const enrichedLogs = scopedLogs.map(log => {
       const participant = participants.find(p => p.id === log.participantId);
       const area = areas.find(a => a.id === log.areaId);
       const operator = users.find(u => u.id === log.userId);
@@ -2614,35 +3015,38 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
 
     const cleanSearch = String(search).trim();
 
-    // 1. Check if Area is active
+    // 1. Check if Area is active and belongs to the authenticated organization
     const area = await db.getAreaById(areaId);
     const isAreaActive = area && (area.active !== false && area.isActive !== false && area.is_active !== false);
-    const areaEventId = eventId || area?.eventId || area?.event_id;
+    const areaEventId = area?.eventId || area?.event_id;
+    const effectiveEventId = String(eventId || areaEventId || '');
+    const areaEvent = effectiveEventId ? await db.getEventById(effectiveEventId) : undefined;
+    if (!area || !areaEvent || areaEvent.organizationId !== user.organizationId || (areaEventId && areaEventId !== effectiveEventId)) {
+      res.status(404).json({ error: 'Área não encontrada ou acesso restrito' });
+      return;
+    }
+
     const writeAccessAudit = async (status: 'ALLOWED' | 'DENIED', participantId?: string, participantEventId?: string) => {
       await writeActionLog({
-        eventId: participantEventId || areaEventId,
+        eventId: participantEventId || effectiveEventId,
         userId: user.id,
         ...(participantId ? { participantId } : {}),
         action: status === 'ALLOWED' ? 'ACCESS_ALLOWED' : 'ACCESS_DENIED'
       });
     };
 
-    // 2. Participant lookup
-    let participant = await db.getParticipantById(cleanSearch);
-    if (!participant) {
-      participant = await db.getParticipantByTicketCode(cleanSearch);
-    }
+    // 2. Participant lookup scoped to the selected area's event
+    const eventParticipants = await db.getParticipants(effectiveEventId);
+    let participant = eventParticipants.find(p => p.id === cleanSearch || p.ticketCode === cleanSearch);
     if (!participant) {
       const cleanCpf = cleanSearch.replace(/\D/g, '');
       if (cleanCpf) {
-        const allParticipants = await db.getParticipants(eventId);
-        participant = allParticipants.find(p => p.cpf.replace(/\D/g, '') === cleanCpf);
+        participant = eventParticipants.find(p => p.cpf.replace(/\D/g, '') === cleanCpf);
       }
     }
     if (!participant) {
-      const allParticipants = await db.getParticipants(eventId);
       const query = cleanSearch.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      participant = allParticipants.find(p => {
+      participant = eventParticipants.find(p => {
         const pName = p.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         return pName.includes(query) || query.includes(pName);
       });
@@ -2686,14 +3090,14 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
     }
 
     // If looking up for a specific event but event doesn't match
-    if (eventId && participant.eventId !== eventId) {
+    if (participant.eventId !== effectiveEventId) {
       await writeAreaAccessLog({
         participantId: participant.id,
         areaId,
         status: 'DENIED',
         userId: user.id
       });
-      await writeAccessAudit('DENIED', participant.id, eventId);
+      await writeAccessAudit('DENIED', participant.id, effectiveEventId);
 
       res.json({
         allowed: false,

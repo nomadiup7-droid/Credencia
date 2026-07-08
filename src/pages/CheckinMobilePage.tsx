@@ -396,7 +396,8 @@ export default function CheckinMobilePage({
             <button
               type="button"
               onClick={onNewParticipant}
-              className="flex min-h-16 items-center justify-center gap-3 rounded-2xl bg-white px-5 py-4 text-lg font-black text-slate-950 shadow-lg transition active:scale-[0.98]"
+              className="checkin-new-participant-button cx-button-primary flex min-h-16 items-center justify-center gap-3 rounded-2xl px-5 py-4 text-lg font-black text-slate-950 shadow-lg transition active:scale-[0.98]"
+              style={{ background: 'linear-gradient(135deg, #12e000, #8fff86)', color: '#061009' }}
             >
               <Plus size={24} />
               Novo Participante
