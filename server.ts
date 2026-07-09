@@ -158,7 +158,32 @@ const verifyPermission = (permission: string) => {
   };
 };
 
-const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; activityId?: string; ticketNumber?: number; action: ActionLogAction }) => {
+const getEventState = (event?: { eventMode?: string }) => {
+  if (event?.eventMode === 'PREPARACAO' || event?.eventMode === 'TESTE') return 'PREPARACAO';
+  if (event?.eventMode === 'ENCERRADO') return 'ENCERRADO';
+  return 'OFICIAL';
+};
+const getEventMode = (event?: { eventMode?: string }) => getEventState(event) === 'PREPARACAO' ? 'TESTE' : 'OFICIAL';
+const getEventRecordMeta = (event?: { eventMode?: string }) => {
+  const origin = getEventMode(event) as 'TESTE' | 'OFICIAL';
+  return {
+    origin,
+    isTest: origin === 'TESTE',
+    testStatus: origin === 'TESTE' ? 'ATIVO' as const : undefined
+  };
+};
+const isCanceledTestRecord = (record: { isTest?: boolean; origin?: string; testStatus?: string; checkinIsTest?: boolean; checkinOrigin?: string; checkinTestStatus?: string }) => {
+  return record.testStatus === 'CANCELADO_TESTE' || record.checkinTestStatus === 'CANCELADO_TESTE';
+};
+const isOfficialCheckIn = (participant: { checkedIn?: boolean; checkinIsTest?: boolean; checkinOrigin?: string; checkinTestStatus?: string }) => {
+  return participant.checkedIn === true && participant.checkinIsTest !== true && participant.checkinOrigin !== 'TESTE' && !isCanceledTestRecord(participant);
+};
+const isOfficialLog = (log: { isTest?: boolean; origin?: string; testStatus?: string }) => {
+  return log.isTest !== true && log.origin !== 'TESTE' && !isCanceledTestRecord(log);
+};
+const isEventClosed = (event?: { eventMode?: string }) => getEventState(event) === 'ENCERRADO';
+
+const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; activityId?: string; ticketNumber?: number; action: ActionLogAction; isTest?: boolean; origin?: 'TESTE' | 'OFICIAL'; testStatus?: 'ATIVO' | 'CANCELADO_TESTE' }) => {
   try {
     if (!log.eventId || !log.userId) return;
     await db.createActionLog({
@@ -166,6 +191,10 @@ const writeActionLog = async (log: { eventId?: string; userId?: string; particip
       userId: log.userId,
       ...(log.participantId ? { participantId: log.participantId } : {}),
       ...(log.activityId ? { activityId: log.activityId } : {}),
+      ...(log.ticketNumber ? { ticketNumber: log.ticketNumber } : {}),
+      ...(log.origin ? { origin: log.origin } : {}),
+      ...(log.isTest !== undefined ? { isTest: log.isTest } : {}),
+      ...(log.testStatus ? { testStatus: log.testStatus } : {}),
       action: log.action
     });
   } catch (error) {
@@ -394,7 +423,8 @@ apiV1.get('/reports/summary', authenticateToken, async (req, res) => {
     const participants = await db.getParticipants(eventId);
     const actionLogs = await db.getActionLogs(eventId);
     const cloakroomItems = await db.getCloakroom(eventId);
-    const checkedIn = participants.filter(participant => participant.checkedIn).length;
+    const officialLogs = actionLogs.filter(isOfficialLog);
+    const checkedIn = participants.filter(isOfficialCheckIn).length;
     const pending = participants.length - checkedIn;
 
     sendSuccess(res, {
@@ -406,8 +436,8 @@ apiV1.get('/reports/summary', authenticateToken, async (req, res) => {
         attendancePercent: participants.length ? Math.round((checkedIn / participants.length) * 100) : 0
       },
       access: {
-        allowed: actionLogs.filter(log => log.action === 'ACCESS_ALLOWED').length,
-        denied: actionLogs.filter(log => log.action === 'ACCESS_DENIED').length
+        allowed: officialLogs.filter(log => log.action === 'ACCESS_ALLOWED').length,
+        denied: officialLogs.filter(log => log.action === 'ACCESS_DENIED').length
       },
       cloakroom: {
         total: cloakroomItems.length,
@@ -1525,7 +1555,7 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/events', authenticateToken, requireEventCreatePermission, async (req, res) => {
-  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig } = req.body;
+  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig, eventMode } = req.body;
   if (!name || !date || !location || !capacity) {
     res.status(400).json({ error: 'Todos os campos do evento são obrigatórios' });
     return;
@@ -1547,6 +1577,7 @@ app.post('/api/events', authenticateToken, requireEventCreatePermission, async (
     layoutConfig: layoutConfig || null,
     checkinScreenConfig: checkinScreenConfig || undefined,
     cloakroomLabelConfig: cloakroomLabelConfig || undefined,
+    eventMode: eventMode === 'OFICIAL' || eventMode === 'ENCERRADO' ? eventMode : 'PREPARACAO',
     organizationId: user.organizationId || 'org1'
   });
   res.status(201).json(newEvent);
@@ -1561,7 +1592,7 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     return;
   }
 
-  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig } = req.body;
+  const { name, date, location, capacity, description, credentialType, credentialSize, showQRCode, enableAccessControl, enableCloakroom, enableScanner, layoutConfig, checkinScreenConfig, cloakroomLabelConfig, eventMode } = req.body;
   const updated = await db.updateEvent(req.params.id, {
     ...(name && { name }),
     ...(description !== undefined && { description }),
@@ -1576,10 +1607,85 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     ...(enableScanner !== undefined && { enableScanner: Boolean(enableScanner) }),
     ...(layoutConfig !== undefined && { layoutConfig }),
     ...(checkinScreenConfig !== undefined && { checkinScreenConfig }),
-    ...(cloakroomLabelConfig !== undefined && { cloakroomLabelConfig })
+    ...(cloakroomLabelConfig !== undefined && { cloakroomLabelConfig }),
+    ...(eventMode !== undefined && { eventMode: eventMode === 'OFICIAL' || eventMode === 'ENCERRADO' ? eventMode : 'PREPARACAO' })
   });
 
   res.json(updated);
+});
+
+app.post('/api/events/:id/mode-test', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const event = await db.getEventById(req.params.id);
+
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    return;
+  }
+
+  const updated = await db.updateEvent(req.params.id, { eventMode: 'PREPARACAO' });
+  res.json(updated);
+});
+
+app.post('/api/events/:id/start-official', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const event = await db.getEventById(req.params.id);
+
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    return;
+  }
+
+  const updated = await db.updateEvent(req.params.id, { eventMode: 'OFICIAL' });
+  res.json(updated);
+});
+
+app.post('/api/events/:id/close-event', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const event = await db.getEventById(req.params.id);
+
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    return;
+  }
+
+  const updated = await db.updateEvent(req.params.id, { eventMode: 'ENCERRADO' });
+  res.json(updated);
+});
+
+app.post('/api/events/:id/reopen-event', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const event = await db.getEventById(req.params.id);
+
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    return;
+  }
+
+  const updated = await db.updateEvent(req.params.id, { eventMode: 'OFICIAL' });
+  res.json(updated);
+});
+
+app.post('/api/events/:id/reset-tests', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const event = await db.getEventById(req.params.id);
+
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    return;
+  }
+
+  if (req.body?.confirmation !== 'ZERAR TESTES') {
+    res.status(400).json({ error: 'ConfirmaÃ§Ã£o invÃ¡lida. Digite ZERAR TESTES para continuar.' });
+    return;
+  }
+
+  const result = await db.resetEventTestData(req.params.id);
+  res.json({
+    success: true,
+    message: 'Registros de teste desconsiderados com sucesso',
+    result
+  });
 });
 
 app.delete('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => {
@@ -1668,6 +1774,8 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
     }
   }
 
+  const recordMeta = getEventRecordMeta(event);
+
   // Support spreading custom fields from req.body
   const participantPayload = {
     ...req.body,
@@ -1679,7 +1787,14 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
     category: (category || 'Participante') as ParticipantCategory,
     company: company || '',
     allowedAreaIds,
-    allowedAreas: allowedAreaIds
+    allowedAreas: allowedAreaIds,
+    ...(checkedIn ? {
+      checkedInByUserId: user.id,
+      checkedInByName: user?.name || user?.email || 'Operador',
+      checkinOrigin: recordMeta.origin,
+      checkinIsTest: recordMeta.isTest,
+      checkinTestStatus: recordMeta.testStatus
+    } : {})
   };
 
   const newParticipant = await db.createParticipant(participantPayload);
@@ -1696,6 +1811,7 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
     eventId,
     userId: user.id,
     participantId: newParticipant.id,
+    ...recordMeta,
     action: 'CREATE_PARTICIPANT'
   });
 
@@ -1706,12 +1822,14 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
       action: 'CHECKIN',
       performedBy: user?.name || user?.email || 'Operador',
       eventId: eventId,
-      organizationId: user.organizationId
+      organizationId: user.organizationId,
+      ...recordMeta
     });
     await writeActionLog({
       eventId,
       userId: user.id,
       participantId: newParticipant.id,
+      ...recordMeta,
       action: 'CHECKIN'
     });
   }
@@ -1935,12 +2053,24 @@ app.post('/api/participants/:id/checkin', authenticateToken, async (req, res) =>
     return;
   }
 
-  if (checkedIn && current.checkedIn) {
+  if (checkedIn && isEventClosed(event)) {
+    res.status(403).json({ error: 'Evento encerrado. Reabra o evento antes de realizar novos check-ins.' });
+    return;
+  }
+
+  if (checkedIn && current.checkedIn && !(current.checkinIsTest === true || current.checkinOrigin === 'TESTE')) {
     res.status(400).json({ error: 'Este participante já realizou o check-in' });
     return;
   }
 
-  const updated = await db.performCheckIn(pId, !!checkedIn);
+  const recordMeta = getEventRecordMeta(event);
+  const updated = await db.performCheckIn(pId, !!checkedIn, {
+    checkedInByUserId: user.id,
+    checkedInByName: user?.name || user?.email || 'Operador',
+    checkinOrigin: recordMeta.origin,
+    checkinIsTest: recordMeta.isTest,
+    checkinTestStatus: recordMeta.testStatus
+  });
   
   if (checkedIn && updated) {
     await writeLegacyLog({
@@ -1948,12 +2078,14 @@ app.post('/api/participants/:id/checkin', authenticateToken, async (req, res) =>
       action: 'CHECKIN',
       performedBy: user?.name || user?.email || 'Operador',
       eventId: current.eventId,
-      organizationId: user.organizationId
+      organizationId: user.organizationId,
+      ...recordMeta
     });
     await writeActionLog({
       eventId: current.eventId,
       userId: user.id,
       participantId: pId,
+      ...recordMeta,
       action: 'CHECKIN'
     });
   }
@@ -1981,6 +2113,11 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
     return;
   }
 
+  if (isEventClosed(event)) {
+    res.status(403).json({ error: 'Evento encerrado. Reabra o evento antes de realizar novos check-ins.' });
+    return;
+  }
+
   if (!code) {
     res.json({ error: 'Código do QR Code ou CPF não fornecido' });
     return;
@@ -1999,7 +2136,7 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
     return;
   }
 
-  if (p.checkedIn) {
+  if (p.checkedIn && !(p.checkinIsTest === true || p.checkinOrigin === 'TESTE')) {
     res.json({ 
       error: 'Check-in já realizado anteriormente!', 
       participant: p,
@@ -2009,7 +2146,14 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
   }
 
   // Perform operational check-in
-  const updated = await db.performCheckIn(p.id, true);
+  const recordMeta = getEventRecordMeta(event);
+  const updated = await db.performCheckIn(p.id, true, {
+    checkedInByUserId: user.id,
+    checkedInByName: user?.name || user?.email || 'Operador',
+    checkinOrigin: recordMeta.origin,
+    checkinIsTest: recordMeta.isTest,
+    checkinTestStatus: recordMeta.testStatus
+  });
   
   if (updated) {
     await writeLegacyLog({
@@ -2017,12 +2161,14 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
       action: 'CHECKIN',
       performedBy: user?.name || user?.email || 'Operador',
       eventId: eventId,
-      organizationId: user.organizationId
+      organizationId: user.organizationId,
+      ...recordMeta
     });
     await writeActionLog({
       eventId,
       userId: user.id,
       participantId: p.id,
+      ...recordMeta,
       action: 'CHECKIN'
     });
   }
@@ -2555,6 +2701,13 @@ app.post('/api/participants/:id/reprint', authenticateToken, async (req, res) =>
     return;
   }
 
+  if (isEventClosed(event)) {
+    res.status(403).json({ error: 'Evento encerrado. Reabra o evento antes de registrar novas impressoes.' });
+    return;
+  }
+
+  const recordMeta = getEventRecordMeta(event);
+
   // Set as printed
   await db.updateParticipant(pId, { printed: true });
 
@@ -2564,12 +2717,14 @@ app.post('/api/participants/:id/reprint', authenticateToken, async (req, res) =>
     action: 'REPRINT',
     performedBy: user?.name || user?.email || 'Operador',
     eventId: participant.eventId,
-    organizationId: user.organizationId
+    organizationId: user.organizationId,
+    ...recordMeta
   });
   await writeActionLog({
     eventId: participant.eventId,
     userId: user.id,
     participantId: pId,
+    ...recordMeta,
     action: 'REPRINT_BADGE'
   });
 
@@ -2599,7 +2754,19 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     return;
   }
 
-  const { participantId, participantName, itemDescription, volumeCount } = req.body;
+  const {
+    participantId,
+    participantName,
+    itemDescription,
+    volumeCount,
+    storageRackId,
+    storageRackName,
+    storageColumn,
+    storageRow,
+    storageAddress,
+    storageOccupiedAt,
+    storageOperatorId
+  } = req.body;
 
   if (!participantName) {
     res.status(400).json({ error: 'Nome do participante é obrigatório' });
@@ -2612,6 +2779,13 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     participantName,
     itemDescription: itemDescription || '',
     volumeCount: Math.max(1, Math.min(5, Number(volumeCount) || 1)),
+    storageRackId,
+    storageRackName,
+    storageColumn,
+    storageRow,
+    storageAddress,
+    storageOccupiedAt,
+    storageOperatorId: storageOperatorId || user.id,
     registeredByUserId: user.id,
     registeredByName: user.name || user.email || 'Operador'
   });
@@ -2690,12 +2864,13 @@ app.get('/api/events/:eventId/dashboard', authenticateToken, requireAdmin, async
 
     const plist = await db.getParticipants(eventId);
     const totalRegistered = plist.length;
-    const totalCheckedIn = plist.filter(p => p.checkedIn).length;
+    const totalCheckedIn = plist.filter(isOfficialCheckIn).length;
     const totalWaiting = totalRegistered - totalCheckedIn;
+    const totalTestCheckins = plist.filter(p => p.checkedIn && (p.checkinIsTest === true || p.checkinOrigin === 'TESTE') && p.checkinTestStatus !== 'CANCELADO_TESTE').length;
 
     // Track recent checkins (last 10)
     const recentCheckins = plist
-      .filter(p => p.checkedIn && p.checkedInAt)
+      .filter(p => isOfficialCheckIn(p) && p.checkedInAt)
       .sort((a, b) => {
         try {
           const tA = new Date(a.checkedInAt!).getTime();
@@ -2723,7 +2898,7 @@ app.get('/api/events/:eventId/dashboard', authenticateToken, requireAdmin, async
     workHours.forEach(h => { hourMap[h] = 0; });
 
     plist.forEach(p => {
-      if (p.checkedIn && p.checkedInAt) {
+      if (isOfficialCheckIn(p) && p.checkedInAt) {
         try {
           const time = new Date(p.checkedInAt);
           if (!isNaN(time.getTime())) {
@@ -2753,6 +2928,7 @@ app.get('/api/events/:eventId/dashboard', authenticateToken, requireAdmin, async
       totalCheckedIn,
       totalWaiting,
       capacity: event.capacity,
+      totalTestCheckins,
       recentCheckins,
       hourlyCheckins
     });
@@ -3026,11 +3202,19 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
       return;
     }
 
+    if (isEventClosed(areaEvent)) {
+      res.status(403).json({ error: 'Evento encerrado. Reabra o evento antes de registrar novos acessos.' });
+      return;
+    }
+
+    const recordMeta = getEventRecordMeta(areaEvent);
+
     const writeAccessAudit = async (status: 'ALLOWED' | 'DENIED', participantId?: string, participantEventId?: string) => {
       await writeActionLog({
         eventId: participantEventId || effectiveEventId,
         userId: user.id,
         ...(participantId ? { participantId } : {}),
+        ...recordMeta,
         action: status === 'ALLOWED' ? 'ACCESS_ALLOWED' : 'ACCESS_DENIED'
       });
     };
@@ -3058,7 +3242,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
         participantId: 'unknown',
         areaId,
         status: 'DENIED',
-        userId: user.id
+        userId: user.id,
+        ...recordMeta
       });
       await writeAccessAudit('DENIED');
 
@@ -3076,7 +3261,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
         participantId: participant.id,
         areaId,
         status: 'DENIED',
-        userId: user.id
+        userId: user.id,
+        ...recordMeta
       });
       await writeAccessAudit('DENIED', participant.id, participant.eventId);
 
@@ -3095,7 +3281,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
         participantId: participant.id,
         areaId,
         status: 'DENIED',
-        userId: user.id
+        userId: user.id,
+        ...recordMeta
       });
       await writeAccessAudit('DENIED', participant.id, effectiveEventId);
 
@@ -3119,7 +3306,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
         participantId: participant.id,
         areaId,
         status: 'DENIED',
-        userId: user.id
+        userId: user.id,
+        ...recordMeta
       });
       await writeAccessAudit('DENIED', participant.id, participant.eventId);
 
@@ -3137,7 +3325,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
       participantId: participant.id,
       areaId,
       status: 'ALLOWED',
-      userId: user.id
+      userId: user.id,
+      ...recordMeta
     });
     await writeAccessAudit('ALLOWED', participant.id, participant.eventId);
 

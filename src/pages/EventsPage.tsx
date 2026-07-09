@@ -43,6 +43,75 @@ export default function EventsPage({
 
   const userRole = String(currentUser?.role || '').toUpperCase();
   const isAdmin = userRole === 'ADMIN' || userRole === 'SUPERVISOR' || currentUser?.role === 'admin';
+  const selectedEvent = events.find(event => event.id === selectedEventId) || null;
+  const selectedEventState = selectedEvent?.eventMode === 'PREPARACAO' || selectedEvent?.eventMode === 'TESTE'
+    ? 'PREPARACAO'
+    : selectedEvent?.eventMode === 'ENCERRADO'
+      ? 'ENCERRADO'
+      : 'OFICIAL';
+  const isPreparation = selectedEventState === 'PREPARACAO';
+  const isOfficial = selectedEventState === 'OFICIAL';
+  const isClosed = selectedEventState === 'ENCERRADO';
+
+  const updateEventInState = (updatedEvent: Event) => {
+    setEvents(prev => prev.map(event => event.id === updatedEvent.id ? updatedEvent : event));
+  };
+
+  const handleSetPreparationMode = async () => {
+    if (!selectedEvent || !isAdmin) return;
+    try {
+      const updated = await apiCall(`/api/events/${selectedEvent.id}/mode-test`, { method: 'POST' });
+      updateEventInState(updated);
+      addToast('Evento colocado em preparacao.', 'success');
+    } catch (error) {}
+  };
+
+  const handleResetTests = async () => {
+    if (!selectedEvent || !isAdmin) return;
+    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressoes de teste deste evento? Essa acao nao apagara participantes nem configuracoes.\n\nDigite ZERAR TESTES para confirmar.');
+    if (confirmation !== 'ZERAR TESTES') {
+      if (confirmation !== null) addToast('Confirmacao invalida. Nenhum registro foi alterado.', 'error');
+      return;
+    }
+
+    try {
+      await apiCall(`/api/events/${selectedEvent.id}/reset-tests`, {
+        method: 'POST',
+        body: JSON.stringify({ confirmation })
+      });
+      addToast('Registros de teste foram desconsiderados.', 'success');
+    } catch (error) {}
+  };
+
+  const handleStartOfficial = async () => {
+    if (!selectedEvent || !isAdmin) return;
+    if (!window.confirm('Iniciar evento oficial agora? Os novos check-ins, impressoes e acessos passarao a entrar no relatorio oficial.')) return;
+    try {
+      const updated = await apiCall(`/api/events/${selectedEvent.id}/start-official`, { method: 'POST' });
+      updateEventInState(updated);
+      addToast('Evento iniciado oficialmente.', 'success');
+    } catch (error) {}
+  };
+
+  const handleCloseEvent = async () => {
+    if (!selectedEvent || !isAdmin) return;
+    if (!window.confirm('Encerrar este evento agora? Novos check-ins, impressoes e acessos ficarao bloqueados ate um ADMIN reabrir o evento.')) return;
+    try {
+      const updated = await apiCall(`/api/events/${selectedEvent.id}/close-event`, { method: 'POST' });
+      updateEventInState(updated);
+      addToast('Evento encerrado com dados oficiais consolidados.', 'success');
+    } catch (error) {}
+  };
+
+  const handleReopenEvent = async () => {
+    if (!selectedEvent || !isAdmin) return;
+    if (!window.confirm('Reabrir este evento em modo oficial? Novos registros voltarao a entrar nos relatorios oficiais.')) return;
+    try {
+      const updated = await apiCall(`/api/events/${selectedEvent.id}/reopen-event`, { method: 'POST' });
+      updateEventInState(updated);
+      addToast('Evento reaberto em modo oficial.', 'success');
+    } catch (error) {}
+  };
 
   // Toggle sorting by date
   const toggleDateSort = () => {
@@ -200,6 +269,73 @@ export default function EventsPage({
           </button>
         )}
       </div>
+
+      {selectedEvent && isAdmin && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">Preparacao do Evento</p>
+              <div className="mt-1 flex flex-wrap items-center gap-3">
+                <h3 className="text-lg font-black text-slate-950">{selectedEvent.name}</h3>
+                <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide border ${
+                  isClosed
+                    ? 'bg-slate-200 text-slate-700 border-slate-300'
+                    : isPreparation
+                      ? 'bg-amber-100 text-amber-800 border-amber-200'
+                      : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                }`}>
+                  {isClosed ? 'EVENTO ENCERRADO' : isPreparation ? 'PREPARACAO' : 'EVENTO OFICIAL'}
+                </span>
+              </div>
+              <p className="mt-2 max-w-3xl text-sm text-slate-500">
+                Controle quando a operacao esta em teste, quando passa a contar oficialmente e quando o evento fica encerrado para consolidar os relatorios.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2 xl:min-w-[760px]">
+              <button
+                type="button"
+                onClick={handleSetPreparationMode}
+                disabled={isPreparation || isClosed}
+                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Modo Teste
+              </button>
+              <button
+                type="button"
+                onClick={handleResetTests}
+                className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-700 hover:bg-rose-100 transition"
+              >
+                Zerar Testes
+              </button>
+              <button
+                type="button"
+                onClick={handleStartOfficial}
+                disabled={!isPreparation}
+                className="rounded-xl border border-emerald-200 bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Iniciar Evento Oficial
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseEvent}
+                disabled={!isOfficial}
+                className="rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Encerrar Evento
+              </button>
+              <button
+                type="button"
+                onClick={handleReopenEvent}
+                disabled={!isClosed}
+                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Reabrir Evento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Control Bar: Search & Organizing filters */}
       <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">

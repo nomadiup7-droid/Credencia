@@ -76,9 +76,14 @@ export interface Event {
   checkinScreenConfig?: CheckinScreenConfig;
   cloakroomLabelConfig?: CloakroomLabelConfig;
   organizationId: string;
+  eventMode?: EventMode;
   currentUserRole?: EventUserRole | UserRole;
   currentUserPermissions?: string[];
 }
+
+export type EventMode = 'PREPARACAO' | 'TESTE' | 'OFICIAL' | 'ENCERRADO';
+export type RecordOrigin = 'TESTE' | 'OFICIAL';
+export type TestRecordStatus = 'ATIVO' | 'CANCELADO_TESTE';
 
 export type ParticipantCategory = 'VIP' | 'Palestrante' | 'Expositor' | 'Participante' | 'Staff';
 
@@ -150,6 +155,11 @@ export interface Participant {
   category: ParticipantCategory;
   checkedIn: boolean;
   checkedInAt?: string; // ISO String
+  checkedInByUserId?: string;
+  checkedInByName?: string;
+  checkinOrigin?: RecordOrigin;
+  checkinIsTest?: boolean;
+  checkinTestStatus?: TestRecordStatus;
   ticketCode: string; // Used for QR code
   company?: string; // Company / Organization
   createdAt: string;
@@ -166,6 +176,14 @@ export interface CloakroomItem {
   participantId?: string; // Optional if registered with no linked participant
   participantName: string;
   itemDescription: string;
+  storageRackId?: string;
+  storageRackName?: string;
+  storageColumn?: string;
+  storageRow?: string;
+  storageAddress?: string;
+  storageOccupiedAt?: string;
+  storageReleasedAt?: string;
+  storageOperatorId?: string;
   tagNumber: number; // Automatic sequential tag number
   volumeCount?: number;
   volumeTags?: string[];
@@ -232,6 +250,9 @@ export interface CheckIn {
   userId: string; // references Participant.id
   eventId: string; // references Event.id
   checkInAt: string; // ISO String
+  isTest?: boolean;
+  origin?: RecordOrigin;
+  testStatus?: TestRecordStatus;
 }
 
 export interface CheckInLog {
@@ -242,6 +263,9 @@ export interface CheckInLog {
   timestamp: string;
   eventId?: string;
   organizationId?: string;
+  isTest?: boolean;
+  origin?: RecordOrigin;
+  testStatus?: TestRecordStatus;
 }
 
 export type ActionLogAction =
@@ -265,6 +289,9 @@ export interface ActionLog {
   ticketNumber?: number;
   action: ActionLogAction;
   timestamp: string;
+  isTest?: boolean;
+  origin?: RecordOrigin;
+  testStatus?: TestRecordStatus;
 }
 
 export interface Activity {
@@ -373,6 +400,9 @@ export interface AreaAccessLog {
   status: 'ALLOWED' | 'DENIED';
   userId: string;
   timestamp: string;
+  isTest?: boolean;
+  origin?: RecordOrigin;
+  testStatus?: TestRecordStatus;
 }
 
 export interface AccessProfile {
@@ -424,6 +454,9 @@ export interface ReportAreaAccessLog {
   participantCpf?: string;
   areaName?: string;
   operatorName?: string;
+  isTest?: boolean;
+  origin?: RecordOrigin;
+  testStatus?: TestRecordStatus;
 }
 
 export interface ReportActionLog {
@@ -435,6 +468,9 @@ export interface ReportActionLog {
   timestamp: string;
   participantName?: string;
   operatorName?: string;
+  isTest?: boolean;
+  origin?: RecordOrigin;
+  testStatus?: TestRecordStatus;
 }
 
 export interface ActivityAttendanceView {

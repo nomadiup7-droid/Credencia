@@ -756,6 +756,7 @@ class Database {
     if (this.useSupabase) {
       const newEvent = {
         ...event,
+        eventMode: event.eventMode || 'PREPARACAO',
         id: 'e_' + Math.random().toString(36).substring(2, 9),
         createdAt: new Date().toISOString()
       };
@@ -765,6 +766,7 @@ class Database {
     }
     const newEvent: Event = {
       ...event,
+      eventMode: event.eventMode || 'PREPARACAO',
       id: 'e_' + Math.random().toString(36).substring(2, 9),
       createdAt: new Date().toISOString()
     };
@@ -787,6 +789,99 @@ class Database {
     Object.assign(event, updates);
     this.saveLocal();
     return event;
+  }
+
+  async resetEventTestData(eventId: string): Promise<{ participantsReset: number; actionLogsCanceled: number; areaLogsCanceled: number; checkinsCanceled: number }> {
+    if (this.useSupabase) {
+      const participants = await this.getParticipants(eventId);
+      const testParticipants = participants.filter(p => p.checkinIsTest === true || p.checkinOrigin === 'TESTE');
+
+      await Promise.all(testParticipants.map(participant => this.updateParticipant(participant.id, {
+        checkedIn: false,
+        checkedInAt: undefined,
+        checkedInByUserId: undefined,
+        checkedInByName: undefined,
+        checkinOrigin: 'TESTE',
+        checkinIsTest: true,
+        checkinTestStatus: 'CANCELADO_TESTE'
+      } as Partial<Participant>)));
+
+      const actionLogs = (await this.getActionLogs(eventId)).filter(log => log.isTest === true || log.origin === 'TESTE');
+      const areaLogs = (await this.getAreaAccessLogs()).filter(log => log.isTest === true || log.origin === 'TESTE');
+      return {
+        participantsReset: testParticipants.length,
+        actionLogsCanceled: actionLogs.length,
+        areaLogsCanceled: areaLogs.length,
+        checkinsCanceled: testParticipants.length
+      };
+    }
+
+    const testPrintedParticipantIds = new Set(
+      (this.data.actionLogs || [])
+        .filter(log => log.eventId === eventId && log.action === 'REPRINT_BADGE' && (log.isTest === true || log.origin === 'TESTE'))
+        .map(log => log.participantId)
+        .filter((id): id is string => Boolean(id))
+    );
+    const officialPrintedParticipantIds = new Set(
+      (this.data.actionLogs || [])
+        .filter(log => log.eventId === eventId && log.action === 'REPRINT_BADGE' && log.isTest !== true && log.origin !== 'TESTE')
+        .map(log => log.participantId)
+        .filter((id): id is string => Boolean(id))
+    );
+
+    const participants = this.data.participants || [];
+    let participantsReset = 0;
+    participants.forEach(participant => {
+      if (participant.eventId !== eventId) return;
+      if (testPrintedParticipantIds.has(participant.id) && !officialPrintedParticipantIds.has(participant.id)) {
+        participant.printed = false;
+      }
+      if (participant.checkinIsTest === true || participant.checkinOrigin === 'TESTE') {
+        participant.checkedIn = false;
+        participant.checkedInAt = undefined;
+        participant.checkedInByUserId = undefined;
+        participant.checkedInByName = undefined;
+        participant.checkinOrigin = 'TESTE';
+        participant.checkinIsTest = true;
+        participant.checkinTestStatus = 'CANCELADO_TESTE';
+        participantsReset += 1;
+      }
+    });
+
+    let actionLogsCanceled = 0;
+    (this.data.actionLogs || []).forEach(log => {
+      if (log.eventId !== eventId) return;
+      if (log.isTest === true || log.origin === 'TESTE') {
+        log.testStatus = 'CANCELADO_TESTE';
+        actionLogsCanceled += 1;
+      }
+    });
+    (this.data.logs || []).forEach(log => {
+      if (log.eventId !== eventId) return;
+      if (log.isTest === true || log.origin === 'TESTE') {
+        log.testStatus = 'CANCELADO_TESTE';
+      }
+    });
+
+    let areaLogsCanceled = 0;
+    const areaIds = new Set((this.data.areas || []).filter(area => (area.eventId || area.event_id) === eventId).map(area => area.id));
+    (this.data.areaAccessLogs || []).forEach(log => {
+      if (!areaIds.has(log.areaId)) return;
+      if (log.isTest === true || log.origin === 'TESTE') {
+        log.testStatus = 'CANCELADO_TESTE';
+        areaLogsCanceled += 1;
+      }
+    });
+
+    const beforeCheckins = (this.data.checkins || []).length;
+    this.data.checkins = (this.data.checkins || []).filter(checkin => {
+      if (checkin.eventId !== eventId) return true;
+      return !(checkin.isTest === true || checkin.origin === 'TESTE');
+    });
+    const checkinsCanceled = beforeCheckins - this.data.checkins.length;
+
+    this.saveLocal();
+    return { participantsReset, actionLogsCanceled, areaLogsCanceled, checkinsCanceled };
   }
 
   async deleteEvent(id: string): Promise<boolean> {
@@ -1234,7 +1329,7 @@ class Database {
     return true;
   }
 
-  async performCheckIn(id: string, checkInState: boolean): Promise<Participant | undefined> {
+  async performCheckIn(id: string, checkInState: boolean, meta: Partial<Pick<Participant, 'checkedInByUserId' | 'checkedInByName' | 'checkinOrigin' | 'checkinIsTest' | 'checkinTestStatus'>> = {}): Promise<Participant | undefined> {
     if (this.useSupabase) {
       const p = await this.getParticipantById(id);
       if (!p) return undefined;
@@ -1243,7 +1338,12 @@ class Database {
       
       const { data, error: pError } = await this.supabase.from('participants').update({
         checked_in: checkInState,
-        checked_in_at: checkedInAt
+        checked_in_at: checkedInAt,
+        checked_in_by_user_id: checkInState ? meta.checkedInByUserId : null,
+        checked_in_by_name: checkInState ? meta.checkedInByName : null,
+        checkin_origin: checkInState ? meta.checkinOrigin : null,
+        checkin_is_test: checkInState ? meta.checkinIsTest : false,
+        checkin_test_status: checkInState ? meta.checkinTestStatus : null
       }).eq('id', id).select().single();
       
       if (pError) throw pError;
@@ -1253,7 +1353,10 @@ class Database {
           id: 'chi_' + Math.random().toString(36).substring(2, 11),
           userId: id,
           eventId: p.eventId,
-          checkInAt: checkedInAt || new Date().toISOString()
+          checkInAt: checkedInAt || new Date().toISOString(),
+          isTest: meta.checkinIsTest === true,
+          origin: meta.checkinOrigin || 'OFICIAL',
+          testStatus: meta.checkinTestStatus
         };
         await this.supabase.from('checkins').insert(toSnake(newCheckIn));
       } else {
@@ -1266,19 +1369,31 @@ class Database {
     if (!p) return undefined;
     p.checkedIn = checkInState;
     p.checkedInAt = checkInState ? new Date().toISOString() : undefined;
+    p.checkedInByUserId = checkInState ? meta.checkedInByUserId : undefined;
+    p.checkedInByName = checkInState ? meta.checkedInByName : undefined;
+    p.checkinOrigin = checkInState ? (meta.checkinOrigin || 'OFICIAL') : undefined;
+    p.checkinIsTest = checkInState ? meta.checkinIsTest === true : undefined;
+    p.checkinTestStatus = checkInState ? meta.checkinTestStatus : undefined;
 
     if (!this.data.checkins) {
       this.data.checkins = [];
     }
 
     if (checkInState) {
+      this.data.checkins = this.data.checkins.filter(c => {
+        if (c.userId !== id || c.eventId !== p.eventId) return true;
+        return !(c.isTest === true || c.origin === 'TESTE');
+      });
       const exists = this.data.checkins.some(c => c.userId === id && c.eventId === p.eventId);
       if (!exists) {
         this.data.checkins.push({
           id: 'chi_' + Math.random().toString(36).substring(2, 11),
           userId: id,
           eventId: p.eventId,
-          checkInAt: p.checkedInAt || new Date().toISOString()
+          checkInAt: p.checkedInAt || new Date().toISOString(),
+          isTest: meta.checkinIsTest === true,
+          origin: meta.checkinOrigin || 'OFICIAL',
+          testStatus: meta.checkinTestStatus
         });
       }
     } else {
@@ -1302,13 +1417,16 @@ class Database {
     return (this.data.checkins || []).find(c => c.userId === userId && c.eventId === eventId);
   }
 
-  async createCheckIn(userId: string, eventId: string): Promise<CheckIn> {
+  async createCheckIn(userId: string, eventId: string, meta: Partial<Pick<CheckIn, 'isTest' | 'origin' | 'testStatus'>> = {}): Promise<CheckIn> {
     if (this.useSupabase) {
       const newCheckIn = {
         id: 'chi_' + Math.random().toString(36).substring(2, 11),
         userId,
         eventId,
-        checkInAt: new Date().toISOString()
+        checkInAt: new Date().toISOString(),
+        isTest: meta.isTest === true,
+        origin: meta.origin || 'OFICIAL',
+        testStatus: meta.testStatus
       };
       
       const { data, error } = await this.supabase.from('checkins').insert(toSnake(newCheckIn)).select().single();
@@ -1328,14 +1446,24 @@ class Database {
       id: 'chi_' + Math.random().toString(36).substring(2, 11),
       userId,
       eventId,
-      checkInAt: new Date().toISOString()
+      checkInAt: new Date().toISOString(),
+      isTest: meta.isTest === true,
+      origin: meta.origin || 'OFICIAL',
+      testStatus: meta.testStatus
     };
+    this.data.checkins = this.data.checkins.filter(c => {
+      if (c.userId !== userId || c.eventId !== eventId) return true;
+      return !(c.isTest === true || c.origin === 'TESTE');
+    });
     this.data.checkins.push(newCheckIn);
 
     const p = this.data.participants.find(p => p.id === userId && p.eventId === eventId);
     if (p) {
       p.checkedIn = true;
       p.checkedInAt = newCheckIn.checkInAt;
+      p.checkinOrigin = newCheckIn.origin;
+      p.checkinIsTest = newCheckIn.isTest;
+      p.checkinTestStatus = newCheckIn.testStatus;
     }
 
     this.saveLocal();
@@ -1459,6 +1587,7 @@ class Database {
     item.returnedAt = returnedAt;
     item.returnedByUserId = returnedBy?.userId;
     item.returnedByName = returnedBy?.name;
+    item.storageReleasedAt = returnedAt;
     this.saveLocal();
     return item;
   }

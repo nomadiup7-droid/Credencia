@@ -5,13 +5,33 @@ import { authenticateToken } from '../server/auth';
 
 const router = express.Router();
 
-const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; action: ActionLogAction }) => {
+const getEventState = (event?: { eventMode?: string }) => {
+  if (event?.eventMode === 'PREPARACAO' || event?.eventMode === 'TESTE') return 'PREPARACAO';
+  if (event?.eventMode === 'ENCERRADO') return 'ENCERRADO';
+  return 'OFICIAL';
+};
+const getEventMode = (event?: { eventMode?: string }) => getEventState(event) === 'PREPARACAO' ? 'TESTE' : 'OFICIAL';
+const getEventRecordMeta = (event?: { eventMode?: string }) => {
+  const origin = getEventMode(event) as 'TESTE' | 'OFICIAL';
+  return {
+    origin,
+    isTest: origin === 'TESTE',
+    testStatus: origin === 'TESTE' ? 'ATIVO' as const : undefined
+  };
+};
+
+const isEventClosed = (event?: { eventMode?: string }) => getEventState(event) === 'ENCERRADO';
+
+const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; action: ActionLogAction; isTest?: boolean; origin?: 'TESTE' | 'OFICIAL'; testStatus?: 'ATIVO' | 'CANCELADO_TESTE' }) => {
   try {
     if (!log.eventId || !log.userId) return;
     await db.createActionLog({
       eventId: log.eventId,
       userId: log.userId,
       ...(log.participantId ? { participantId: log.participantId } : {}),
+      ...(log.origin ? { origin: log.origin } : {}),
+      ...(log.isTest !== undefined ? { isTest: log.isTest } : {}),
+      ...(log.testStatus ? { testStatus: log.testStatus } : {}),
       action: log.action
     });
   } catch (error) {
@@ -109,9 +129,17 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
       return;
     }
 
+    if (isEventClosed(event)) {
+      res.status(403).json({
+        success: false,
+        message: 'Evento encerrado. Reabra o evento antes de realizar novos check-ins.'
+      });
+      return;
+    }
+
     // Check if already checked in
     const existingCheckIn = await db.getCheckIn(participant.id, eventId);
-    if (existingCheckIn || participant.checkedIn) {
+    if ((existingCheckIn || participant.checkedIn) && !(participant.checkinIsTest === true || participant.checkinOrigin === 'TESTE')) {
       res.status(200).json({ 
         success: true, 
         alreadyCheckedIn: true,
@@ -135,7 +163,15 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
     }
 
     // Perform check in
-    const checkIn = await db.createCheckIn(participant.id, eventId);
+    const recordMeta = getEventRecordMeta(event);
+    const checkIn = await db.createCheckIn(participant.id, eventId, recordMeta);
+    await db.updateParticipant(participant.id, {
+      checkedInByUserId: reqUser?.id,
+      checkedInByName: reqUser?.name || reqUser?.email || 'Operador',
+      checkinOrigin: recordMeta.origin,
+      checkinIsTest: recordMeta.isTest,
+      checkinTestStatus: recordMeta.testStatus
+    });
     
     // Log the check-in action automatically
     await writeLegacyLog({
@@ -143,12 +179,14 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
       action: 'CHECKIN',
       performedBy: reqUser?.name || reqUser?.email || 'Operador',
       eventId: eventId,
-      organizationId: reqUser?.organizationId || 'org1'
+      organizationId: reqUser?.organizationId || 'org1',
+      ...recordMeta
     });
     await writeActionLog({
       eventId,
       userId: reqUser?.id,
       participantId: participant.id,
+      ...recordMeta,
       action: 'CHECKIN'
     });
 
@@ -170,7 +208,7 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
         name: event?.name || 'Evento'
       },
       checkIn,
-      participant: { ...participant, checkedIn: true, checkedInAt: checkIn.checkInAt }
+      participant: { ...participant, checkedIn: true, checkedInAt: checkIn.checkInAt, checkinOrigin: recordMeta.origin, checkinIsTest: recordMeta.isTest, checkinTestStatus: recordMeta.testStatus }
     });
   } catch (error: any) {
     console.error('Error handling checkin POST:', error);

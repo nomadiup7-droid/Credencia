@@ -168,6 +168,13 @@ export default function CheckinPage({
   const [dynamicFormValues, setDynamicFormValues] = useState<Record<string, any>>({});
 
   const selectedEvent = events.find(e => e.id === selectedEventId);
+  const selectedEventState = selectedEvent?.eventMode === 'PREPARACAO' || selectedEvent?.eventMode === 'TESTE'
+    ? 'PREPARACAO'
+    : selectedEvent?.eventMode === 'ENCERRADO'
+      ? 'ENCERRADO'
+      : 'OFICIAL';
+  const isSelectedEventInTestMode = selectedEventState === 'PREPARACAO';
+  const isSelectedEventClosed = selectedEventState === 'ENCERRADO';
   const config: CheckinScreenConfig = {
     ...DEFAULT_CHECKIN_SCREEN_CONFIG,
     ...(selectedEvent?.checkinScreenConfig || {})
@@ -747,6 +754,20 @@ export default function CheckinPage({
           >
             {isSyncingQueue ? 'Sincronizando...' : ' Sincronizar'}
           </button>
+        </div>
+      )}
+
+      {isSelectedEventInTestMode && (
+        <div className="mx-auto max-w-4xl rounded-2xl border border-amber-300/70 bg-amber-100/90 px-4 py-3 text-center text-sm font-black text-amber-950 shadow-sm backdrop-blur">
+          <AlertTriangle size={18} className="mr-2 inline-block align-[-3px] text-amber-700" />
+          Evento em modo teste. Os check-ins e impressoes realizados agora nao entrarao no relatorio oficial.
+        </div>
+      )}
+
+      {isSelectedEventClosed && (
+        <div className="mx-auto max-w-4xl rounded-2xl border border-slate-300 bg-slate-100/95 px-4 py-3 text-center text-sm font-black text-slate-800 shadow-sm backdrop-blur">
+          <AlertTriangle size={18} className="mr-2 inline-block align-[-3px] text-slate-600" />
+          Evento encerrado. Novos check-ins estao bloqueados ate um ADMIN reabrir o evento.
         </div>
       )}
 

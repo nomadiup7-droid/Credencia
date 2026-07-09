@@ -69,6 +69,12 @@ import { escapeCertificateHtml, replaceCertificatePlaceholders } from './utils/c
 import { getParticipantSearchScore, normalizeParticipantSearch } from './utils/participantSearch';
 import { readStoredActiveTab, readStoredToken, readStoredUser } from './utils/sessionStorage';
 import { fixMojibake } from './utils/text';
+import { BusinessIntelligenceDashboard, BIReportDefinition } from './components/bi';
+import { downloadCsv, ReportExportRow } from './services/reportExportService';
+import CloakroomMap, { CloakroomStoragePosition } from './components/cloakroom/CloakroomMap';
+import ReportExportMenu from './components/reports/ReportExportMenu';
+import { generateReportPdf } from './services/reportPdfService';
+import type { ReportPdfKind, ReportPdfPayload, ReportPdfTableRow } from './types/report.types';
 
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
@@ -200,17 +206,21 @@ export default function App() {
       return DEFAULT_REPORT_CONFIG;
     }
   });
+  const [isReportPollingEnabled, setIsReportPollingEnabled] = useState(false);
+  const [reportPdfLoadingLabel, setReportPdfLoadingLabel] = useState('');
 
   // Modal / Form trigger states
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isParticipantModalOpen, setIsParticipantModalOpen] = useState(false);
   const [isCloakroomModalOpen, setIsCloakroomModalOpen] = useState(false);
-  const [cloakroomTab, setCloakroomTab] = useState<'store' | 'return' | 'history' | 'settings'>('store');
+  const [cloakroomTab, setCloakroomTab] = useState<'overview' | 'map' | 'store' | 'return' | 'stored' | 'history' | 'settings'>('store');
   const [cloakroomLabelConfig, setCloakroomLabelConfig] = useState<CloakroomLabelConfig>(DEFAULT_CLOAKROOM_LABEL_CONFIG);
   const [cloakroomSearch, setCloakroomSearch] = useState('');
   const [cloakroomSelectedParticipant, setCloakroomSelectedParticipant] = useState<Participant | null>(null);
   const [cloakroomVolumeCount, setCloakroomVolumeCount] = useState(1);
   const [cloakroomDescription, setCloakroomDescription] = useState('');
+  const [cloakroomSelectedPosition, setCloakroomSelectedPosition] = useState<CloakroomStoragePosition | null>(null);
+  const [cloakroomMapConfig, setCloakroomMapConfig] = useState({ rackName: 'Principal', columns: 10, rows: 25 });
   const [cloakroomSuccess, setCloakroomSuccess] = useState<CloakroomItem | null>(null);
   const cloakroomSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [cloakroomReturnSearch, setCloakroomReturnSearch] = useState('');
@@ -1139,12 +1149,34 @@ export default function App() {
     return events.find(e => e.id === selectedEventId) || null;
   }, [events, selectedEventId]);
 
+  const currentEventState = currentEvent?.eventMode === 'PREPARACAO' || currentEvent?.eventMode === 'TESTE'
+    ? 'PREPARACAO'
+    : currentEvent?.eventMode === 'ENCERRADO'
+      ? 'ENCERRADO'
+      : 'OFICIAL';
+  const isCurrentEventTestMode = currentEventState === 'PREPARACAO';
+  const isCurrentEventOfficialMode = currentEventState === 'OFICIAL';
+  const isCurrentEventClosed = currentEventState === 'ENCERRADO';
+  const isCanceledTestRecord = (record: any) => record?.testStatus === 'CANCELADO_TESTE' || record?.checkinTestStatus === 'CANCELADO_TESTE';
+  const isOfficialParticipantCheckin = (participant: Participant) => (
+    participant.checkedIn === true &&
+    participant.checkinIsTest !== true &&
+    participant.checkinOrigin !== 'TESTE' &&
+    !isCanceledTestRecord(participant)
+  );
+  const isOfficialOperationalLog = (log: any) => log?.isTest !== true && log?.origin !== 'TESTE' && !isCanceledTestRecord(log);
+  const testCheckinCount = useMemo(() => (
+    participants.filter(participant => participant.checkedIn && (participant.checkinIsTest === true || participant.checkinOrigin === 'TESTE') && participant.checkinTestStatus !== 'CANCELADO_TESTE').length
+  ), [participants]);
+  const officialAreaAccessLogs = useMemo(() => areaAccessLogs.filter(isOfficialOperationalLog), [areaAccessLogs]);
+  const officialActionLogs = useMemo(() => actionLogs.filter(isOfficialOperationalLog), [actionLogs]);
+
   const eventParticipantStats = useMemo(() => {
     const summary = new Map<string, { total: number; checked: number }>();
     participants.forEach(participant => {
       const current = summary.get(participant.eventId) || { total: 0, checked: 0 };
       current.total += 1;
-      if (participant.checkedIn) current.checked += 1;
+      if (isOfficialParticipantCheckin(participant)) current.checked += 1;
       summary.set(participant.eventId, current);
     });
     return summary;
@@ -1193,6 +1225,16 @@ export default function App() {
     localStorage.setItem('credencia_report_config', JSON.stringify(reportConfig));
   }, [reportConfig]);
 
+  useEffect(() => {
+    if (!isReportPollingEnabled || activeTab !== 'relatorios' || !selectedEventId) return;
+
+    const intervalId = window.setInterval(() => {
+      loadDataForEvent(selectedEventId);
+    }, 45000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isReportPollingEnabled, activeTab, selectedEventId]);
+
   const handleReportImageUpload = (file: File | undefined, target: 'logoUrl' | 'watermarkUrl') => {
     if (!file) return;
 
@@ -1233,6 +1275,31 @@ export default function App() {
       ...(currentEvent?.cloakroomLabelConfig || {})
     });
   }, [currentEvent?.id, currentEvent?.cloakroomLabelConfig]);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+    const storageKey = `credencia_cloakroom_map_${selectedEventId}`;
+    try {
+      const storedConfig = localStorage.getItem(storageKey);
+      if (storedConfig) {
+        const parsed = JSON.parse(storedConfig);
+        setCloakroomMapConfig({
+          rackName: String(parsed.rackName || 'Principal'),
+          columns: Math.max(1, Math.min(26, Number(parsed.columns) || 10)),
+          rows: Math.max(1, Math.min(99, Number(parsed.rows) || 25))
+        });
+      } else {
+        setCloakroomMapConfig({ rackName: 'Principal', columns: 10, rows: 25 });
+      }
+    } catch {
+      setCloakroomMapConfig({ rackName: 'Principal', columns: 10, rows: 25 });
+    }
+  }, [selectedEventId]);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+    localStorage.setItem(`credencia_cloakroom_map_${selectedEventId}`, JSON.stringify(cloakroomMapConfig));
+  }, [cloakroomMapConfig, selectedEventId]);
 
   useEffect(() => {
     if (cloakroomTab === 'settings' && !isUserAdmin) {
@@ -1316,6 +1383,70 @@ export default function App() {
         persistSelectedEvent('');
       }
     } catch (e) {}
+  };
+
+  const updateEventInState = (updatedEvent: Event) => {
+    setEvents(prev => prev.map(event => event.id === updatedEvent.id ? updatedEvent : event));
+  };
+
+  const handleEnableEventTestMode = async () => {
+    if (!currentEvent || !isUserAdmin) return;
+    try {
+      const updated = await apiCall(`/api/events/${currentEvent.id}/mode-test`, { method: 'POST' });
+      updateEventInState(updated);
+      addToast('Modo teste ativado para este evento.', 'success');
+    } catch (error) {}
+  };
+
+  const handleStartOfficialEvent = async () => {
+    if (!currentEvent || !isUserAdmin) return;
+    if (!window.confirm('Iniciar evento oficial agora? Os novos check-ins, impressoes e acessos passarao a entrar no relatorio oficial.')) return;
+    try {
+      const updated = await apiCall(`/api/events/${currentEvent.id}/start-official`, { method: 'POST' });
+      updateEventInState(updated);
+      await loadDataForEvent(currentEvent.id);
+      addToast('Evento iniciado oficialmente.', 'success');
+    } catch (error) {}
+  };
+
+  const handleCloseOfficialEvent = async () => {
+    if (!currentEvent || !isUserAdmin) return;
+    if (!window.confirm('Encerrar este evento agora? Novos check-ins, impressoes e acessos ficarao bloqueados ate um ADMIN reabrir o evento.')) return;
+    try {
+      const updated = await apiCall(`/api/events/${currentEvent.id}/close-event`, { method: 'POST' });
+      updateEventInState(updated);
+      await loadDataForEvent(currentEvent.id);
+      addToast('Evento encerrado com dados oficiais consolidados.', 'success');
+    } catch (error) {}
+  };
+
+  const handleReopenOfficialEvent = async () => {
+    if (!currentEvent || !isUserAdmin) return;
+    if (!window.confirm('Reabrir este evento em modo oficial? Novos registros voltarao a entrar nos relatorios oficiais.')) return;
+    try {
+      const updated = await apiCall(`/api/events/${currentEvent.id}/reopen-event`, { method: 'POST' });
+      updateEventInState(updated);
+      await loadDataForEvent(currentEvent.id);
+      addToast('Evento reaberto em modo oficial.', 'success');
+    } catch (error) {}
+  };
+
+  const handleResetEventTests = async () => {
+    if (!currentEvent || !isUserAdmin) return;
+    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressoes de teste deste evento? Essa acao nao apagara participantes nem configuracoes.\n\nDigite ZERAR TESTES para confirmar.');
+    if (confirmation !== 'ZERAR TESTES') {
+      if (confirmation !== null) addToast('Confirmacao invalida. Nenhum registro foi alterado.', 'error');
+      return;
+    }
+
+    try {
+      await apiCall(`/api/events/${currentEvent.id}/reset-tests`, {
+        method: 'POST',
+        body: JSON.stringify({ confirmation })
+      });
+      await loadDataForEvent(currentEvent.id);
+      addToast('Registros de teste foram desconsiderados.', 'success');
+    } catch (error) {}
   };
 
   const resetActivityForm = () => {
@@ -1868,6 +1999,63 @@ export default function App() {
     return highestTicket + 1;
   }, [cloakroom]);
 
+  const cloakroomMapColumns = useMemo(
+    () => Array.from({ length: cloakroomMapConfig.columns }, (_, index) => String.fromCharCode(65 + index)),
+    [cloakroomMapConfig.columns]
+  );
+
+  const cloakroomMapRows = useMemo(
+    () => Array.from({ length: cloakroomMapConfig.rows }, (_, index) => String(index + 1).padStart(2, '0')),
+    [cloakroomMapConfig.rows]
+  );
+
+  const cloakroomOccupiedAddresses = useMemo(() => {
+    return new Set(
+      cloakroom
+        .filter(item => item.status === 'guardado' && item.storageAddress)
+        .map(item => item.storageAddress as string)
+    );
+  }, [cloakroom]);
+
+  const suggestedCloakroomAddress = useMemo(() => {
+    for (const row of cloakroomMapRows) {
+      for (const column of cloakroomMapColumns) {
+        const address = `${column}${row}`;
+        if (!cloakroomOccupiedAddresses.has(address)) return address;
+      }
+    }
+    return '';
+  }, [cloakroomMapColumns, cloakroomMapRows, cloakroomOccupiedAddresses]);
+
+  useEffect(() => {
+    if (!suggestedCloakroomAddress) return;
+    if (cloakroomSelectedPosition && !cloakroomOccupiedAddresses.has(cloakroomSelectedPosition.address)) return;
+    const column = suggestedCloakroomAddress.match(/^[A-Z]+/)?.[0] || cloakroomMapColumns[0] || 'A';
+    const row = suggestedCloakroomAddress.match(/\d+$/)?.[0] || cloakroomMapRows[0] || '01';
+    setCloakroomSelectedPosition({
+      rackId: cloakroomMapConfig.rackName.toLowerCase().replace(/\s+/g, '-'),
+      rackName: cloakroomMapConfig.rackName,
+      column,
+      row,
+      address: suggestedCloakroomAddress
+    });
+  }, [cloakroomMapColumns, cloakroomMapConfig.rackName, cloakroomMapRows, cloakroomOccupiedAddresses, cloakroomSelectedPosition, suggestedCloakroomAddress]);
+
+  const getCloakroomStoragePayload = (position = cloakroomSelectedPosition) => position ? {
+    storageRackId: position.rackId,
+    storageRackName: position.rackName,
+    storageColumn: position.column,
+    storageRow: position.row,
+    storageAddress: position.address,
+    storageOccupiedAt: new Date().toISOString(),
+    storageOperatorId: currentUser?.id
+  } : {};
+
+  const formatCloakroomStorageAddress = (item?: Pick<CloakroomItem, 'storageRackName' | 'storageAddress'> | null) => {
+    if (!item?.storageAddress) return '-';
+    return `${item.storageRackName || cloakroomMapConfig.rackName} - ${item.storageAddress}`;
+  };
+
   const escapePrintHtml = (value: string) =>
     value
       .replace(/&/g, '&amp;')
@@ -1991,10 +2179,13 @@ export default function App() {
         })
         .filter(Boolean)
         .join('');
+      const positionLine = item.storageAddress
+        ? `<div class="line line-storageAddress" style="font-size:11px">Posição: ${formatPrintLine(formatCloakroomStorageAddress(item))}</div>`
+        : '';
 
       return `
         <section class="label ${index === labels.length - 1 ? 'last' : ''}">
-          <div class="label-content">${lines}</div>
+          <div class="label-content">${lines}${positionLine}</div>
         </section>
       `;
     }).join('');
@@ -2118,26 +2309,37 @@ export default function App() {
       addToast('Localize e selecione um participante antes de guardar os pertences.', 'error');
       return;
     }
+    if (!cloakroomSelectedPosition) {
+      addToast('Selecione uma posição livre no mapa da chapelaria.', 'error');
+      return;
+    }
+    if (cloakroomOccupiedAddresses.has(cloakroomSelectedPosition.address)) {
+      addToast('Esta posição já está ocupada. Escolha uma posição livre.', 'error');
+      return;
+    }
 
     try {
+      const storagePayload = getCloakroomStoragePayload();
       const saved = await apiCall(`/api/events/${selectedEventId}/cloakroom`, {
         method: 'POST',
         body: JSON.stringify({
           participantId: cloakroomSelectedParticipant.id,
           participantName: cloakroomSelectedParticipant.name,
           itemDescription: cloakroomDescription.trim(),
-          volumeCount: cloakroomVolumeCount
+          volumeCount: cloakroomVolumeCount,
+          ...storagePayload
         })
       });
+      const savedWithPosition = { ...saved, ...storagePayload } as CloakroomItem;
 
-      setCloakroom(prev => [saved, ...prev]);
-      setCloakroomSuccess(saved);
+      setCloakroom(prev => [savedWithPosition, ...prev]);
+      setCloakroomSuccess(savedWithPosition);
       setCloakroomSearch('');
       setCloakroomSelectedParticipant(null);
       setCloakroomVolumeCount(1);
       setCloakroomDescription('');
-      printCloakroomLabels(saved);
-      addToast(`Pertences registrados. Ticket #${saved.tagNumber}`, 'success');
+      printCloakroomLabels(savedWithPosition);
+      addToast(`Pertences registrados. Ticket #${savedWithPosition.tagNumber}`, 'success');
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
       addToast(err.message || 'Erro ao registrar pertences.', 'error');
@@ -2204,8 +2406,14 @@ export default function App() {
     }
     try {
       const updated = await apiCall(`/api/cloakroom/${id}/collect`, { method: 'POST' });
-      setCloakroom(prev => prev.map(item => item.id === id ? updated : item));
-      setCloakroomReturnSuccess(updated);
+      const originalItem = cloakroom.find(item => item.id === id);
+      const updatedWithPosition = {
+        ...originalItem,
+        ...updated,
+        storageReleasedAt: new Date().toISOString()
+      } as CloakroomItem;
+      setCloakroom(prev => prev.map(item => item.id === id ? updatedWithPosition : item));
+      setCloakroomReturnSuccess(updatedWithPosition);
       setCloakroomReturnItem(null);
       setPendingCloakroomReturn(null);
       setCloakroomReturnSearch('');
@@ -2683,13 +2891,13 @@ export default function App() {
     const reportSource = sourceList || participants;
     
     const baseList = presentOnly 
-      ? reportSource.filter(p => p.checkedIn)
+      ? reportSource.filter(isOfficialParticipantCheckin)
       : reportSource;
 
     const titleSuffix = fileLabel || (presentOnly ? 'Presentes' : 'Inscritos_Geral');
     
     const outputRows = baseList.map(p => {
-      const participantAreaLogs = areaAccessLogs.filter(log => log.participantId === p.id);
+      const participantAreaLogs = officialAreaAccessLogs.filter(log => log.participantId === p.id);
       const allowedAreaNames = [...new Set(participantAreaLogs
         .filter(log => log.status === 'ALLOWED')
         .map(log => log.areaName || availableAreas.find(area => area.id === log.areaId)?.name || 'Área'))];
@@ -2702,8 +2910,8 @@ export default function App() {
         CPF: p.cpf,
         Empresa: p.company || '',
         Categoria: p.category,
-        'Credenciado?': p.checkedIn ? 'Sim' : 'Não',
-        'Horário do Credenciamento': p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
+        'Credenciado?': isOfficialParticipantCheckin(p) ? 'Sim' : 'Não',
+        'Horário do Credenciamento': isOfficialParticipantCheckin(p) && p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
         'Acessos por Sala': allowedAreaNames.length > 0 ? allowedAreaNames.join(', ') : '-',
         'Acessos Negados': deniedCount,
         'Certificados Emitidos': participantCertificates.length,
@@ -2766,7 +2974,7 @@ export default function App() {
       
       const matchCategory = selectedCategoryFilter === 'all' || p.category === selectedCategoryFilter;
       const matchPresence = selectedPresenceFilter === 'all' || 
-                            (selectedPresenceFilter === 'present' ? p.checkedIn : !p.checkedIn);
+                            (selectedPresenceFilter === 'present' ? isOfficialParticipantCheckin(p) : !isOfficialParticipantCheckin(p));
 
       return matchSearch && matchCategory && matchPresence;
     });
@@ -2776,7 +2984,7 @@ export default function App() {
 
   const reportSummary = useMemo(() => {
     const total = reportParticipants.length;
-    const checkedIn = reportParticipants.filter(p => p.checkedIn).length;
+    const checkedIn = reportParticipants.filter(isOfficialParticipantCheckin).length;
     const pending = total - checkedIn;
     const attendanceRate = total > 0 ? Math.round((checkedIn / total) * 100) : 0;
 
@@ -2785,7 +2993,7 @@ export default function App() {
 
   const reportCheckinsByHour = useMemo(() => {
     const buckets = reportParticipants
-      .filter(p => p.checkedIn && p.checkedInAt)
+      .filter(p => isOfficialParticipantCheckin(p) && p.checkedInAt)
       .reduce<Record<string, number>>((acc, participant) => {
         const hour = new Date(participant.checkedInAt as string).toLocaleTimeString('pt-BR', {
           hour: '2-digit',
@@ -2816,7 +3024,7 @@ export default function App() {
 
   const reportCheckinOperatorByParticipant = useMemo(() => {
     const map = new Map<string, string>();
-    const checkinLogs = actionLogs
+    const checkinLogs = officialActionLogs
       .filter(log => log.action === 'CHECKIN' && log.participantId)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
@@ -2841,14 +3049,14 @@ export default function App() {
     const participantIds = new Set(reportParticipants.map(p => p.id));
     const areaIds = new Set(availableAreas.map(area => area.id));
 
-    return areaAccessLogs.filter(log => {
+    return officialAreaAccessLogs.filter(log => {
       const logParticipant = participants.find(p => p.id === log.participantId);
       const matchesParticipant = participantIds.has(log.participantId);
       const matchesArea = areaIds.size === 0 || areaIds.has(log.areaId);
       const matchesEvent = !currentEvent?.id || logParticipant?.eventId === currentEvent.id || matchesParticipant;
       return matchesParticipant && matchesArea && matchesEvent;
     });
-  }, [areaAccessLogs, availableAreas, currentEvent, participants, reportParticipants]);
+  }, [officialAreaAccessLogs, availableAreas, currentEvent, participants, reportParticipants]);
 
   const reportAreaAccessSummary = useMemo(() => {
     return availableAreas.map(area => {
@@ -2941,6 +3149,196 @@ export default function App() {
       storedVolumes
     };
   }, [reportCloakroomItems]);
+
+  const reportOperatorSummary = useMemo(() => {
+    const buckets = new Map<string, number>();
+    reportParticipants
+      .filter(isOfficialParticipantCheckin)
+      .forEach(participant => {
+        const operator = getReportCheckinOperator(participant);
+        if (!operator || operator === '-') return;
+        buckets.set(operator, (buckets.get(operator) || 0) + 1);
+      });
+
+    return [...buckets.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value }));
+  }, [reportParticipants, reportCheckinOperatorByParticipant]);
+
+  const reportAverageCheckinMinutes = useMemo(() => {
+    const durations = reportParticipants
+      .filter(participant => isOfficialParticipantCheckin(participant) && participant.checkedInAt && participant.createdAt)
+      .map(participant => {
+        const start = new Date(participant.createdAt).getTime();
+        const end = new Date(participant.checkedInAt as string).getTime();
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+        return Math.round((end - start) / 60000);
+      })
+      .filter((value): value is number => value !== null);
+
+    if (durations.length === 0) return null;
+    return Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
+  }, [reportParticipants]);
+
+  const reportAverageStayMinutes = useMemo(() => {
+    const grouped = new Map<string, number[]>();
+    reportAreaAccessLogs
+      .filter(log => log.status === 'ALLOWED')
+      .forEach(log => {
+        const time = new Date(log.timestamp).getTime();
+        if (!Number.isFinite(time)) return;
+        grouped.set(log.participantId, [...(grouped.get(log.participantId) || []), time]);
+      });
+
+    const durations = [...grouped.values()]
+      .map(times => {
+        if (times.length < 2) return null;
+        return Math.round((Math.max(...times) - Math.min(...times)) / 60000);
+      })
+      .filter((value): value is number => value !== null && value > 0);
+
+    if (durations.length === 0) return null;
+    return Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
+  }, [reportAreaAccessLogs]);
+
+  const reportEventStatusSummary = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return events.reduce(
+      (acc, event) => {
+        const eventDate = new Date(event.date);
+        if (Number.isFinite(eventDate.getTime()) && eventDate < today) acc.closed += 1;
+        else acc.active += 1;
+        return acc;
+      },
+      { active: 0, closed: 0 }
+    );
+  }, [events]);
+
+  const reportPrintedLabelsCount = useMemo(() => {
+    return officialActionLogs.filter(log => log.action === 'REPRINT_BADGE').length;
+  }, [officialActionLogs]);
+
+  const reportBIMetrics = useMemo(() => ([
+    { id: 'registered', title: 'Participantes inscritos', value: reportSummary.total, detail: 'Filtros atuais', icon: Users, tone: 'green' as const },
+    { id: 'confirmed', title: 'Participantes confirmados', value: reportSummary.checkedIn, detail: `${reportSummary.attendanceRate}% de presença`, icon: UserCheck, tone: 'green' as const },
+    { id: 'checkins', title: 'Check-ins realizados', value: reportSummary.checkedIn, detail: `${reportSummary.pending} pendentes`, icon: CheckCircle2, tone: 'graphite' as const },
+    { id: 'pending', title: 'Check-ins pendentes', value: reportSummary.pending, detail: 'Ainda ausentes', icon: Clock, tone: 'amber' as const },
+    { id: 'events-active', title: 'Eventos ativos', value: reportEventStatusSummary.active, detail: 'Na organização', icon: Calendar, tone: 'blue' as const },
+    { id: 'events-closed', title: 'Eventos encerrados', value: reportEventStatusSummary.closed, detail: 'Datas anteriores', icon: History, tone: 'graphite' as const },
+    { id: 'avg-checkin', title: 'Tempo médio check-in', value: reportAverageCheckinMinutes === null ? '-' : `${reportAverageCheckinMinutes} min`, detail: 'Baseado em criação x check-in', icon: BarChart3, tone: 'green' as const },
+    { id: 'avg-stay', title: 'Média permanência', value: reportAverageStayMinutes === null ? '-' : `${reportAverageStayMinutes} min`, detail: 'Quando há múltiplos acessos', icon: ShieldCheck, tone: 'graphite' as const },
+    { id: 'area-access', title: 'Total de acessos por área', value: reportAreaAccessLogs.length, detail: `${reportAreaAccessSummary.length} área(s) com fluxo`, icon: ShieldCheck, tone: 'green' as const },
+    { id: 'operators', title: 'Credenc. por operador', value: reportOperatorSummary.reduce((sum, item) => sum + item.value, 0), detail: `${reportOperatorSummary.length} operador(es)`, icon: Users, tone: 'blue' as const }
+  ]), [
+    reportSummary,
+    reportEventStatusSummary,
+    reportAverageCheckinMinutes,
+    reportAverageStayMinutes,
+    reportAreaAccessLogs,
+    reportAreaAccessSummary,
+    reportOperatorSummary
+  ]);
+
+  const reportDefinitions: BIReportDefinition[] = [
+    { id: 'events', title: 'Eventos', description: 'Visão de eventos ativos, encerrados e operação selecionada.', status: 'available' },
+    { id: 'participants', title: 'Participantes', description: 'Dados cadastrais, categorias, presença e filtros atuais.', status: 'available' },
+    { id: 'checkin', title: 'Check-in', description: 'Fluxo por horário, pendências, operadores e status.', status: 'available' },
+    { id: 'access-control', title: 'Controle de acesso', description: 'Acessos liberados, negados e totais por área.', status: 'available' },
+    { id: 'printed-labels', title: 'Etiquetas impressas', description: 'Preparado para contabilizar impressões e reimpressões.', status: reportPrintedLabelsCount > 0 ? 'available' : 'prepared' },
+    { id: 'cloakroom', title: 'Chapelaria', description: 'Tickets, volumes, guardados e retirados.', status: 'available' },
+    { id: 'users', title: 'Usuários', description: 'Base de usuários e níveis de operação.', status: 'prepared' },
+    { id: 'operators', title: 'Operadores', description: 'Credenciamentos e produtividade por operador.', status: reportOperatorSummary.length > 0 ? 'available' : 'prepared' }
+  ];
+
+  const exportReportParticipantsToCsv = () => {
+    const rows: ReportExportRow[] = reportParticipants.map(participant => {
+      const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === participant.id);
+      const participantCertificates = reportCertificates.filter(certificate => certificate.participantId === participant.id);
+      return {
+        Evento: currentEvent?.name || '',
+        Nome: participant.name,
+        CPF: participant.cpf,
+        Email: participant.email || '',
+        Categoria: participant.category,
+      Status: isOfficialParticipantCheckin(participant) ? 'Credenciado' : 'Pendente',
+      'Horario do check-in': isOfficialParticipantCheckin(participant) && participant.checkedInAt ? new Date(participant.checkedInAt).toLocaleString('pt-BR') : '',
+        'Acessos por area': areaAccess?.allowedAreaNames.join(', ') || '',
+        'Acessos negados': areaAccess?.deniedCount || 0,
+        Certificados: participantCertificates.map(certificate => certificate.certificateCode).join(', '),
+        Operador: getReportCheckinOperator(participant)
+      };
+    });
+
+    downloadCsv(rows, `BI_${currentEvent?.name?.replace(/\s+/g, '_') || 'Relatorio'}_${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
+  const buildReportPdfPayload = (): ReportPdfPayload => {
+    const participantRows: ReportPdfTableRow[] = reportParticipants.map(participant => ({
+      Nome: participant.name,
+      CPF: participant.cpf || '-',
+      Categoria: participant.category,
+      Status: isOfficialParticipantCheckin(participant) ? 'Credenciado' : 'Pendente',
+      'Horario do check-in': isOfficialParticipantCheckin(participant) && participant.checkedInAt ? new Date(participant.checkedInAt).toLocaleString('pt-BR') : '-',
+      Operador: getReportCheckinOperator(participant)
+    }));
+
+    const areaRows: ReportPdfTableRow[] = reportAreaAccessSummary.map(item => ({
+      Area: item.areaName,
+      Liberados: item.allowed,
+      Negados: item.denied,
+      Total: item.total
+    }));
+
+    const operatorRows: ReportPdfTableRow[] = reportOperatorSummary.map(item => ({
+      Operador: item.label,
+      Credenciamentos: item.value
+    }));
+
+    return {
+      eventName: currentEvent?.name || 'Evento não informado',
+      eventDate: currentEvent?.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : undefined,
+      eventLocation: currentEvent?.location,
+      organizationName: currentUser?.organizationName,
+      generatedAt: new Date(),
+      logoUrl: reportBrandConfig.showLogo && reportBrandConfig.logoUrl ? reportBrandConfig.logoUrl : credenciaLogo,
+      metrics: reportBIMetrics,
+      summary: reportSummary,
+      hourlyData: reportCheckinsByHour.map(item => ({ label: item.label, value: item.count })),
+      presenceData: reportPresenceBreakdown.map(item => ({
+        label: item.label,
+        value: item.count,
+        color: item.label === 'Credenciados' ? '#12e000' : '#f5b842'
+      })),
+      categoryData: reportParticipantsByCategory.map(item => ({ label: item.label, value: item.count })),
+      areaData: reportAreaAccessSummary.map(item => ({ label: item.areaName, value: item.total })),
+      operatorData: reportOperatorSummary,
+      participants: reportParticipants,
+      participantRows,
+      areaRows,
+      operatorRows,
+      cloakroomItems: reportCloakroomItems,
+      printedLabelsCount: reportPrintedLabelsCount
+    };
+  };
+
+  const handleGenerateReportPdf = async (kind: ReportPdfKind) => {
+    if (!currentEvent) {
+      addToast('Selecione um evento para gerar o relatório.', 'error');
+      return;
+    }
+
+    try {
+      setReportPdfLoadingLabel('Gerando relatório...');
+      await generateReportPdf(buildReportPdfPayload(), kind, message => setReportPdfLoadingLabel(message));
+      addToast('PDF gerado com sucesso.', 'success');
+    } catch (error) {
+      console.error('Erro ao gerar PDF do relatório:', error);
+      addToast('Não foi possível gerar o PDF. Tente novamente.', 'error');
+    } finally {
+      setTimeout(() => setReportPdfLoadingLabel(''), 500);
+    }
+  };
 
 
   // Clean up initial bootstrap user if missing key items
@@ -3622,6 +4020,12 @@ export default function App() {
           </div>
         ) : (
           <div className={`flex-1 overflow-y-auto ${activeTab === 'checkin' || activeTab === 'checkin-mobile' ? 'p-0 bg-white' : 'p-8 bg-[#f7f7f2]'}`}>
+            {currentEvent && isCurrentEventTestMode && activeTab !== 'checkin' && activeTab !== 'checkin-mobile' && (
+              <div className="max-w-7xl mx-auto mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 flex items-start gap-3">
+                <AlertTriangle size={18} className="mt-0.5 text-amber-600" />
+                <span>Evento em modo teste. Os check-ins e impressoes realizados agora nao entrarao no relatorio oficial.</span>
+              </div>
+            )}
             
             {/* --- TAB 1: DASHBOARD --- */}
             {activeTab === 'dashboard' && (
@@ -3642,7 +4046,18 @@ export default function App() {
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Evento em operação</p>
-                    <h1 className="text-2xl font-bold text-slate-950 font-display mt-1">{currentEvent.name}</h1>
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                      <h1 className="text-2xl font-bold text-slate-950 font-display">{currentEvent.name}</h1>
+                      <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide border ${
+                        isCurrentEventClosed
+                          ? 'bg-slate-200 text-slate-700 border-slate-300'
+                          : isCurrentEventTestMode
+                            ? 'bg-amber-100 text-amber-800 border-amber-200'
+                            : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                      }`}>
+                        {isCurrentEventClosed ? 'EVENTO ENCERRADO' : isCurrentEventTestMode ? 'PREPARACAO' : 'EVENTO OFICIAL'}
+                      </span>
+                    </div>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
                       Painel limpo para acompanhar e operar somente os recursos habilitados neste evento.
                     </p>
@@ -3658,6 +4073,67 @@ export default function App() {
                   )}
                 </div>
 
+                {isUserAdmin && (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-wider text-slate-400">Preparacao do Evento</p>
+                        <h2 className="mt-1 text-lg font-black text-slate-950">Modo operacional do evento</h2>
+                        <p className="mt-2 text-sm text-slate-500 max-w-3xl">
+                          Use a preparacao para validar check-in, impressoes e acessos antes da abertura oficial. Relatorios e dashboard oficial ignoram registros marcados como teste. Ao encerrar, os dados oficiais ficam consolidados.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">Testes ativos: {testCheckinCount}</span>
+                          <span className={`rounded-full px-3 py-1 ${isCurrentEventClosed ? 'bg-slate-100 text-slate-700' : isCurrentEventTestMode ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            Atual: {isCurrentEventClosed ? 'EVENTO ENCERRADO' : isCurrentEventTestMode ? 'PREPARACAO' : 'EVENTO OFICIAL'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2 lg:min-w-[760px]">
+                        <button
+                          type="button"
+                          onClick={handleEnableEventTestMode}
+                          disabled={isCurrentEventTestMode || isCurrentEventClosed}
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          Modo Teste
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleResetEventTests}
+                          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-700 hover:bg-rose-100 transition"
+                        >
+                          Zerar Testes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleStartOfficialEvent}
+                          disabled={!isCurrentEventTestMode}
+                          className="rounded-xl border border-emerald-200 bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          Iniciar Evento Oficial
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCloseOfficialEvent}
+                          disabled={!isCurrentEventOfficialMode}
+                          className="rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          Encerrar Evento
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleReopenOfficialEvent}
+                          disabled={!isCurrentEventClosed}
+                          className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          Reabrir Evento
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <StatsCard
                     title="Inscritos"
@@ -3670,9 +4146,9 @@ export default function App() {
                   />
                   <StatsCard
                     title="Check-ins"
-                    value={stats?.totalCheckedIn ?? participants.filter(p => p.checkedIn).length}
+                    value={stats?.totalCheckedIn ?? participants.filter(isOfficialParticipantCheckin).length}
                     iconName="UserCheck"
-                    description={`${stats?.totalWaiting ?? participants.filter(p => !p.checkedIn).length} pendentes`}
+                    description={`${stats?.totalWaiting ?? participants.filter(p => !isOfficialParticipantCheckin(p)).length} pendentes`}
                     trend={{ text: 'Operação', type: 'success' }}
                     colorTheme="blue"
                     onClick={() => setActiveTab('checkin')}
@@ -4877,6 +5353,7 @@ export default function App() {
                         </div>
                       )}
                     </div>
+
                   </div>
                 )}
 
@@ -5120,12 +5597,15 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className={`grid ${isUserAdmin ? 'grid-cols-4' : 'grid-cols-3'} gap-2 bg-white border border-slate-200 rounded-lg p-1`}>
+                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 bg-white border border-slate-200 rounded-lg p-1">
                   {[
-                    { id: 'store' as const, label: 'Guardar Pertences' },
-                    { id: 'return' as const, label: 'Retirar Pertences' },
+                    { id: 'overview' as const, label: 'Visão Geral' },
+                    { id: 'map' as const, label: 'Mapa da Chapelaria' },
+                    { id: 'store' as const, label: 'Nova Guarda' },
+                    { id: 'return' as const, label: 'Devolução' },
+                    { id: 'stored' as const, label: 'Itens Guardados' },
                     { id: 'history' as const, label: 'Histórico' },
-                    ...(isUserAdmin ? [{ id: 'settings' as const, label: 'Etiqueta' }] : [])
+                    ...(isUserAdmin ? [{ id: 'settings' as const, label: 'Configurações' }] : [])
                   ].map(tab => (
                     <button
                       key={tab.id}
@@ -5139,8 +5619,48 @@ export default function App() {
                   ))}
                 </div>
 
+                {cloakroomTab === 'overview' && (
+                  <div className="grid grid-cols-1 xl:grid-cols-[0.8fr_1.2fr] gap-5 items-start">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[
+                        { title: 'Itens guardados', value: cloakroom.filter(item => item.status === 'guardado').length, color: 'bg-amber-50 text-amber-800 border-amber-100' },
+                        { title: 'Itens retirados', value: cloakroom.filter(item => item.status === 'retirado').length, color: 'bg-emerald-50 text-emerald-800 border-emerald-100' },
+                        { title: 'Posições ocupadas', value: cloakroomOccupiedAddresses.size, color: 'bg-rose-50 text-rose-800 border-rose-100' },
+                        { title: 'Próxima posição', value: suggestedCloakroomAddress || '-', color: 'bg-blue-50 text-blue-800 border-blue-100' }
+                      ].map(card => (
+                        <div key={card.title} className={`rounded-lg border p-5 shadow-xs ${card.color}`}>
+                          <p className="text-xs font-black uppercase tracking-wider opacity-75">{card.title}</p>
+                          <b className="block mt-2 text-3xl font-black font-mono">{card.value}</b>
+                        </div>
+                      ))}
+                    </div>
+                    <CloakroomMap
+                      rackName={cloakroomMapConfig.rackName}
+                      columns={cloakroomMapColumns}
+                      rows={cloakroomMapRows}
+                      items={cloakroom}
+                      selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
+                      suggestedAddress={suggestedCloakroomAddress}
+                      onSelectPosition={setCloakroomSelectedPosition}
+                    />
+                  </div>
+                )}
+
+                {cloakroomTab === 'map' && (
+                  <CloakroomMap
+                    rackName={cloakroomMapConfig.rackName}
+                    columns={cloakroomMapColumns}
+                    rows={cloakroomMapRows}
+                    items={cloakroom}
+                    selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
+                    suggestedAddress={suggestedCloakroomAddress}
+                    onSelectPosition={setCloakroomSelectedPosition}
+                  />
+                )}
+
                 {cloakroomTab === 'store' && (
-                  <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr_0.85fr] gap-5 items-start">
+                  <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-5 items-start">
+                    <div className="space-y-5">
                     <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
                       <h3 className="text-lg font-black text-slate-950">Participante</h3>
                       <div className="relative mt-4">
@@ -5249,9 +5769,14 @@ export default function App() {
                           <b className="block text-4xl font-black font-mono text-white mt-1">{nextCloakroomTicket}</b>
                         </div>
 
+                        <div className="mt-4 rounded-xl bg-emerald-500/15 border border-emerald-300/20 p-4">
+                          <span className="block text-xs font-black uppercase tracking-wider text-emerald-100">Posição selecionada</span>
+                          <b className="block text-2xl font-black font-mono text-white mt-1">{cloakroomSelectedPosition ? `${cloakroomSelectedPosition.rackName} - ${cloakroomSelectedPosition.address}` : '-'}</b>
+                        </div>
+
                         <button
                           onClick={handleOperationalCloakroomSave}
-                          disabled={!cloakroomSelectedParticipant}
+                          disabled={!cloakroomSelectedParticipant || !cloakroomSelectedPosition || cloakroomOccupiedAddresses.has(cloakroomSelectedPosition.address)}
                           className="mt-5 w-full px-4 py-5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-500 text-white text-base font-black transition cursor-pointer disabled:cursor-not-allowed"
                         >
                           GUARDAR PERTENCES
@@ -5273,11 +5798,23 @@ export default function App() {
                                 <span key={tag} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg font-mono text-sm font-black text-emerald-800">{tag}</span>
                               ))}
                             </div>
+                            <p className="mt-3 font-bold text-slate-800">Posição: <span className="font-mono">{formatCloakroomStorageAddress(cloakroomSuccess)}</span></p>
                             <p className="mt-4 text-emerald-700 font-black">Impressão realizada com sucesso</p>
                           </div>
                         </div>
                       )}
                     </div>
+                    </div>
+
+                    <CloakroomMap
+                      rackName={cloakroomMapConfig.rackName}
+                      columns={cloakroomMapColumns}
+                      rows={cloakroomMapRows}
+                      items={cloakroom}
+                      selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
+                      suggestedAddress={suggestedCloakroomAddress}
+                      onSelectPosition={setCloakroomSelectedPosition}
+                    />
                   </div>
                 )}
 
@@ -5371,6 +5908,42 @@ export default function App() {
                   </div>
                 )}
 
+                {cloakroomTab === 'stored' && (
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-black text-slate-950">Itens guardados</h3>
+                        <p className="text-xs text-slate-500">{cloakroom.filter(item => item.status === 'guardado').length} posição(ões) ocupada(s).</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Mapa ativo</span>
+                    </div>
+                    <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {cloakroom.filter(item => item.status === 'guardado').length === 0 ? (
+                        <div className="md:col-span-2 xl:col-span-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-400">
+                          <FolderLock className="mx-auto mb-2" size={30} />
+                          <p className="font-bold">Nenhum pertence guardado no momento.</p>
+                        </div>
+                      ) : (
+                        cloakroom.filter(item => item.status === 'guardado').map(item => (
+                          <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-mono text-xl font-black text-slate-950">#{item.tagNumber}</p>
+                                <p className="mt-1 text-sm font-bold text-slate-800">{item.participantName}</p>
+                              </div>
+                              <span className="rounded-lg bg-white border border-emerald-200 px-2.5 py-1 font-mono text-sm font-black text-emerald-700">
+                                {formatCloakroomStorageAddress(item)}
+                              </span>
+                            </div>
+                            <p className="mt-3 text-xs text-slate-500">{item.itemDescription || 'Sem descrição'}</p>
+                            <p className="mt-2 text-xs font-bold text-slate-500">{item.volumeCount || 1} volume(s)</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {cloakroomTab === 'return' && (
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-5">
                     <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
@@ -5386,6 +5959,7 @@ export default function App() {
                               <div className="flex items-center justify-between gap-3"><span className="font-mono font-black text-amber-700">#{item.tagNumber}</span><span className="text-xs text-slate-500">{item.volumeCount || 1} volume(s)</span></div>
                               <div className="font-bold text-slate-900 text-sm mt-1">{item.participantName}</div>
                               <div className="text-xs text-slate-500 mt-0.5">{item.itemDescription || 'Sem descrição'}</div>
+                              <div className="text-xs font-mono text-emerald-700 mt-1">Posição: {formatCloakroomStorageAddress(item)}</div>
                             </button>
                           ))}
                         </div>
@@ -5400,6 +5974,7 @@ export default function App() {
                             <p><b>Participante:</b> {cloakroomReturnItem.participantName}</p>
                             <p><b>Volumes:</b> {cloakroomReturnItem.volumeCount || 1}</p>
                             <p><b>Descrição:</b> {cloakroomReturnItem.itemDescription || '-'}</p>
+                            <p><b>Posição:</b> <span className="font-mono">{formatCloakroomStorageAddress(cloakroomReturnItem)}</span></p>
                             <p><b>Entrada:</b> {new Date(cloakroomReturnItem.registeredAt).toLocaleString('pt-BR')}</p>
                             <p><b>Operador entrada:</b> {cloakroomReturnItem.registeredByName || '-'}</p>
                           </div>
@@ -5438,6 +6013,7 @@ export default function App() {
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Nº Etiqueta</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Posição</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Especificação do Item</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Dono / Participante</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status</th>
@@ -5448,7 +6024,7 @@ export default function App() {
                       <tbody>
                         {filteredCloakroomHistory.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="p-12 text-center text-slate-400">
+                            <td colSpan={7} className="p-12 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={32} />
                               <p className="font-semibold text-slate-500">Chapelaria sem volumes no evento.</p>
                               <p className="text-xs mt-1">Gere novos números sequenciais para pertences de integrantes acima.</p>
@@ -5461,6 +6037,12 @@ export default function App() {
                               <td className="p-4 text-center align-middle">
                                 <span className="inline-flex items-center justify-center font-mono font-bold text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded-lg border border-blue-100">
                                   #{item.tagNumber}
+                                </span>
+                              </td>
+
+                              <td className="p-4 text-center align-middle">
+                                <span className="inline-flex items-center justify-center font-mono font-bold text-xs bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">
+                                  {formatCloakroomStorageAddress(item)}
                                 </span>
                               </td>
 
@@ -5530,6 +6112,44 @@ export default function App() {
                 {cloakroomTab === 'settings' && isUserAdmin && (
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.8fr] gap-5">
                     <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                      <div className="mb-5 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                        <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Configuração do mapa</p>
+                        <h3 className="text-lg font-bold text-slate-900 mt-1">Organização física da estante</h3>
+                        <p className="text-sm text-slate-500 mt-1">Defina o nome da estante, colunas e linhas usadas no mapa operacional.</p>
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <label className="text-xs font-black uppercase tracking-wider text-slate-500">
+                            Nome da estante
+                            <input
+                              value={cloakroomMapConfig.rackName}
+                              onChange={event => setCloakroomMapConfig(prev => ({ ...prev, rackName: event.target.value || 'Principal' }))}
+                              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
+                            />
+                          </label>
+                          <label className="text-xs font-black uppercase tracking-wider text-slate-500">
+                            Colunas
+                            <input
+                              type="number"
+                              min={1}
+                              max={26}
+                              value={cloakroomMapConfig.columns}
+                              onChange={event => setCloakroomMapConfig(prev => ({ ...prev, columns: Math.max(1, Math.min(26, Number(event.target.value) || 1)) }))}
+                              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
+                            />
+                          </label>
+                          <label className="text-xs font-black uppercase tracking-wider text-slate-500">
+                            Linhas
+                            <input
+                              type="number"
+                              min={1}
+                              max={99}
+                              value={cloakroomMapConfig.rows}
+                              onChange={event => setCloakroomMapConfig(prev => ({ ...prev, rows: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))}
+                              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Configuração da etiqueta</p>
@@ -5759,15 +6379,37 @@ export default function App() {
                       <CheckCircle2 size={15} />
                       <span>Baixar presentes</span>
                     </button>
-                    <button
-                      onClick={triggerPrintableReport}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      <Printer size={15} />
-                      <span>Imprimir relatório</span>
-                    </button>
+                    <ReportExportMenu
+                      onGeneratePdf={handleGenerateReportPdf}
+                      onPrintCurrent={triggerPrintableReport}
+                      loadingLabel={reportPdfLoadingLabel}
+                    />
                   </div>
                 </div>
+
+                <BusinessIntelligenceDashboard
+                  metrics={reportBIMetrics}
+                  hourlyData={reportCheckinsByHour.map(item => ({ label: item.label, value: item.count }))}
+                  categoryData={reportParticipantsByCategory.map(item => ({ label: item.label, value: item.count }))}
+                  presenceData={reportPresenceBreakdown.map(item => ({
+                    label: item.label,
+                    value: item.count,
+                    color: item.label === 'Credenciados' ? '#12e000' : '#f5b842'
+                  }))}
+                  areaData={reportAreaAccessSummary.map(item => ({ label: item.areaName, value: item.total }))}
+                  operatorData={reportOperatorSummary}
+                  reportDefinitions={reportDefinitions}
+                  pollingEnabled={isReportPollingEnabled}
+                  onTogglePolling={() => {
+                    setIsReportPollingEnabled(prev => !prev);
+                    addToast(isReportPollingEnabled ? 'Atualização automática pausada.' : 'Atualização automática ativada a cada 45 segundos.', 'info');
+                  }}
+                  onExportExcel={() => exportParticipantsToExcelWithFilter(false, reportParticipants, 'BI_Relatorio_Filtrado')}
+                  onExportCsv={exportReportParticipantsToCsv}
+                  onGeneratePdf={handleGenerateReportPdf}
+                  onPrintCurrent={triggerPrintableReport}
+                  pdfLoadingLabel={reportPdfLoadingLabel}
+                />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                   {[
@@ -6436,7 +7078,7 @@ export default function App() {
                                 </span>
                               </td>
                               <td className="p-4">
-                                {p.checkedIn ? (
+                                {isOfficialParticipantCheckin(p) ? (
                                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
                                     <Check size={12} strokeWidth={3} />
                                     Credenciado
@@ -6449,7 +7091,7 @@ export default function App() {
                                 )}
                               </td>
                               <td className="p-4 font-mono text-xs text-slate-700">
-                                {p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}
+                                {isOfficialParticipantCheckin(p) && p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}
                               </td>
                               <td className="p-4 text-xs text-slate-600">
                                 {areaAccess && areaAccess.total > 0 ? (
@@ -6869,8 +7511,8 @@ export default function App() {
                     {reportConfig.participantEmail && <td className="py-2">{p.email || '-'}</td>}
                     {reportConfig.participantPhone && <td className="py-2">{getReportParticipantPhone(p) || '-'}</td>}
                     {reportConfig.participantCategory && <td className="py-2">{p.category}</td>}
-                    {reportConfig.participantCheckinStatus && <td className="py-2">{p.checkedIn ? 'CREDENCIADO' : 'PENDENTE'}</td>}
-                    {reportConfig.participantCheckinTime && <td className="py-2 font-mono">{p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>}
+                    {reportConfig.participantCheckinStatus && <td className="py-2">{isOfficialParticipantCheckin(p) ? 'CREDENCIADO' : 'PENDENTE'}</td>}
+                    {reportConfig.participantCheckinTime && <td className="py-2 font-mono">{isOfficialParticipantCheckin(p) && p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>}
                     {reportConfig.participantAreaAccess && (
                       <td className="py-2">
                         {areaAccess && areaAccess.total > 0
