@@ -170,6 +170,20 @@ export interface Participant {
 
 export type CloakroomStatus = 'guardado' | 'retirado';
 
+export interface CloakroomVolume {
+  id: string;
+  tag: string;
+  description: string;
+  storageRackId?: string;
+  storageRackName?: string;
+  storageColumn?: string;
+  storageRow?: string;
+  storageAddress?: string;
+  storageOccupiedAt?: string;
+  storageReleasedAt?: string;
+  storageOperatorId?: string;
+}
+
 export interface CloakroomItem {
   id: string;
   eventId: string;
@@ -187,6 +201,7 @@ export interface CloakroomItem {
   tagNumber: number; // Automatic sequential tag number
   volumeCount?: number;
   volumeTags?: string[];
+  volumes?: CloakroomVolume[];
   registeredByUserId?: string;
   registeredByName?: string;
   returnedByUserId?: string;

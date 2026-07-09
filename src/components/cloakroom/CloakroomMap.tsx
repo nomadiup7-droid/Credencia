@@ -31,13 +31,30 @@ export default function CloakroomMap({
   suggestedAddress,
   onSelectPosition
 }: CloakroomMapProps) {
-  const occupiedItems = items.filter(item => item.status === 'guardado' && item.storageAddress);
-  const occupiedByAddress = new Map(occupiedItems.map(item => [item.storageAddress, item]));
+  const occupiedEntries = items
+    .filter(item => item.status === 'guardado')
+    .flatMap(item => {
+      if (Array.isArray(item.volumes) && item.volumes.length > 0) {
+        return item.volumes
+          .filter(volume => volume.storageAddress)
+          .map(volume => ({
+            address: volume.storageAddress as string,
+            item,
+            description: volume.description,
+            tag: volume.tag
+          }));
+      }
+
+      return item.storageAddress
+        ?[{ address: item.storageAddress, item, description: item.itemDescription, tag: String(item.tagNumber) }]
+        : [];
+    });
+  const occupiedByAddress = new Map(occupiedEntries.map(entry => [entry.address, entry]));
   const selectedItem = occupiedByAddress.get(selectedAddress);
   const selectedColumn = selectedAddress.match(/^[A-Z]+/)?.[0] || '-';
   const selectedRow = selectedAddress.match(/\d+$/)?.[0] || '-';
   const latestItems = items
-    .filter(item => item.storageAddress === selectedAddress)
+    .filter(item => item.storageAddress === selectedAddress || item.volumes?.some(volume => volume.storageAddress === selectedAddress))
     .slice(0, 3);
   const isSelectedOccupied = Boolean(selectedItem);
 
@@ -87,11 +104,11 @@ export default function CloakroomMap({
                   const isSelected = selectedAddress === address;
                   const isSuggested = suggestedAddress === address;
                   const statusClass = item
-                    ? 'bg-rose-50 border-rose-300 text-rose-700'
+                    ?'bg-rose-50 border-rose-300 text-rose-700'
                     : isSelected
-                      ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-100'
+                      ?'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-100'
                       : isSuggested
-                        ? 'bg-emerald-50 border-emerald-400 text-emerald-800'
+                        ?'bg-emerald-50 border-emerald-400 text-emerald-800'
                         : 'bg-white border-emerald-200 text-slate-700 hover:border-emerald-500 hover:bg-emerald-50';
 
                   return (
@@ -100,7 +117,7 @@ export default function CloakroomMap({
                       type="button"
                       onClick={() => selectAddress(column, row)}
                       className={`h-10 min-w-10 rounded-lg border text-[11px] font-black transition cursor-pointer ${statusClass}`}
-                      title={item ? `${address} ocupado por ${item.participantName}` : `${address} livre`}
+                      title={item ?`${address} ocupado por ${item.item.participantName}` : `${address} livre`}
                     >
                       {address}
                     </button>
@@ -132,14 +149,15 @@ export default function CloakroomMap({
           </div>
         </div>
 
-        <div className={`rounded-xl border p-3 ${isSelectedOccupied ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+        <div className={`rounded-xl border p-3 ${isSelectedOccupied ?'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
           <div className="flex items-center gap-2 font-black">
-            {isSelectedOccupied ? <Info size={18} /> : <CheckCircle2 size={18} />}
-            <span>Status: {isSelectedOccupied ? 'Ocupado' : 'Livre'}</span>
+            {isSelectedOccupied ?<Info size={18} /> : <CheckCircle2 size={18} />}
+            <span>Status: {isSelectedOccupied ?'Ocupado' : 'Livre'}</span>
           </div>
           {selectedItem && (
             <p className="mt-2 text-xs font-semibold">
-              Ticket #{selectedItem.tagNumber} - {selectedItem.participantName}
+              Ticket #{selectedItem.item.tagNumber} - {selectedItem.item.participantName}
+              <span className="block font-mono">{selectedItem.tag}</span>
             </p>
           )}
         </div>
@@ -149,8 +167,8 @@ export default function CloakroomMap({
           disabled={isSelectedOccupied || !selectedAddress}
           onClick={() => {
             if (!selectedAddress) return;
-            const column = selectedColumn === '-' ? columns[0] : selectedColumn;
-            const row = selectedRow === '-' ? rows[0] : selectedRow;
+            const column = selectedColumn === '-' ?columns[0] : selectedColumn;
+            const row = selectedRow === '-' ?rows[0] : selectedRow;
             selectAddress(column, row);
           }}
           className="w-full px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 disabled:text-slate-500 text-white text-sm font-black transition cursor-pointer disabled:cursor-not-allowed"
@@ -174,7 +192,7 @@ export default function CloakroomMap({
             <p className="text-xs font-black uppercase tracking-wider text-slate-500">Últimos itens armazenados</p>
           </div>
           <div className="mt-3 space-y-2">
-            {latestItems.length === 0 ? (
+            {latestItems.length === 0 ?(
               <p className="text-sm text-slate-400">Nenhum histórico</p>
             ) : latestItems.map(item => (
               <div key={item.id} className="rounded-lg bg-slate-50 border border-slate-100 p-2">

@@ -78,23 +78,23 @@ const permissionsForRole = (role?: string): string[] => {
 const resolveEventPermissions = async (user: any, eventId?: string): Promise<string[]> => {
   const globalRole = String(user?.role || '').toUpperCase();
   const activeLinks = user?.id
-    ? (await db.getEventUsers()).filter(link => link.userId === user.id && link.active)
+    ?(await db.getEventUsers()).filter(link => link.userId === user.id && link.active)
     : [];
   if ((globalRole === 'ADMIN' || user?.role === 'admin') && activeLinks.length === 0) return ALL_SYSTEM_PERMISSIONS;
 
   if (eventId) {
     const eventLink = await db.getEventUser(eventId, user.id);
     if (eventLink?.active) {
-      const linkPermissions = uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role));
-      const userPermissions = uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role));
+      const linkPermissions = uniquePermissions(eventLink.permissions?.length ?eventLink.permissions : permissionsForRole(eventLink.role));
+      const userPermissions = uniquePermissions(user?.permissions?.length ?user.permissions : permissionsForRole(user?.role));
       return userPermissions.length
-        ? linkPermissions.filter(permission => userPermissions.includes(permission))
+        ?linkPermissions.filter(permission => userPermissions.includes(permission))
         : linkPermissions;
     }
     if (activeLinks.length > 0) return [];
   }
 
-  return uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role));
+  return uniquePermissions(user?.permissions?.length ?user.permissions : permissionsForRole(user?.role));
 };
 
 const hasEventPermission = async (user: any, eventId: string | undefined, permission: string) =>
@@ -112,7 +112,7 @@ const canCreateEventsForUser = async (user: any) => {
   const globalRole = String(user?.role || '').toUpperCase();
   const activeLinks = (await db.getEventUsers()).filter(link => link.userId === user.id && link.active);
   if ((globalRole === 'ADMIN' || user?.role === 'admin') && activeLinks.length === 0) return true;
-  return uniquePermissions(user?.permissions?.length ? user.permissions : permissionsForRole(user?.role)).includes('events.create');
+  return uniquePermissions(user?.permissions?.length ?user.permissions : permissionsForRole(user?.role)).includes('events.create');
 };
 
 const requireEventCreatePermission = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -163,13 +163,13 @@ const getEventState = (event?: { eventMode?: string }) => {
   if (event?.eventMode === 'ENCERRADO') return 'ENCERRADO';
   return 'OFICIAL';
 };
-const getEventMode = (event?: { eventMode?: string }) => getEventState(event) === 'PREPARACAO' ? 'TESTE' : 'OFICIAL';
+const getEventMode = (event?: { eventMode?: string }) => getEventState(event) === 'PREPARACAO' ?'TESTE' : 'OFICIAL';
 const getEventRecordMeta = (event?: { eventMode?: string }) => {
   const origin = getEventMode(event) as 'TESTE' | 'OFICIAL';
   return {
     origin,
     isTest: origin === 'TESTE',
-    testStatus: origin === 'TESTE' ? 'ATIVO' as const : undefined
+    testStatus: origin === 'TESTE' ?'ATIVO' as const : undefined
   };
 };
 const isCanceledTestRecord = (record: { isTest?: boolean; origin?: string; testStatus?: string; checkinIsTest?: boolean; checkinOrigin?: string; checkinTestStatus?: string }) => {
@@ -189,12 +189,12 @@ const writeActionLog = async (log: { eventId?: string; userId?: string; particip
     await db.createActionLog({
       eventId: log.eventId,
       userId: log.userId,
-      ...(log.participantId ? { participantId: log.participantId } : {}),
-      ...(log.activityId ? { activityId: log.activityId } : {}),
-      ...(log.ticketNumber ? { ticketNumber: log.ticketNumber } : {}),
-      ...(log.origin ? { origin: log.origin } : {}),
-      ...(log.isTest !== undefined ? { isTest: log.isTest } : {}),
-      ...(log.testStatus ? { testStatus: log.testStatus } : {}),
+      ...(log.participantId ?{ participantId: log.participantId } : {}),
+      ...(log.activityId ?{ activityId: log.activityId } : {}),
+      ...(log.ticketNumber ?{ ticketNumber: log.ticketNumber } : {}),
+      ...(log.origin ?{ origin: log.origin } : {}),
+      ...(log.isTest !== undefined ?{ isTest: log.isTest } : {}),
+      ...(log.testStatus ?{ testStatus: log.testStatus } : {}),
       action: log.action
     });
   } catch (error) {
@@ -214,9 +214,9 @@ const sanitizeUserForApi = async (user: any) => {
     name: user.name,
     email: user.email,
     role: user.role,
-    permissions: uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)),
+    permissions: uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)),
     organizationId: user.organizationId || 'org1',
-    organizationName: org ? org.name : 'Organização'
+    organizationName: org ?org.name : 'Organização'
   };
 };
 
@@ -233,11 +233,11 @@ const getVisibleEventsForUser = async (user: any) => {
     }));
   }
 
-  const userPermissions = uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role));
+  const userPermissions = uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role));
   const roleByEventId = new Map(activeLinks.map(link => [link.eventId, link.role]));
   const permissionsByEventId = new Map(activeLinks.map(link => [
     link.eventId,
-    uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
+    uniquePermissions(link.permissions?.length ?link.permissions : permissionsForRole(link.role))
       .filter(permission => userPermissions.includes(permission))
   ]));
 
@@ -320,7 +320,7 @@ apiV1.get('/events', authenticateToken, async (req, res) => {
     const pagination = getPagination(req.query);
     const events = await getVisibleEventsForUser(user);
     const filtered = search
-      ? events.filter(event => [event.name, event.location, event.description].some(value => normalizeSearch(value).includes(search)))
+      ?events.filter(event => [event.name, event.location, event.description].some(value => normalizeSearch(value).includes(search)))
       : events;
     const sorted = sortRecords(filtered as Record<string, unknown>[], req.query.sort || 'date', req.query.order);
     const { data, meta } = paginateArray(sorted, pagination);
@@ -377,7 +377,7 @@ apiV1.get('/events/:eventId/participants', authenticateToken, async (req, res) =
 apiV1.get('/areas', authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;
-    const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
+    const eventId = typeof req.query.eventId === 'string' ?req.query.eventId : '';
     if (eventId) {
       const event = await db.getEventById(eventId);
       if (!event || event.organizationId !== user.organizationId || !(await canAccessEvent(user, eventId))) {
@@ -389,10 +389,10 @@ apiV1.get('/areas', authenticateToken, async (req, res) => {
     const search = normalizeSearch(req.query.search);
     const pagination = getPagination(req.query);
     const areas = await db.getAreas(eventId || undefined);
-    const organizationEventIds = eventId ? new Set([eventId]) : await getOrganizationEventIds(user.organizationId);
+    const organizationEventIds = eventId ?new Set([eventId]) : await getOrganizationEventIds(user.organizationId);
     const scopedAreas = areas.filter(area => organizationEventIds.has(area.eventId || area.event_id || ''));
     const filtered = search
-      ? scopedAreas.filter(area => normalizeSearch(area.name).includes(search))
+      ?scopedAreas.filter(area => normalizeSearch(area.name).includes(search))
       : scopedAreas;
     const sorted = sortRecords(filtered as unknown as Record<string, unknown>[], req.query.sort || 'name', req.query.order);
     const { data, meta } = paginateArray(sorted, pagination);
@@ -406,7 +406,7 @@ apiV1.get('/areas', authenticateToken, async (req, res) => {
 apiV1.get('/reports/summary', authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;
-    const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
+    const eventId = typeof req.query.eventId === 'string' ?req.query.eventId : '';
     if (!eventId) {
       sendError(res, 400, 'eventId é obrigatório', [
         { code: 'VALIDATION_ERROR', field: 'eventId', message: 'Informe o evento do relatório' }
@@ -433,7 +433,7 @@ apiV1.get('/reports/summary', authenticateToken, async (req, res) => {
         total: participants.length,
         checkedIn,
         pending,
-        attendancePercent: participants.length ? Math.round((checkedIn / participants.length) * 100) : 0
+        attendancePercent: participants.length ?Math.round((checkedIn / participants.length) * 100) : 0
       },
       access: {
         allowed: officialLogs.filter(log => log.action === 'ACCESS_ALLOWED').length,
@@ -596,7 +596,7 @@ const canManageAccessAreasForEvent = async (user: any, eventId?: string) => {
 const requireAccessAreaAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const user = (req as any).user;
   const bodyEventId = req.body?.eventId || req.body?.event_id;
-  const area = req.params.id ? await db.getAreaById(req.params.id) : undefined;
+  const area = req.params.id ?await db.getAreaById(req.params.id) : undefined;
   const eventId = area?.eventId || area?.event_id || bodyEventId;
 
   if (!eventId) {
@@ -621,7 +621,7 @@ const requireAccessAreaAdmin = async (req: express.Request, res: express.Respons
 
 const requireActivityAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const user = (req as any).user;
-  const activity = req.params.id ? await db.getActivityById(req.params.id) : undefined;
+  const activity = req.params.id ?await db.getActivityById(req.params.id) : undefined;
   const eventId = activity?.eventId || req.params.eventId || req.body?.eventId;
 
   if (!eventId) {
@@ -671,7 +671,7 @@ const DEFAULT_ONLINE_REGISTRATION_FIELDS: OnlineRegistrationField[] = [
 ];
 
 const getOnlineRegistrationFields = (config: any): OnlineRegistrationField[] => {
-  const configured = Array.isArray(config?.fields) ? config.fields : [];
+  const configured = Array.isArray(config?.fields) ?config.fields : [];
   const merged = DEFAULT_ONLINE_REGISTRATION_FIELDS.map(defaultField => ({
     ...defaultField,
     ...(configured.find((field: any) => field.key === defaultField.key) || {})
@@ -682,12 +682,12 @@ const getOnlineRegistrationFields = (config: any): OnlineRegistrationField[] => 
       id: String(field.id || `orf_${field.key || index}`),
       key: String(field.key || field.id || `custom_${index}`).replace(/[^a-zA-Z0-9_]/g, '_'),
       label: normalizeText(field.label) || 'Campo',
-      type: ['text', 'email', 'tel', 'number', 'select', 'checkbox'].includes(field.type) ? field.type : 'text',
+      type: ['text', 'email', 'tel', 'number', 'select', 'checkbox'].includes(field.type) ?field.type : 'text',
       required: field.required === true,
       visible: field.visible !== false,
-      options: Array.isArray(field.options) ? field.options.map((item: any) => normalizeText(item)).filter(Boolean) : [],
+      options: Array.isArray(field.options) ?field.options.map((item: any) => normalizeText(item)).filter(Boolean) : [],
       system: field.system === true,
-      order: Number.isFinite(Number(field.order)) ? Number(field.order) : index + 1
+      order: Number.isFinite(Number(field.order)) ?Number(field.order) : index + 1
     }))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 };
@@ -816,20 +816,20 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
     }
 
     const visibleFields = getOnlineRegistrationFields(config).filter(field => field.visible);
-    const formData = req.body?.fields && typeof req.body.fields === 'object' ? req.body.fields : req.body;
+    const formData = req.body?.fields && typeof req.body.fields === 'object' ?req.body.fields : req.body;
     const name = normalizeText(formData.name);
     const email = normalizeText(formData.email).toLowerCase();
     const phone = normalizeDigits(formData.phone);
     const cpf = normalizeDigits(formData.cpf);
     const company = normalizeText(formData.company);
     const position = normalizeText(formData.position);
-    const category = ['VIP', 'Palestrante', 'Expositor', 'Participante', 'Staff'].includes(formData.category) ? formData.category : 'Participante';
+    const category = ['VIP', 'Palestrante', 'Expositor', 'Participante', 'Staff'].includes(formData.category) ?formData.category : 'Participante';
     const lgpdAccepted = req.body.lgpdAccepted === true;
     const customFields = visibleFields
       .filter(field => !field.system)
       .reduce<Record<string, any>>((acc, field) => {
         const rawValue = formData[field.key];
-        acc[field.key] = field.type === 'checkbox' ? rawValue === true : normalizeText(rawValue);
+        acc[field.key] = field.type === 'checkbox' ?rawValue === true : normalizeText(rawValue);
         return acc;
       }, {});
 
@@ -843,8 +843,8 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
     }
     for (const field of visibleFields) {
       if (!field.required) continue;
-      const value = field.system ? formData[field.key] : customFields[field.key];
-      const empty = field.type === 'checkbox' ? value !== true : !normalizeText(value);
+      const value = field.system ?formData[field.key] : customFields[field.key];
+      const empty = field.type === 'checkbox' ?value !== true : !normalizeText(value);
       if (empty) {
         res.status(400).json({ error: `${field.label} é obrigatório.` });
         return;
@@ -886,7 +886,7 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       cpf,
       category,
       customFields,
-      status: isAutomatic ? 'APROVADA' : 'PENDENTE',
+      status: isAutomatic ?'APROVADA' : 'PENDENTE',
       lgpdAccepted
     });
 
@@ -968,9 +968,9 @@ app.put('/api/events/:eventId/online-registration-config', authenticateToken, as
       publicDate: normalizeText(req.body.publicDate) || event.date,
       publicLocation: normalizeText(req.body.publicLocation) || event.location,
       bannerUrl: normalizeText(req.body.bannerUrl),
-      maxRegistrations: req.body.maxRegistrations ? Math.max(0, Number(req.body.maxRegistrations)) : undefined,
-      status: ['ABERTA', 'PAUSADA', 'ENCERRADA'].includes(req.body.status) ? req.body.status : 'PAUSADA',
-      approvalMode: req.body.approvalMode === 'AUTOMATICA' ? 'AUTOMATICA' : 'MANUAL',
+      maxRegistrations: req.body.maxRegistrations ?Math.max(0, Number(req.body.maxRegistrations)) : undefined,
+      status: ['ABERTA', 'PAUSADA', 'ENCERRADA'].includes(req.body.status) ?req.body.status : 'PAUSADA',
+      approvalMode: req.body.approvalMode === 'AUTOMATICA' ?'AUTOMATICA' : 'MANUAL',
       fields: getOnlineRegistrationFields({ fields: req.body.fields })
     });
     res.json(config);
@@ -1060,7 +1060,7 @@ const updateOnlineRegistrationStatusRoute = (status: OnlineRegistrationStatus) =
 
     const updated = await db.updateOnlineRegistration(registration.id, {
       status,
-      ...(status === 'CANCELADA' ? { cancelledAt: new Date().toISOString() } : {})
+      ...(status === 'CANCELADA' ?{ cancelledAt: new Date().toISOString() } : {})
     });
     res.json(updated);
   } catch (error) {
@@ -1103,9 +1103,9 @@ app.post('/api/auth/login', async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      permissions: uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)),
+      permissions: uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)),
       organizationId: user.organizationId || 'org1',
-      organizationName: org ? org.name : 'Organização'
+      organizationName: org ?org.name : 'Organização'
     }
   });
 });
@@ -1126,7 +1126,7 @@ app.post('/api/auth/login-pin', async (req, res) => {
 
   const org = await db.getOrganizationById(user.organizationId || 'org1');
   const token = signAuthToken(user);
-  const permissions = uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role));
+  const permissions = uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role));
 
   res.json({
     token,
@@ -1137,7 +1137,7 @@ app.post('/api/auth/login-pin', async (req, res) => {
       role: user.role,
       permissions,
       organizationId: user.organizationId || 'org1',
-      organizationName: org ? org.name : 'Organização'
+      organizationName: org ?org.name : 'Organização'
     }
   });
 });
@@ -1149,7 +1149,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     user: {
       ...remoteUser,
       permissions: await resolveEventPermissions(remoteUser),
-      organizationName: org ? org.name : 'Organização'
+      organizationName: org ?org.name : 'Organização'
     } 
   });
 });
@@ -1227,7 +1227,7 @@ app.get('/api/users', authenticateToken, requireUserManagementPermission, async 
       name: u.name,
       email: u.email,
       role: u.role,
-      permissions: uniquePermissions(u.permissions?.length ? u.permissions : permissionsForRole(u.role)),
+      permissions: uniquePermissions(u.permissions?.length ?u.permissions : permissionsForRole(u.role)),
       createdAt: u.createdAt
     }));
     res.json(users);
@@ -1270,7 +1270,7 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
     email,
     passwordHash: await hashPassword(password),
     role: role as UserRole,
-    permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
+    permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ?permissions : permissionsForRole(role)),
     organizationId: user.organizationId || 'org1'
   });
 
@@ -1279,7 +1279,7 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
       eventId,
       userId: createdUser.id,
       role: eventRole || 'CHECKIN',
-      permissions: uniquePermissions(Array.isArray(eventPermissions) && eventPermissions.length ? eventPermissions : permissionsForRole(eventRole || 'CHECKIN')),
+      permissions: uniquePermissions(Array.isArray(eventPermissions) && eventPermissions.length ?eventPermissions : permissionsForRole(eventRole || 'CHECKIN')),
       active: eventActive !== false
     });
   }
@@ -1289,7 +1289,7 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
     name: createdUser.name,
     email: createdUser.email,
     role: createdUser.role,
-    permissions: uniquePermissions(createdUser.permissions?.length ? createdUser.permissions : permissionsForRole(createdUser.role)),
+    permissions: uniquePermissions(createdUser.permissions?.length ?createdUser.permissions : permissionsForRole(createdUser.role)),
     createdAt: createdUser.createdAt,
     eventLink: createdEventLink
   });
@@ -1350,7 +1350,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     name: updatedUser.name,
     email: updatedUser.email,
     role: updatedUser.role,
-    permissions: uniquePermissions(updatedUser.permissions?.length ? updatedUser.permissions : permissionsForRole(updatedUser.role)),
+    permissions: uniquePermissions(updatedUser.permissions?.length ?updatedUser.permissions : permissionsForRole(updatedUser.role)),
     createdAt: updatedUser.createdAt
   });
 });
@@ -1394,7 +1394,7 @@ app.get('/api/events/:eventId/users', authenticateToken, requireUserManagementPe
   const links = await db.getEventUsers(req.params.eventId);
   res.json(links.map(link => ({
     ...link,
-    permissions: uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
+    permissions: uniquePermissions(link.permissions?.length ?link.permissions : permissionsForRole(link.role))
   })));
 });
 
@@ -1424,7 +1424,7 @@ app.post('/api/events/:eventId/users', authenticateToken, requireUserManagementP
   if (existing) {
     const updated = await db.updateEventUser(existing.id, {
       role,
-      permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
+      permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ?permissions : permissionsForRole(role)),
       active: active !== false
     });
     res.json(updated);
@@ -1435,7 +1435,7 @@ app.post('/api/events/:eventId/users', authenticateToken, requireUserManagementP
     eventId,
     userId,
     role,
-    permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ? permissions : permissionsForRole(role)),
+    permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ?permissions : permissionsForRole(role)),
     active: active !== false
   });
   res.status(201).json(created);
@@ -1459,9 +1459,9 @@ app.put('/api/events/:eventId/users/:linkId', authenticateToken, requireUserMana
   }
 
   const updated = await db.updateEventUser(link.id, {
-    ...(role ? { role } : {}),
-    ...(Array.isArray(permissions) ? { permissions: uniquePermissions(permissions) } : {}),
-    ...(active !== undefined ? { active: Boolean(active) } : {})
+    ...(role ?{ role } : {}),
+    ...(Array.isArray(permissions) ?{ permissions: uniquePermissions(permissions) } : {}),
+    ...(active !== undefined ?{ active: Boolean(active) } : {})
   });
   res.json(updated);
 });
@@ -1502,8 +1502,8 @@ app.get('/api/events', authenticateToken, async (req, res) => {
     const roleByEventId = new Map(activeLinks.map(link => [link.eventId, link.role]));
     const permissionsByEventId = new Map(activeLinks.map(link => [
       link.eventId,
-      uniquePermissions(link.permissions?.length ? link.permissions : permissionsForRole(link.role))
-        .filter(permission => uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)).includes(permission))
+      uniquePermissions(link.permissions?.length ?link.permissions : permissionsForRole(link.role))
+        .filter(permission => uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)).includes(permission))
     ]));
     const linkedEvents = events
       .filter(event => roleByEventId.has(event.id))
@@ -1545,8 +1545,8 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
     res.json({
       ...event,
       currentUserRole: eventLink.role,
-      currentUserPermissions: uniquePermissions(eventLink.permissions?.length ? eventLink.permissions : permissionsForRole(eventLink.role))
-        .filter(permission => uniquePermissions(user.permissions?.length ? user.permissions : permissionsForRole(user.role)).includes(permission))
+      currentUserPermissions: uniquePermissions(eventLink.permissions?.length ?eventLink.permissions : permissionsForRole(eventLink.role))
+        .filter(permission => uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)).includes(permission))
     });
   } catch (error: any) {
     console.error('Error in GET /api/events/:id:', error);
@@ -1570,14 +1570,14 @@ app.post('/api/events', authenticateToken, requireEventCreatePermission, async (
     capacity: Number(capacity),
     credentialType: credentialType || 'badge',
     credentialSize: credentialSize || 'A6',
-    showQRCode: showQRCode !== undefined ? Boolean(showQRCode) : true,
-    enableAccessControl: enableAccessControl !== undefined ? Boolean(enableAccessControl) : true,
-    enableCloakroom: enableCloakroom !== undefined ? Boolean(enableCloakroom) : false,
-    enableScanner: enableScanner !== undefined ? Boolean(enableScanner) : true,
+    showQRCode: showQRCode !== undefined ?Boolean(showQRCode) : true,
+    enableAccessControl: enableAccessControl !== undefined ?Boolean(enableAccessControl) : true,
+    enableCloakroom: enableCloakroom !== undefined ?Boolean(enableCloakroom) : false,
+    enableScanner: enableScanner !== undefined ?Boolean(enableScanner) : true,
     layoutConfig: layoutConfig || null,
     checkinScreenConfig: checkinScreenConfig || undefined,
     cloakroomLabelConfig: cloakroomLabelConfig || undefined,
-    eventMode: eventMode === 'OFICIAL' || eventMode === 'ENCERRADO' ? eventMode : 'PREPARACAO',
+    eventMode: eventMode === 'OFICIAL' || eventMode === 'ENCERRADO' ?eventMode : 'PREPARACAO',
     organizationId: user.organizationId || 'org1'
   });
   res.status(201).json(newEvent);
@@ -1608,7 +1608,7 @@ app.put('/api/events/:id', authenticateToken, requireAdmin, async (req, res) => 
     ...(layoutConfig !== undefined && { layoutConfig }),
     ...(checkinScreenConfig !== undefined && { checkinScreenConfig }),
     ...(cloakroomLabelConfig !== undefined && { cloakroomLabelConfig }),
-    ...(eventMode !== undefined && { eventMode: eventMode === 'OFICIAL' || eventMode === 'ENCERRADO' ? eventMode : 'PREPARACAO' })
+    ...(eventMode !== undefined && { eventMode: eventMode === 'OFICIAL' || eventMode === 'ENCERRADO' ?eventMode : 'PREPARACAO' })
   });
 
   res.json(updated);
@@ -1619,7 +1619,7 @@ app.post('/api/events/:id/mode-test', authenticateToken, requireAdmin, async (re
   const event = await db.getEventById(req.params.id);
 
   if (!event || event.organizationId !== user.organizationId) {
-    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    res.status(404).json({ error: 'Evento não encontrado' });
     return;
   }
 
@@ -1632,7 +1632,7 @@ app.post('/api/events/:id/start-official', authenticateToken, requireAdmin, asyn
   const event = await db.getEventById(req.params.id);
 
   if (!event || event.organizationId !== user.organizationId) {
-    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    res.status(404).json({ error: 'Evento não encontrado' });
     return;
   }
 
@@ -1645,7 +1645,7 @@ app.post('/api/events/:id/close-event', authenticateToken, requireAdmin, async (
   const event = await db.getEventById(req.params.id);
 
   if (!event || event.organizationId !== user.organizationId) {
-    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    res.status(404).json({ error: 'Evento não encontrado' });
     return;
   }
 
@@ -1658,7 +1658,7 @@ app.post('/api/events/:id/reopen-event', authenticateToken, requireAdmin, async 
   const event = await db.getEventById(req.params.id);
 
   if (!event || event.organizationId !== user.organizationId) {
-    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    res.status(404).json({ error: 'Evento não encontrado' });
     return;
   }
 
@@ -1671,12 +1671,12 @@ app.post('/api/events/:id/reset-tests', authenticateToken, requireAdmin, async (
   const event = await db.getEventById(req.params.id);
 
   if (!event || event.organizationId !== user.organizationId) {
-    res.status(404).json({ error: 'Evento nÃ£o encontrado' });
+    res.status(404).json({ error: 'Evento não encontrado' });
     return;
   }
 
   if (req.body?.confirmation !== 'ZERAR TESTES') {
-    res.status(400).json({ error: 'ConfirmaÃ§Ã£o invÃ¡lida. Digite ZERAR TESTES para continuar.' });
+    res.status(400).json({ error: 'Confirmação inválida. Digite ZERAR TESTES para continuar.' });
     return;
   }
 
@@ -1742,8 +1742,8 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
 
   const { name, email, cpf, category, ticketCode, checkedIn, checkedInAt, company, badgeName } = req.body;
   const allowedAreaIds = Array.isArray(req.body.allowedAreaIds)
-    ? req.body.allowedAreaIds
-    : (Array.isArray(req.body.allowedAreas) ? req.body.allowedAreas : []);
+    ?req.body.allowedAreaIds
+    : (Array.isArray(req.body.allowedAreas) ?req.body.allowedAreas : []);
 
   // Validate fields dynamically
   const fields = await db.getParticipantFields();
@@ -1788,7 +1788,7 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
     company: company || '',
     allowedAreaIds,
     allowedAreas: allowedAreaIds,
-    ...(checkedIn ? {
+    ...(checkedIn ?{
       checkedInByUserId: user.id,
       checkedInByName: user?.name || user?.email || 'Operador',
       checkinOrigin: recordMeta.origin,
@@ -1864,7 +1864,7 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
       const match = keys.find(k => 
         possibleNames.some(pName => k.toLowerCase().trim() === pName.toLowerCase())
       );
-      return match ? p[match] : undefined;
+      return match ?p[match] : undefined;
     };
 
     const name = String(findValue(['nome', 'name', 'nome completo', 'nome_completo', 'full name', 'fullname', 'membro']) || '').trim();
@@ -1939,7 +1939,7 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
       cpf,
       category,
       company,
-      ...(ticketCode ? { ticketCode } : {}),
+      ...(ticketCode ?{ ticketCode } : {}),
       allowedAreaIds: allowedAreas,
       allowedAreas
     };
@@ -1975,11 +1975,11 @@ app.put('/api/participants/:id', authenticateToken, requireAdmin, async (req, re
   }
 
   const allowedAreaIds = req.body.allowedAreaIds !== undefined
-    ? req.body.allowedAreaIds
+    ?req.body.allowedAreaIds
     : req.body.allowedAreas;
   const updated = await db.updateParticipant(req.params.id, {
     ...req.body,
-    ...(allowedAreaIds !== undefined ? { allowedAreaIds, allowedAreas: allowedAreaIds } : {})
+    ...(allowedAreaIds !== undefined ?{ allowedAreaIds, allowedAreas: allowedAreaIds } : {})
   });
   if (updated) {
     await writeActionLog({
@@ -2091,7 +2091,7 @@ app.post('/api/participants/:id/checkin', authenticateToken, async (req, res) =>
   }
 
   res.json({
-    message: checkedIn ? 'Check-in realizado com sucesso' : 'Check-in desfeito com sucesso',
+    message: checkedIn ?'Check-in realizado com sucesso' : 'Check-in desfeito com sucesso',
     participant: updated
   });
 });
@@ -2221,9 +2221,9 @@ app.get('/api/logs', authenticateToken, async (req, res) => {
     const participant = await db.getParticipantById(log.participantId);
     return {
       ...log,
-      participantName: participant ? participant.name : 'Membro Desconhecido',
-      participantCpf: participant ? participant.cpf : '',
-      participantCategory: participant ? participant.category : 'Participante'
+      participantName: participant ?participant.name : 'Membro Desconhecido',
+      participantCpf: participant ?participant.cpf : '',
+      participantCategory: participant ?participant.category : 'Participante'
     };
   }));
 
@@ -2240,7 +2240,7 @@ app.get('/api/action-logs', authenticateToken, async (req, res) => {
 
   const scopedLogs = logs.filter(log => eventIds.has(log.eventId));
   const enriched = await Promise.all(scopedLogs.map(async (log) => {
-    const participant = log.participantId ? await db.getParticipantById(log.participantId) : undefined;
+    const participant = log.participantId ?await db.getParticipantById(log.participantId) : undefined;
     const operator = users.find(item => item.id === log.userId);
     return {
       ...log,
@@ -2399,7 +2399,7 @@ app.post('/api/events/:eventId/activity-attendances', authenticateToken, async (
       return;
     }
 
-    const activity = activityId ? await db.getActivityById(activityId) : undefined;
+    const activity = activityId ?await db.getActivityById(activityId) : undefined;
     if (!activity || activity.eventId !== req.params.eventId || activity.active === false) {
       res.status(400).json({ error: 'Atividade inválida ou inativa' });
       return;
@@ -2562,11 +2562,11 @@ app.put('/api/events/:eventId/certificate-template', authenticateToken, requireC
     const input = req.body || {};
     const templateInput: Partial<CertificateTemplate> = {
       name: input.name,
-      orientation: input.orientation === 'portrait' ? 'portrait' : 'landscape',
-      pageSize: input.pageSize === 'A5' ? 'A5' : 'A4',
-      backgroundImageUrl: typeof input.backgroundImageUrl === 'string' ? input.backgroundImageUrl : '',
-      logoUrl: typeof input.logoUrl === 'string' ? input.logoUrl : '',
-      elements: Array.isArray(input.elements) ? input.elements : undefined
+      orientation: input.orientation === 'portrait' ?'portrait' : 'landscape',
+      pageSize: input.pageSize === 'A5' ?'A5' : 'A4',
+      backgroundImageUrl: typeof input.backgroundImageUrl === 'string' ?input.backgroundImageUrl : '',
+      logoUrl: typeof input.logoUrl === 'string' ?input.logoUrl : '',
+      elements: Array.isArray(input.elements) ?input.elements : undefined
     };
     const template = await db.saveCertificateTemplate(req.params.eventId, templateInput);
     res.json(template);
@@ -2579,14 +2579,14 @@ app.post('/api/events/:eventId/certificates', authenticateToken, requireCertific
   try {
     const user = (req as any).user;
     const { participantId, activityId, type } = req.body;
-    const certificateType = type === 'activity' ? 'activity' : 'general';
+    const certificateType = type === 'activity' ?'activity' : 'general';
     const event = await db.getEventById(req.params.eventId);
     if (!event || event.organizationId !== user.organizationId) {
       res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
       return;
     }
 
-    const participant = participantId ? await db.getParticipantById(participantId) : undefined;
+    const participant = participantId ?await db.getParticipantById(participantId) : undefined;
     if (!participant || participant.eventId !== req.params.eventId) {
       res.status(404).json({ error: 'Participante não encontrado' });
       return;
@@ -2603,8 +2603,8 @@ app.post('/api/events/:eventId/certificates', authenticateToken, requireCertific
     let totalHours = 0;
 
     if (certificateType === 'activity') {
-      const activity = activityId ? activities.find(item => item.id === activityId) : undefined;
-      const hasAttendance = activity ? attendances.some(att => att.activityId === activity.id) : false;
+      const activity = activityId ?activities.find(item => item.id === activityId) : undefined;
+      const hasAttendance = activity ?attendances.some(att => att.activityId === activity.id) : false;
       if (!activity || !hasAttendance) {
         res.status(400).json({ error: 'Participante não possui presença registrada nesta atividade.' });
         return;
@@ -2621,7 +2621,7 @@ app.post('/api/events/:eventId/certificates', authenticateToken, requireCertific
     const certificate = await db.createCertificate({
       eventId: req.params.eventId,
       participantId: participant.id,
-      ...(certificateActivityId ? { activityId: certificateActivityId } : {}),
+      ...(certificateActivityId ?{ activityId: certificateActivityId } : {}),
       type: certificateType,
       totalHours,
       issuedByUserId: user.id
@@ -2630,7 +2630,7 @@ app.post('/api/events/:eventId/certificates', authenticateToken, requireCertific
     await writeActionLog({
       eventId: req.params.eventId,
       participantId: participant.id,
-      ...(certificateActivityId ? { activityId: certificateActivityId } : {}),
+      ...(certificateActivityId ?{ activityId: certificateActivityId } : {}),
       userId: user.id,
       action: 'CERTIFICATE_ISSUED'
     });
@@ -2665,7 +2665,7 @@ app.get('/api/events/:eventId/certificates', authenticateToken, async (req, res)
 
     const enriched = certificates.map(certificate => {
       const participant = participants.find(item => item.id === certificate.participantId);
-      const activity = certificate.activityId ? activities.find(item => item.id === certificate.activityId) : undefined;
+      const activity = certificate.activityId ?activities.find(item => item.id === certificate.activityId) : undefined;
       const operator = users.find(item => item.id === certificate.issuedByUserId);
       return {
         ...certificate,
@@ -2759,6 +2759,7 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     participantName,
     itemDescription,
     volumeCount,
+    volumes,
     storageRackId,
     storageRackName,
     storageColumn,
@@ -2779,6 +2780,7 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     participantName,
     itemDescription: itemDescription || '',
     volumeCount: Math.max(1, Math.min(5, Number(volumeCount) || 1)),
+    volumes: Array.isArray(volumes) ?volumes : undefined,
     storageRackId,
     storageRackName,
     storageColumn,
@@ -3062,14 +3064,14 @@ app.post('/api/access-profiles', authenticateToken, requireAdmin, async (req, re
       return;
     }
     const profileEventId = eventId || event_id;
-    const event = profileEventId ? await db.getEventById(profileEventId) : undefined;
+    const event = profileEventId ?await db.getEventById(profileEventId) : undefined;
     if (!event || event.organizationId !== user.organizationId) {
       res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
       return;
     }
     const newProfile = await db.createAccessProfile({ 
       name, 
-      area_ids: Array.isArray(area_ids) ? area_ids : [], 
+      area_ids: Array.isArray(area_ids) ?area_ids : [], 
       eventId: profileEventId,
       event_id: profileEventId 
     });
@@ -3154,10 +3156,10 @@ app.get('/api/access-control/logs', authenticateToken, async (req, res) => {
 
       return {
         ...log,
-        participantName: participant ? participant.name : 'Membro Desconhecido',
-        participantCpf: participant ? participant.cpf : '',
-        areaName: area ? area.name : 'Área Desconhecida',
-        operatorName: operator ? operator.name : 'Operador'
+        participantName: participant ?participant.name : 'Membro Desconhecido',
+        participantCpf: participant ?participant.cpf : '',
+        areaName: area ?area.name : 'Área Desconhecida',
+        operatorName: operator ?operator.name : 'Operador'
       };
     });
 
@@ -3196,7 +3198,7 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
     const isAreaActive = area && (area.active !== false && area.isActive !== false && area.is_active !== false);
     const areaEventId = area?.eventId || area?.event_id;
     const effectiveEventId = String(eventId || areaEventId || '');
-    const areaEvent = effectiveEventId ? await db.getEventById(effectiveEventId) : undefined;
+    const areaEvent = effectiveEventId ?await db.getEventById(effectiveEventId) : undefined;
     if (!area || !areaEvent || areaEvent.organizationId !== user.organizationId || (areaEventId && areaEventId !== effectiveEventId)) {
       res.status(404).json({ error: 'Área não encontrada ou acesso restrito' });
       return;
@@ -3213,9 +3215,9 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
       await writeActionLog({
         eventId: participantEventId || effectiveEventId,
         userId: user.id,
-        ...(participantId ? { participantId } : {}),
+        ...(participantId ?{ participantId } : {}),
         ...recordMeta,
-        action: status === 'ALLOWED' ? 'ACCESS_ALLOWED' : 'ACCESS_DENIED'
+        action: status === 'ALLOWED' ?'ACCESS_ALLOWED' : 'ACCESS_DENIED'
       });
     };
 
@@ -3297,8 +3299,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
 
     // Validation rule check 3: IF participante não tem acesso à área -> NEGAR acesso
     const participantAllowedAreaIds = Array.isArray(participant.allowedAreaIds)
-      ? participant.allowedAreaIds
-      : (Array.isArray(participant.allowedAreas) ? participant.allowedAreas : []);
+      ?participant.allowedAreaIds
+      : (Array.isArray(participant.allowedAreas) ?participant.allowedAreas : []);
     const hasAccess = participantAllowedAreaIds.includes(areaId);
 
     if (!hasAccess) {

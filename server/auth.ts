@@ -99,7 +99,7 @@ export const authenticateToken = async (req: express.Request, res: express.Respo
     const payload = jwt.verify(token, getJwtSecret()) as jwt.JwtPayload;
     const userId = String(payload.sub || '');
     if (!userId) {
-      res.status(403).json({ error: 'Token invalido ou expirado' });
+      res.status(403).json({ error: 'Token inválido ou expirado' });
       return;
     }
 
@@ -118,7 +118,7 @@ export const authenticateToken = async (req: express.Request, res: express.Respo
     (req as any).user = sanitizeAuthenticatedUser(user);
     next();
   } catch (error) {
-    res.status(403).json({ error: 'Token invalido ou expirado' });
+    res.status(403).json({ error: 'Token inválido ou expirado' });
   }
 };
 

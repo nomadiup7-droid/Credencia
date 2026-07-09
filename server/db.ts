@@ -1535,12 +1535,37 @@ class Database {
     if (this.useSupabase) {
       const nextTag = await this.getNextTagNumber(item.eventId);
       const volumeCount = Math.max(1, Math.min(5, Number(item.volumeCount) || 1));
+      const volumeTags = Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`);
+      const volumes = Array.from({ length: volumeCount }, (_, index) => {
+        const source = item.volumes?.[index];
+        return {
+          id: source?.id || `vol_${index + 1}`,
+          tag: volumeTags[index],
+          description: source?.description || item.itemDescription || '',
+          storageRackId: source?.storageRackId || item.storageRackId,
+          storageRackName: source?.storageRackName || item.storageRackName,
+          storageColumn: source?.storageColumn || item.storageColumn,
+          storageRow: source?.storageRow || item.storageRow,
+          storageAddress: source?.storageAddress || item.storageAddress,
+          storageOccupiedAt: source?.storageOccupiedAt || item.storageOccupiedAt,
+          storageOperatorId: source?.storageOperatorId || item.storageOperatorId
+        };
+      });
       const newItem = {
         ...item,
+        itemDescription: volumes.map((volume, index) => `Volume ${index + 1}: ${volume.description || '-'}`).join('\n'),
+        storageRackId: volumes[0]?.storageRackId,
+        storageRackName: volumes[0]?.storageRackName,
+        storageColumn: volumes[0]?.storageColumn,
+        storageRow: volumes[0]?.storageRow,
+        storageAddress: volumes[0]?.storageAddress,
+        storageOccupiedAt: volumes[0]?.storageOccupiedAt,
+        storageOperatorId: volumes[0]?.storageOperatorId,
         id: 'c_' + Math.random().toString(36).substring(2, 9),
         tagNumber: nextTag,
         volumeCount,
-        volumeTags: Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`),
+        volumeTags,
+        volumes,
         status: 'guardado',
         registeredAt: new Date().toISOString()
       };
@@ -1550,12 +1575,37 @@ class Database {
     }
     const nextTag = await this.getNextTagNumber(item.eventId);
     const volumeCount = Math.max(1, Math.min(5, Number(item.volumeCount) || 1));
+    const volumeTags = Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`);
+    const volumes = Array.from({ length: volumeCount }, (_, index) => {
+      const source = item.volumes?.[index];
+      return {
+        id: source?.id || `vol_${index + 1}`,
+        tag: volumeTags[index],
+        description: source?.description || item.itemDescription || '',
+        storageRackId: source?.storageRackId || item.storageRackId,
+        storageRackName: source?.storageRackName || item.storageRackName,
+        storageColumn: source?.storageColumn || item.storageColumn,
+        storageRow: source?.storageRow || item.storageRow,
+        storageAddress: source?.storageAddress || item.storageAddress,
+        storageOccupiedAt: source?.storageOccupiedAt || item.storageOccupiedAt,
+        storageOperatorId: source?.storageOperatorId || item.storageOperatorId
+      };
+    });
     const newItem: CloakroomItem = {
       ...item,
+      itemDescription: volumes.map((volume, index) => `Volume ${index + 1}: ${volume.description || '-'}`).join('\n'),
+      storageRackId: volumes[0]?.storageRackId,
+      storageRackName: volumes[0]?.storageRackName,
+      storageColumn: volumes[0]?.storageColumn,
+      storageRow: volumes[0]?.storageRow,
+      storageAddress: volumes[0]?.storageAddress,
+      storageOccupiedAt: volumes[0]?.storageOccupiedAt,
+      storageOperatorId: volumes[0]?.storageOperatorId,
       id: 'c_' + Math.random().toString(36).substring(2, 9),
       tagNumber: nextTag,
       volumeCount,
-      volumeTags: Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`),
+      volumeTags,
+      volumes,
       status: 'guardado',
       registeredAt: new Date().toISOString()
     };

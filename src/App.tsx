@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from '@e965/xlsx';
 import {
   Calendar,
@@ -57,7 +57,7 @@ import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
-import { User, Event, Participant, CloakroomItem, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement, ActiveTab, ActivityAttendanceView, CertificateActivityView, CertificateLookupResult, ImportTargetField, ImportTemplate, ReportActionLog, ReportAreaAccessLog, ReportBrandConfig, ReportCertificate, ReportConfig, ReportOptionKey, Toast } from './types';
+import { User, Event, Participant, CloakroomItem, CloakroomVolume, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement, ActiveTab, ActivityAttendanceView, CertificateActivityView, CertificateLookupResult, ImportTargetField, ImportTemplate, ReportActionLog, ReportAreaAccessLog, ReportBrandConfig, ReportCertificate, ReportConfig, ReportOptionKey, Toast } from './types';
 import { CATEGORY_TAGS } from './constants/categories';
 import { CERTIFICATE_ELEMENT_PRESETS, DEFAULT_CERTIFICATE_TEMPLATE, getCertificateElementDefaults, normalizeCertificateTemplate } from './constants/certificates';
 import { DEFAULT_CLOAKROOM_LABEL_CONFIG } from './constants/cloakroom';
@@ -90,8 +90,8 @@ export default function App() {
   const userRole = String(currentUser?.role || '').toUpperCase();
   const eventRole = String(currentEventRole || currentUser?.role || '').toUpperCase();
   const effectivePermissions = currentEventPermissions.length
-    ? currentEventPermissions
-    : normalizePermissions(currentUser?.permissions?.length ? currentUser.permissions : legacyPermissionsForRole(currentEventRole || currentUser?.role));
+    ?currentEventPermissions
+    : normalizePermissions(currentUser?.permissions?.length ?currentUser.permissions : legacyPermissionsForRole(currentEventRole || currentUser?.role));
   const hasSystemPermission = (permission: string) => effectivePermissions.includes(permission);
   const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin' || eventRole === 'ADMIN';
   const canCreateEvents = hasSystemPermission('events.create');
@@ -201,7 +201,7 @@ export default function App() {
   const [reportConfig, setReportConfig] = useState<ReportConfig>(() => {
     try {
       const saved = localStorage.getItem('credencia_report_config');
-      return saved ? { ...DEFAULT_REPORT_CONFIG, ...JSON.parse(saved) } : DEFAULT_REPORT_CONFIG;
+      return saved ?{ ...DEFAULT_REPORT_CONFIG, ...JSON.parse(saved) } : DEFAULT_REPORT_CONFIG;
     } catch (error) {
       return DEFAULT_REPORT_CONFIG;
     }
@@ -219,6 +219,10 @@ export default function App() {
   const [cloakroomSelectedParticipant, setCloakroomSelectedParticipant] = useState<Participant | null>(null);
   const [cloakroomVolumeCount, setCloakroomVolumeCount] = useState(1);
   const [cloakroomDescription, setCloakroomDescription] = useState('');
+  const [cloakroomVolumeDrafts, setCloakroomVolumeDrafts] = useState<Array<Partial<CloakroomVolume>>>([
+    { id: 'vol_1', description: '' }
+  ]);
+  const [activeCloakroomVolumeIndex, setActiveCloakroomVolumeIndex] = useState(0);
   const [cloakroomSelectedPosition, setCloakroomSelectedPosition] = useState<CloakroomStoragePosition | null>(null);
   const [cloakroomMapConfig, setCloakroomMapConfig] = useState({ rackName: 'Principal', columns: 10, rows: 25 });
   const [cloakroomSuccess, setCloakroomSuccess] = useState<CloakroomItem | null>(null);
@@ -332,12 +336,12 @@ export default function App() {
   const getActiveHeaders = () => {
     return {
       'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      ...(token ?{ 'Authorization': `Bearer ${token}` } : {})
     };
   };
 
   useEffect(() => {
-    localStorage.setItem('credencia_theme', isDarkTheme ? 'dark' : 'light');
+    localStorage.setItem('credencia_theme', isDarkTheme ?'dark' : 'light');
   }, [isDarkTheme]);
 
   useEffect(() => {
@@ -373,7 +377,7 @@ export default function App() {
       if (e?.name === 'AbortError') throw e;
       const isNetworkError = e instanceof TypeError || String(e?.message || '').toLowerCase().includes('failed to fetch');
       const message = isNetworkError
-        ? 'Nao foi possivel conectar ao servidor. Verifique se o sistema esta rodando.'
+        ?'Nao foi possivel conectar ao servidor. Verifique se o sistema esta rodando.'
         : (e.message || 'Erro de comunicacao com o servidor');
       console.error(`API Call failed to [${endpoint}]:`, { message: e?.message, name: e?.name });
       addToast(message, 'error');
@@ -450,7 +454,7 @@ export default function App() {
     setCertificateTemplate(prev => ({
       ...prev,
       elements: prev.elements.map((element, index) =>
-        element.id === elementId ? getCertificateElementDefaults({ ...element, ...updates }, index) : element
+        element.id === elementId ?getCertificateElementDefaults({ ...element, ...updates }, index) : element
       )
     }));
   };
@@ -462,12 +466,12 @@ export default function App() {
       type,
       label: preset.label,
       placeholder: preset.placeholder,
-      text: type === 'text' ? preset.placeholder : '',
-      imageUrl: type === 'image' ? (preset.label === 'Logo' ? certificateTemplate.logoUrl : '') : '',
-      x: type === 'image' ? 38 : 24,
-      y: type === 'image' ? 12 : 24,
-      width: type === 'image' ? 24 : 52,
-      height: type === 'image' ? 14 : 7,
+      text: type === 'text' ?preset.placeholder : '',
+      imageUrl: type === 'image' ?(preset.label === 'Logo' ?certificateTemplate.logoUrl : '') : '',
+      x: type === 'image' ?38 : 24,
+      y: type === 'image' ?12 : 24,
+      width: type === 'image' ?24 : 52,
+      height: type === 'image' ?14 : 7,
       order: certificateTemplate.elements.length + 1
     }, certificateTemplate.elements.length);
 
@@ -479,7 +483,7 @@ export default function App() {
     setCertificateTemplate(prev => ({
       ...prev,
       id: `ctpl_${Math.random().toString(36).slice(2, 9)}`,
-      name: `${prev.name || 'Template'} - cópia`,
+      name: `${prev.name || 'Template'} - c?pia`,
       elements: prev.elements.map((element, index) => ({
         ...element,
         id: `ctel_${Math.random().toString(36).slice(2, 9)}`,
@@ -581,7 +585,7 @@ export default function App() {
       setCurrentUser(data.user);
       setCurrentEventRole('');
       setSelectedEventId('');
-      setActiveTab(String(data.user?.role || '').toUpperCase() === 'ADMIN' || data.user?.role === 'admin' ? 'dashboard' : 'checkin');
+      setActiveTab(String(data.user?.role || '').toUpperCase() === 'ADMIN' || data.user?.role === 'admin' ?'dashboard' : 'checkin');
       addToast(`Bem-vindo de volta, ${data.user.name}!`, 'success');
     } catch (err) {
       // API call triggers toast automatically
@@ -609,7 +613,7 @@ export default function App() {
       setCurrentUser(data.user);
       setCurrentEventRole('');
       setSelectedEventId('');
-      setActiveTab(String(data.user?.role || '').toUpperCase() === 'ADMIN' || data.user?.role === 'admin' ? 'dashboard' : 'checkin');
+      setActiveTab(String(data.user?.role || '').toUpperCase() === 'ADMIN' || data.user?.role === 'admin' ?'dashboard' : 'checkin');
       addToast(`Bem-vindo de volta, ${data.user.name}!`, 'success');
     } catch (err: any) {
       // failed PIN attempts are warned
@@ -703,7 +707,7 @@ export default function App() {
         body: JSON.stringify({
           name: profileForm.name,
           email: profileForm.email,
-          ...(profileForm.password ? { password: profileForm.password } : {})
+          ...(profileForm.password ?{ password: profileForm.password } : {})
         })
       });
 
@@ -729,7 +733,7 @@ export default function App() {
     checked: boolean
   ) => {
     const current = new Set(source);
-    permissions.forEach(permission => checked ? current.add(permission) : current.delete(permission));
+    permissions.forEach(permission => checked ?current.add(permission) : current.delete(permission));
     return normalizePermissions([...current]);
   };
 
@@ -843,7 +847,7 @@ export default function App() {
       });
       setEventUsers(prev => {
         const exists = prev.some(link => link.id === saved.id);
-        return exists ? prev.map(link => link.id === saved.id ? saved : link) : [...prev, saved];
+        return exists ?prev.map(link => link.id === saved.id ?saved : link) : [...prev, saved];
       });
       addToast('Vínculo entre usuário e evento salvo com sucesso!', 'success');
     } catch (e) {}
@@ -855,7 +859,7 @@ export default function App() {
         method: 'PUT',
         body: JSON.stringify({ active: !link.active })
       });
-      setEventUsers(prev => prev.map(item => item.id === updated.id ? updated : item));
+      setEventUsers(prev => prev.map(item => item.id === updated.id ?updated : item));
     } catch (e) {}
   };
 
@@ -878,8 +882,8 @@ export default function App() {
 
     try {
       const isEdit = !!userForm.id;
-      const endpoint = isEdit ? `/api/users/${userForm.id}` : '/api/users';
-      const method = isEdit ? 'PUT' : 'POST';
+      const endpoint = isEdit ?`/api/users/${userForm.id}` : '/api/users';
+      const method = isEdit ?'PUT' : 'POST';
 
       const saved = await apiCall(endpoint, {
         method,
@@ -888,8 +892,8 @@ export default function App() {
           email: userForm.email,
           role: userForm.role,
           permissions: userForm.permissions,
-          ...(userForm.password ? { password: userForm.password } : {}),
-          ...(!isEdit && userForm.eventId ? {
+          ...(userForm.password ?{ password: userForm.password } : {}),
+          ...(!isEdit && userForm.eventId ?{
             eventId: userForm.eventId,
             eventRole: userForm.eventRole,
             eventPermissions: userForm.permissions,
@@ -899,7 +903,7 @@ export default function App() {
       });
 
       if (isEdit) {
-        setUsersList(prev => prev.map(u => u.id === saved.id ? saved : u));
+        setUsersList(prev => prev.map(u => u.id === saved.id ?saved : u));
         addToast(`Usuário "${saved.name}" atualizado com sucesso!`, 'success');
       } else {
         setUsersList(prev => [...prev, saved]);
@@ -920,7 +924,7 @@ export default function App() {
         if (userForm.eventId === eventUserForm.eventId) {
           setEventUsers(prev => {
             const exists = prev.some(link => link.id === savedLink.id);
-            return exists ? prev.map(link => link.id === savedLink.id ? savedLink : link) : [...prev, savedLink];
+            return exists ?prev.map(link => link.id === savedLink.id ?savedLink : link) : [...prev, savedLink];
           });
         }
 
@@ -949,7 +953,7 @@ export default function App() {
       addToast('Você não pode excluir sua própria conta atualmente ativa.', 'error');
       return;
     }
-    if (!window.confirm('Excluir este login removerá definitivamente o acesso dele ao sistema. Confirmar exclusão?')) return;
+    if (!window.confirm('Excluir este login remover? definitivamente o acesso dele ao sistema. Confirmar exclusão?')) return;
 
     try {
       await apiCall(`/api/users/${id}`, { method: 'DELETE' });
@@ -976,7 +980,7 @@ export default function App() {
 
   useEffect(() => {
     if (window.location.pathname !== '/checkin/mobile' && activeTab === 'checkin-mobile') {
-      setActiveTab(isUserAdmin ? (selectedEventId ? 'evento-dashboard' : 'dashboard') : 'checkin');
+      setActiveTab(isUserAdmin ?(selectedEventId ?'evento-dashboard' : 'dashboard') : 'checkin');
     }
   }, [activeTab, isUserAdmin, selectedEventId]);
 
@@ -992,7 +996,7 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
     const allowedTabs: ActiveTab[] = isUserAdmin
-      ? [
+      ?[
           'dashboard',
           'eventos',
           'participantes',
@@ -1020,7 +1024,7 @@ export default function App() {
     if (canIssueCertificates) allowedTabs.push('certificados');
 
     if (!allowedTabs.includes(activeTab)) {
-      setActiveTab(isUserAdmin ? 'dashboard' : 'checkin');
+      setActiveTab(isUserAdmin ?'dashboard' : 'checkin');
     }
   }, [currentUser, isUserAdmin, canManageOperators, canManageParticipants, canViewReports, canIssueCertificates, activeTab]);
 
@@ -1044,7 +1048,7 @@ export default function App() {
       if (data.length === 1) {
         persistSelectedEvent(data[0].id, data[0].currentUserRole);
         if (!selectedEventId || activeTab === 'eventos-ativos') {
-          setActiveTab(isUserAdmin ? 'evento-dashboard' : 'checkin');
+          setActiveTab(isUserAdmin ?'evento-dashboard' : 'checkin');
         }
         return;
       }
@@ -1085,11 +1089,11 @@ export default function App() {
       if (requestId !== loadDataRequestRef.current) return;
       setAvailableAreas(areasData || []);
       setAccessProfiles(profilesData || []);
-      setAreaAccessLogs(Array.isArray(accessLogsData) ? accessLogsData : []);
-      setActionLogs(Array.isArray(actionLogsData) ? actionLogsData : []);
-      setActivities(Array.isArray(activitiesData) ? activitiesData : []);
-      setActivityAttendances(Array.isArray(activityAttendancesData) ? activityAttendancesData : []);
-      setCertificates(Array.isArray(certificatesData) ? certificatesData : []);
+      setAreaAccessLogs(Array.isArray(accessLogsData) ?accessLogsData : []);
+      setActionLogs(Array.isArray(actionLogsData) ?actionLogsData : []);
+      setActivities(Array.isArray(activitiesData) ?activitiesData : []);
+      setActivityAttendances(Array.isArray(activityAttendancesData) ?activityAttendancesData : []);
+      setCertificates(Array.isArray(certificatesData) ?certificatesData : []);
 
       if (isUserAdmin || canViewReports) {
         // Parallelize fetches for speedy Operacao load times for admins
@@ -1150,9 +1154,9 @@ export default function App() {
   }, [events, selectedEventId]);
 
   const currentEventState = currentEvent?.eventMode === 'PREPARACAO' || currentEvent?.eventMode === 'TESTE'
-    ? 'PREPARACAO'
+    ?'PREPARACAO'
     : currentEvent?.eventMode === 'ENCERRADO'
-      ? 'ENCERRADO'
+      ?'ENCERRADO'
       : 'OFICIAL';
   const isCurrentEventTestMode = currentEventState === 'PREPARACAO';
   const isCurrentEventOfficialMode = currentEventState === 'OFICIAL';
@@ -1186,7 +1190,7 @@ export default function App() {
     if (!currentEvent) return;
     const eventRole = currentEvent.currentUserRole || currentUser?.role || '';
     setCurrentEventRole(eventRole);
-    setCurrentEventPermissions(normalizePermissions(currentEvent.currentUserPermissions?.length ? currentEvent.currentUserPermissions : currentUser?.permissions || legacyPermissionsForRole(eventRole || currentUser?.role)));
+    setCurrentEventPermissions(normalizePermissions(currentEvent.currentUserPermissions?.length ?currentEvent.currentUserPermissions : currentUser?.permissions || legacyPermissionsForRole(eventRole || currentUser?.role)));
     localStorage.setItem(CURRENT_EVENT_ID_STORAGE_KEY, currentEvent.id);
     localStorage.setItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY, currentEvent.id);
     if (eventRole) {
@@ -1261,7 +1265,7 @@ export default function App() {
       setReportBrandConfig(prev => ({
         ...prev,
         [target]: result,
-        ...(target === 'logoUrl' ? { showLogo: true } : { showWatermark: true })
+        ...(target === 'logoUrl' ?{ showLogo: true } : { showWatermark: true })
       }));
       addToast('Imagem carregada com sucesso.', 'success');
     };
@@ -1350,8 +1354,8 @@ export default function App() {
 
     try {
       const isEdit = !!eventForm.id;
-      const endpoint = isEdit ? `/api/events/${eventForm.id}` : '/api/events';
-      const method = isEdit ? 'PUT' : 'POST';
+      const endpoint = isEdit ?`/api/events/${eventForm.id}` : '/api/events';
+      const method = isEdit ?'PUT' : 'POST';
 
       const saved = await apiCall(endpoint, {
         method,
@@ -1359,7 +1363,7 @@ export default function App() {
       });
 
       if (isEdit) {
-        setEvents(prev => prev.map(ev => ev.id === saved.id ? saved : ev));
+        setEvents(prev => prev.map(ev => ev.id === saved.id ?saved : ev));
         addToast('Evento atualizado com sucesso!', 'success');
       } else {
         setEvents(prev => [...prev, saved]);
@@ -1386,7 +1390,7 @@ export default function App() {
   };
 
   const updateEventInState = (updatedEvent: Event) => {
-    setEvents(prev => prev.map(event => event.id === updatedEvent.id ? updatedEvent : event));
+    setEvents(prev => prev.map(event => event.id === updatedEvent.id ?updatedEvent : event));
   };
 
   const handleEnableEventTestMode = async () => {
@@ -1400,7 +1404,7 @@ export default function App() {
 
   const handleStartOfficialEvent = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    if (!window.confirm('Iniciar evento oficial agora? Os novos check-ins, impressoes e acessos passarao a entrar no relatorio oficial.')) return;
+    if (!window.confirm('Iniciar evento oficial agora?Os novos check-ins, impressoes e acessos passarao a entrar no relatorio oficial.')) return;
     try {
       const updated = await apiCall(`/api/events/${currentEvent.id}/start-official`, { method: 'POST' });
       updateEventInState(updated);
@@ -1411,7 +1415,7 @@ export default function App() {
 
   const handleCloseOfficialEvent = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    if (!window.confirm('Encerrar este evento agora? Novos check-ins, impressoes e acessos ficarao bloqueados ate um ADMIN reabrir o evento.')) return;
+    if (!window.confirm('Encerrar este evento agora?Novos check-ins, impressoes e acessos ficarao bloqueados ate um ADMIN reabrir o evento.')) return;
     try {
       const updated = await apiCall(`/api/events/${currentEvent.id}/close-event`, { method: 'POST' });
       updateEventInState(updated);
@@ -1422,7 +1426,7 @@ export default function App() {
 
   const handleReopenOfficialEvent = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    if (!window.confirm('Reabrir este evento em modo oficial? Novos registros voltarao a entrar nos relatorios oficiais.')) return;
+    if (!window.confirm('Reabrir este evento em modo oficial?Novos registros voltarao a entrar nos relatorios oficiais.')) return;
     try {
       const updated = await apiCall(`/api/events/${currentEvent.id}/reopen-event`, { method: 'POST' });
       updateEventInState(updated);
@@ -1433,7 +1437,7 @@ export default function App() {
 
   const handleResetEventTests = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressoes de teste deste evento? Essa acao nao apagara participantes nem configuracoes.\n\nDigite ZERAR TESTES para confirmar.');
+    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressoes de teste deste evento?Essa acao nao apagara participantes nem configuracoes.\n\nDigite ZERAR TESTES para confirmar.');
     if (confirmation !== 'ZERAR TESTES') {
       if (confirmation !== null) addToast('Confirmacao invalida. Nenhum registro foi alterado.', 'error');
       return;
@@ -1484,14 +1488,14 @@ export default function App() {
       return;
     }
     if (!activityForm.title || !activityForm.roomName || !activityForm.date || !activityForm.startTime || !activityForm.endTime) {
-      addToast('Preencha título, sala, data, início e fim da atividade.', 'error');
+      addToast('Preencha t?tulo, sala, data, in?cio e fim da atividade.', 'error');
       return;
     }
 
     try {
       const isEdit = !!activityForm.id;
-      const saved = await apiCall(isEdit ? `/api/activities/${activityForm.id}` : `/api/events/${selectedEventId}/activities`, {
-        method: isEdit ? 'PUT' : 'POST',
+      const saved = await apiCall(isEdit ?`/api/activities/${activityForm.id}` : `/api/events/${selectedEventId}/activities`, {
+        method: isEdit ?'PUT' : 'POST',
         body: JSON.stringify({
           title: fixMojibake(activityForm.title),
           roomName: fixMojibake(activityForm.roomName),
@@ -1504,20 +1508,20 @@ export default function App() {
         })
       });
 
-      setActivities(prev => isEdit ? prev.map(item => item.id === saved.id ? saved : item) : [saved, ...prev]);
+      setActivities(prev => isEdit ?prev.map(item => item.id === saved.id ?saved : item) : [saved, ...prev]);
       resetActivityForm();
-      addToast(isEdit ? 'Atividade atualizada.' : 'Atividade criada.', 'success');
+      addToast(isEdit ?'Atividade atualizada.' : 'Atividade criada.', 'success');
     } catch (err) {}
   };
 
   const handleDeleteActivity = async (id: string) => {
-    if (!window.confirm('Excluir esta atividade também removerá suas presenças registradas. Confirmar?')) return;
+    if (!window.confirm('Excluir esta atividade tamb?m remover? suas presenças registradas. Confirmar?')) return;
     try {
       await apiCall(`/api/activities/${id}`, { method: 'DELETE' });
       setActivities(prev => prev.filter(item => item.id !== id));
       setActivityAttendances(prev => prev.filter(item => item.activityId !== id));
       if (activityAttendanceActivityId === id) setActivityAttendanceActivityId('');
-      addToast('Atividade excluída.', 'success');
+      addToast('Atividade exclu?da.', 'success');
     } catch (err) {}
   };
 
@@ -1527,8 +1531,8 @@ export default function App() {
         method: 'PUT',
         body: JSON.stringify({ active: activity.active === false })
       });
-      setActivities(prev => prev.map(item => item.id === updated.id ? updated : item));
-      addToast(updated.active === false ? 'Atividade desativada.' : 'Atividade ativada.', 'success');
+      setActivities(prev => prev.map(item => item.id === updated.id ?updated : item));
+      addToast(updated.active === false ?'Atividade desativada.' : 'Atividade ativada.', 'success');
     } catch (err) {}
   };
 
@@ -1555,8 +1559,8 @@ export default function App() {
       if (result.status === 'ALREADY_REGISTERED') {
         setActivityAttendanceFeedback({
           type: 'warning',
-          title: 'Participante já registrado nesta atividade',
-          message: result.participant?.name || 'Esta presença já existe.'
+          title: 'Participante j? registrado nesta atividade',
+          message: result.participant?.name || 'Esta presença j? existe.'
         });
         return;
       }
@@ -1564,12 +1568,12 @@ export default function App() {
       setActivityAttendanceFeedback({
         type: 'success',
         title: 'Presença registrada',
-        message: result.participant?.name || 'Registro concluído com sucesso.'
+        message: result.participant?.name || 'Registro conclu?do com sucesso.'
       });
       setActivityAttendanceSearch('');
       const updated = await apiCall(`/api/events/${selectedEventId}/activity-attendances?activityId=${activityAttendanceActivityId}`).catch(() => []);
       setActivityAttendances(prev => [
-        ...(Array.isArray(updated) ? updated : []),
+        ...(Array.isArray(updated) ?updated : []),
         ...prev.filter(item => item.activityId !== activityAttendanceActivityId)
       ]);
     } catch (err: any) {
@@ -1596,7 +1600,7 @@ export default function App() {
       setCertificateLookup(result);
       setActiveCertificate(null);
       setCertificateFeedback(result.attendedActivities?.length
-        ? null
+        ?null
         : { type: 'warning', message: 'Participante não possui presença registrada.' });
     } catch (err: any) {
       setCertificateLookup(null);
@@ -1626,15 +1630,15 @@ export default function App() {
         body: JSON.stringify({
           participantId: certificateLookup.participant.id,
           type,
-          ...(activityId ? { activityId } : {})
+          ...(activityId ?{ activityId } : {})
         })
       });
       const certificate: Certificate = result.certificate;
       if (result.template) {
         setCertificateTemplate(normalizeCertificateTemplate(result.template, selectedEventId));
       }
-      const activity = activityId ? certificateLookup.attendedActivities.find(item => item.id === activityId) : undefined;
-      setCertificateLookup(prev => prev ? ({ ...prev, certificates: [certificate, ...(prev.certificates || [])] }) : prev);
+      const activity = activityId ?certificateLookup.attendedActivities.find(item => item.id === activityId) : undefined;
+      setCertificateLookup(prev => prev ?({ ...prev, certificates: [certificate, ...(prev.certificates || [])] }) : prev);
       setActiveCertificate({ certificate, activity });
       setCertificateFeedback({ type: 'success', message: `Certificado emitido: ${certificate.certificateCode}` });
     } catch (err: any) {
@@ -1658,28 +1662,28 @@ export default function App() {
       .map((element, index) => {
         const normalized = getCertificateElementDefaults(element, index);
         if (normalized.type === 'image') {
-          return `<div class="field" style="left:${normalized.x}%; top:${normalized.y}%; width:${normalized.width}%; height:${normalized.height}%;">${normalized.imageUrl ? `<img src="${normalized.imageUrl}" alt="${escapeCertificateHtml(normalized.label)}" />` : ''}</div>`;
+          return `<div class="field" style="left:${normalized.x}%; top:${normalized.y}%; width:${normalized.width}%; height:${normalized.height}%;">${normalized.imageUrl ?`<img src="${normalized.imageUrl}" alt="${escapeCertificateHtml(normalized.label)}" />` : ''}</div>`;
         }
         const value = replaceCertificatePlaceholders(normalized.placeholder || normalized.text || '', participant, event, certificate, activity);
-        return `<div class="field" style="left:${normalized.x}%; top:${normalized.y}%; width:${normalized.width}%; height:${normalized.height}%; color:${normalized.color}; font-family:${normalized.fontFamily}; font-size:${normalized.fontSize}px; font-weight:${normalized.bold ? 900 : 500}; font-style:${normalized.italic ? 'italic' : 'normal'}; text-align:${normalized.align}; justify-content:${normalized.align === 'left' ? 'flex-start' : normalized.align === 'right' ? 'flex-end' : 'center'};">${escapeCertificateHtml(value)}</div>`;
+        return `<div class="field" style="left:${normalized.x}%; top:${normalized.y}%; width:${normalized.width}%; height:${normalized.height}%; color:${normalized.color}; font-family:${normalized.fontFamily}; font-size:${normalized.fontSize}px; font-weight:${normalized.bold ?900 : 500}; font-style:${normalized.italic ?'italic' : 'normal'}; text-align:${normalized.align}; justify-content:${normalized.align === 'left' ?'flex-start' : normalized.align === 'right' ?'flex-end' : 'center'};">${escapeCertificateHtml(value)}</div>`;
       })
       .join('');
     const isActivity = activeCertificate.certificate.type === 'activity' && activity;
     const certificateBody = isActivity
-      ? `
+      ?`
         <p>Certificamos que <strong>${escapeCertificateHtml(participant.name)}</strong></p>
         <p>participou da atividade</p>
         <h2>${escapeCertificateHtml(activity.title)}</h2>
         <p>ministrada por</p>
         <h3>${escapeCertificateHtml(activity.speakerName || 'Palestrante não informado')}</h3>
-        <p>com carga horária de</p>
+        <p>com carga hor?ria de</p>
         <h2>${activeCertificate.certificate.totalHours} horas.</h2>
       `
       : `
         <p>Certificamos que <strong>${escapeCertificateHtml(participant.name)}</strong></p>
         <p>participou do evento</p>
         <h2>${escapeCertificateHtml(event.name)}</h2>
-        <p>com carga horária total de</p>
+        <p>com carga hor?ria total de</p>
         <h2>${activeCertificate.certificate.totalHours} horas.</h2>
       `;
     const win = window.open('', '_blank', 'width=1120,height=760');
@@ -1693,7 +1697,7 @@ export default function App() {
             @page { size: ${pageSize} ${orientation}; margin: 14mm; }
             * { box-sizing: border-box; }
             body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; background: #fff; }
-            .certificate { position: relative; min-height: calc(100vh - 28mm); border: ${hasVisualTemplate ? '0' : '12px solid #e5e7eb'}; padding: ${hasVisualTemplate ? '0' : '52px'}; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow: hidden; ${template.backgroundImageUrl ? `background-image: url("${template.backgroundImageUrl}"); background-size: cover; background-position: center;` : ''} }
+            .certificate { position: relative; min-height: calc(100vh - 28mm); border: ${hasVisualTemplate ?'0' : '12px solid #e5e7eb'}; padding: ${hasVisualTemplate ?'0' : '52px'}; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow: hidden; ${template.backgroundImageUrl ?`background-image: url("${template.backgroundImageUrl}"); background-size: cover; background-position: center;` : ''} }
             .certificate::before { content: ""; position: absolute; inset: 0; background: rgba(255,255,255,0.78); z-index: 0; }
             .content { position: absolute; inset: 0; z-index: 1; }
             .fallback { position: relative; z-index: 1; height: 100%; padding: 52px; display: flex; flex-direction: column; justify-content: center; text-align: center; }
@@ -1708,17 +1712,17 @@ export default function App() {
             .field { position: absolute; display: flex; align-items: center; overflow: hidden; line-height: 1.15; }
             .field img { width: 100%; height: 100%; object-fit: contain; }
             .meta { margin-top: 42px; font-size: 12px; font-weight: 700; color: #64748b; }
-            ${hasVisualTemplate ? '.label, h1, .line, .meta, .logo { display: none !important; }' : ''}
+            ${hasVisualTemplate ?'.label, h1, .line, .meta, .logo { display: none !important; }' : ''}
           </style>
         </head>
         <body>
           <section class="certificate">
             <div class="content">
-            ${template.logoUrl ? `<img src="${template.logoUrl}" class="logo" alt="Logo" />` : ''}
+            ${template.logoUrl ?`<img src="${template.logoUrl}" class="logo" alt="Logo" />` : ''}
             <div class="label">Certificado</div>
             <h1>${escapeCertificateHtml(template.name || 'CREDENCIA')}</h1>
             <div class="line"></div>
-            ${template.elements?.length ? '' : certificateBody}
+            ${template.elements?.length ?'' : certificateBody}
             <div class="dynamic">${dynamicElements}</div>
             <div class="meta">
               <div>Código: ${activeCertificate.certificate.certificateCode}</div>
@@ -1755,8 +1759,8 @@ export default function App() {
 
     try {
       const isEdit = !!participantForm.id;
-      const endpoint = isEdit ? `/api/participants/${participantForm.id}` : `/api/events/${selectedEventId}/participants`;
-      const method = isEdit ? 'PUT' : 'POST';
+      const endpoint = isEdit ?`/api/participants/${participantForm.id}` : `/api/events/${selectedEventId}/participants`;
+      const method = isEdit ?'PUT' : 'POST';
 
       const saved = await apiCall(endpoint, {
         method,
@@ -1768,7 +1772,7 @@ export default function App() {
       });
 
       if (isEdit) {
-        setParticipants(prev => prev.map(p => p.id === saved.id ? saved : p));
+        setParticipants(prev => prev.map(p => p.id === saved.id ?saved : p));
         addToast('Participante atualizado com sucesso!', 'success');
       } else {
         setParticipants(prev => [saved, ...prev]);
@@ -1802,7 +1806,7 @@ export default function App() {
         body: JSON.stringify({ checkedIn: nextCheckinState })
       });
 
-      setParticipants(prev => prev.map(p => p.id === participant.id ? data.participant : p));
+      setParticipants(prev => prev.map(p => p.id === participant.id ?data.participant : p));
       addToast(data.message, 'success');
       
       if (selectedEventId) {
@@ -1853,7 +1857,7 @@ export default function App() {
     } catch (err: any) {
       setScanResult({
         success: false,
-        message: err.message || 'Código do participante não localizado ou já credenciado.'
+        message: err.message || 'Código do participante não localizado ou j? credenciado.'
       });
     }
   };
@@ -1866,7 +1870,7 @@ export default function App() {
       return;
     }
     if (!checkinAddForm.name || !checkinAddForm.email || !checkinAddForm.cpf) {
-      addToast('Preencha os campos obrigatórios!', 'error');
+      addToast('Preencha os campos obrigatérios!', 'error');
       return;
     }
 
@@ -1912,7 +1916,7 @@ export default function App() {
         });
         
         updatedParticipant = data.participant;
-        setParticipants(prev => prev.map(p => p.id === participant.id ? updatedParticipant : p));
+        setParticipants(prev => prev.map(p => p.id === participant.id ?updatedParticipant : p));
         addToast(`Check-in de ${participant.name} realizado com sucesso!`, 'success');
         
         if (selectedEventId) {
@@ -1965,7 +1969,15 @@ export default function App() {
     return cloakroom
       .filter(item => item.status === 'guardado')
       .filter(item => {
-        const tagMatch = String(item.tagNumber).includes(query) || (item.volumeTags || []).some(tag => tag.includes(query));
+        const itemVolumes = getCloakroomItemVolumes(item);
+        const tagMatch = String(item.tagNumber).includes(query)
+          || (item.volumeTags || []).some(tag => tag.includes(query))
+          || itemVolumes.some(volume => (
+            volume.tag.includes(query)
+            || normalizeCloakroomCode(volume.tag).includes(codeQuery)
+            || normalizeCloakroomText(volume.description || '').includes(textQuery)
+            || normalizeCloakroomText(volume.storageAddress || '').includes(textQuery)
+          ));
         const participant = participants.find(p => p.id === item.participantId);
         const nameMatch = normalizeCloakroomText(item.participantName).includes(textQuery);
         const cpfMatch = numberQuery.length >= 3 && (participant?.cpf || '').replace(/\D/g, '').includes(numberQuery);
@@ -1988,6 +2000,11 @@ export default function App() {
       const searchMatch = !query
         || String(item.tagNumber).includes(query)
         || (item.volumeTags || []).some(tag => tag.includes(query))
+        || getCloakroomItemVolumes(item).some(volume => (
+          volume.tag.includes(query)
+          || normalizeCloakroomText(volume.description || '').includes(textQuery)
+          || normalizeCloakroomText(volume.storageAddress || '').includes(textQuery)
+        ))
         || normalizeCloakroomText(item.participantName).includes(textQuery)
         || (numberQuery.length >= 3 && (participant?.cpf || '').replace(/\D/g, '').includes(numberQuery));
       return statusMatch && searchMatch;
@@ -2009,13 +2026,96 @@ export default function App() {
     [cloakroomMapConfig.rows]
   );
 
+  useEffect(() => {
+    setCloakroomVolumeDrafts(prev => Array.from({ length: cloakroomVolumeCount }, (_, index) => ({
+      id: prev[index]?.id || `vol_${index + 1}`,
+      description: prev[index]?.description || '',
+      storageRackId: prev[index]?.storageRackId,
+      storageRackName: prev[index]?.storageRackName,
+      storageColumn: prev[index]?.storageColumn,
+      storageRow: prev[index]?.storageRow,
+      storageAddress: prev[index]?.storageAddress,
+      storageOccupiedAt: prev[index]?.storageOccupiedAt,
+      storageOperatorId: prev[index]?.storageOperatorId
+    })));
+    setActiveCloakroomVolumeIndex(index => Math.min(index, Math.max(0, cloakroomVolumeCount - 1)));
+  }, [cloakroomVolumeCount]);
+
+  const getCloakroomItemVolumes = (item: CloakroomItem): CloakroomVolume[] => {
+    if (Array.isArray(item.volumes) && item.volumes.length > 0) {
+      return item.volumes.map((volume, index) => ({
+        id: volume.id || `vol_${index + 1}`,
+        tag: volume.tag || item.volumeTags?.[index] || `${item.tagNumber}-${index + 1}`,
+        description: volume.description || '',
+        storageRackId: volume.storageRackId || item.storageRackId,
+        storageRackName: volume.storageRackName || item.storageRackName,
+        storageColumn: volume.storageColumn || item.storageColumn,
+        storageRow: volume.storageRow || item.storageRow,
+        storageAddress: volume.storageAddress || item.storageAddress,
+        storageOccupiedAt: volume.storageOccupiedAt || item.storageOccupiedAt,
+        storageReleasedAt: volume.storageReleasedAt || item.storageReleasedAt,
+        storageOperatorId: volume.storageOperatorId || item.storageOperatorId
+      }));
+    }
+
+    const volumeCount = Math.max(1, Number(item.volumeCount) || 1);
+    return Array.from({ length: volumeCount }, (_, index) => ({
+      id: `vol_${index + 1}`,
+      tag: item.volumeTags?.[index] || `${item.tagNumber}-${index + 1}`,
+      description: item.itemDescription || '',
+      storageRackId: item.storageRackId,
+      storageRackName: item.storageRackName,
+      storageColumn: item.storageColumn,
+      storageRow: item.storageRow,
+      storageAddress: item.storageAddress,
+      storageOccupiedAt: item.storageOccupiedAt,
+      storageReleasedAt: item.storageReleasedAt,
+      storageOperatorId: item.storageOperatorId
+    }));
+  };
+
+  const formatCloakroomVolumeAddress = (volume?: Partial<CloakroomVolume> | null) => {
+    if (!volume?.storageAddress) return '-';
+    return `${volume.storageRackName || cloakroomMapConfig.rackName} - ${volume.storageAddress}`;
+  };
+
+  const updateCloakroomVolumeDraft = (index: number, updates: Partial<CloakroomVolume>) => {
+    setCloakroomVolumeDrafts(prev => prev.map((volume, currentIndex) => (
+      currentIndex === index ?{ ...volume, ...updates, id: volume.id || `vol_${index + 1}` } : volume
+    )));
+  };
+
+  const buildVolumePositionPayload = (position: CloakroomStoragePosition): Partial<CloakroomVolume> => ({
+    storageRackId: position.rackId,
+    storageRackName: position.rackName,
+    storageColumn: position.column,
+    storageRow: position.row,
+    storageAddress: position.address,
+    storageOccupiedAt: new Date().toISOString(),
+    storageOperatorId: currentUser?.id
+  });
+
   const cloakroomOccupiedAddresses = useMemo(() => {
+    const draftAddresses = cloakroomVolumeDrafts
+      .map((volume, index) => index === activeCloakroomVolumeIndex ?'' : volume.storageAddress)
+      .filter((address): address is string => Boolean(address));
+
     return new Set(
-      cloakroom
-        .filter(item => item.status === 'guardado' && item.storageAddress)
-        .map(item => item.storageAddress as string)
+      [
+        ...draftAddresses,
+        ...cloakroom
+        .filter(item => item.status === 'guardado')
+        .flatMap(item => {
+          const volumeAddresses = getCloakroomItemVolumes(item)
+            .map(volume => volume.storageAddress)
+            .filter((address): address is string => Boolean(address));
+          return volumeAddresses.length > 0
+            ?volumeAddresses
+            : (item.storageAddress ?[item.storageAddress] : []);
+        })
+      ]
     );
-  }, [cloakroom]);
+  }, [activeCloakroomVolumeIndex, cloakroom, cloakroomVolumeDrafts]);
 
   const suggestedCloakroomAddress = useMemo(() => {
     for (const row of cloakroomMapRows) {
@@ -2028,8 +2128,23 @@ export default function App() {
   }, [cloakroomMapColumns, cloakroomMapRows, cloakroomOccupiedAddresses]);
 
   useEffect(() => {
-    if (!suggestedCloakroomAddress) return;
-    if (cloakroomSelectedPosition && !cloakroomOccupiedAddresses.has(cloakroomSelectedPosition.address)) return;
+    const activeVolume = cloakroomVolumeDrafts[activeCloakroomVolumeIndex];
+    if (activeVolume?.storageAddress) {
+      setCloakroomSelectedPosition({
+        rackId: activeVolume.storageRackId || cloakroomMapConfig.rackName.toLowerCase().replace(/\s+/g, '-'),
+        rackName: activeVolume.storageRackName || cloakroomMapConfig.rackName,
+        column: activeVolume.storageColumn || activeVolume.storageAddress.match(/^[A-Z]+/)?.[0] || cloakroomMapColumns[0] || 'A',
+        row: activeVolume.storageRow || activeVolume.storageAddress.match(/\d+$/)?.[0] || cloakroomMapRows[0] || '01',
+        address: activeVolume.storageAddress
+      });
+      return;
+    }
+
+    if (!suggestedCloakroomAddress) {
+      setCloakroomSelectedPosition(null);
+      return;
+    }
+
     const column = suggestedCloakroomAddress.match(/^[A-Z]+/)?.[0] || cloakroomMapColumns[0] || 'A';
     const row = suggestedCloakroomAddress.match(/\d+$/)?.[0] || cloakroomMapRows[0] || '01';
     setCloakroomSelectedPosition({
@@ -2039,9 +2154,9 @@ export default function App() {
       row,
       address: suggestedCloakroomAddress
     });
-  }, [cloakroomMapColumns, cloakroomMapConfig.rackName, cloakroomMapRows, cloakroomOccupiedAddresses, cloakroomSelectedPosition, suggestedCloakroomAddress]);
+  }, [activeCloakroomVolumeIndex, cloakroomMapColumns, cloakroomMapConfig.rackName, cloakroomMapRows, cloakroomVolumeDrafts, suggestedCloakroomAddress]);
 
-  const getCloakroomStoragePayload = (position = cloakroomSelectedPosition) => position ? {
+  const getCloakroomStoragePayload = (position = cloakroomSelectedPosition) => position ?{
     storageRackId: position.rackId,
     storageRackName: position.rackName,
     storageColumn: position.column,
@@ -2080,7 +2195,7 @@ export default function App() {
   ];
 
   const getCloakroomLabelOrder = (config = cloakroomLabelConfig) => {
-    const configured = Array.isArray(config.lineOrder) ? config.lineOrder : [];
+    const configured = Array.isArray(config.lineOrder) ?config.lineOrder : [];
     const unique = configured.filter((key, index) => configured.indexOf(key) === index);
     const missing = cloakroomLabelLineOptions.map(option => option.key).filter(key => !unique.includes(key));
     return [...unique, ...missing];
@@ -2090,12 +2205,16 @@ export default function App() {
     return config.fontSizes?.[key] || DEFAULT_CLOAKROOM_LABEL_CONFIG.fontSizes?.[key] || 12;
   };
 
-  const getCloakroomLabelLineValue = (key: CloakroomLabelLineKey, item: CloakroomItem, label: { title: string; tag: string; detail: string }) => {
+  const getCloakroomLabelLineValue = (
+    key: CloakroomLabelLineKey,
+    item: CloakroomItem,
+    label: { title: string; tag: string; detail: string; description?: string; position?: string }
+  ) => {
     switch (key) {
       case 'participantName':
         return item.participantName;
       case 'description':
-        return item.itemDescription || '-';
+        return label.description || item.itemDescription || '-';
       case 'ticketNumber':
         return label.tag;
       case 'volumeCount':
@@ -2116,24 +2235,15 @@ export default function App() {
   const printCloakroomLabels = (item: CloakroomItem) => {
     const labelWidthCm = 9;
     const labelHeightCm = 4;
-    const volumeTags = item.volumeTags && item.volumeTags.length > 0
-      ? item.volumeTags
-      : Array.from({ length: item.volumeCount || 1 }, (_, index) => `${item.tagNumber}-${index + 1}`);
-
-    const labels = [
-      {
-        title: 'CHAPELARIA',
-        tag: String(item.tagNumber),
-        subtitle: 'Etiqueta principal',
-        detail: `${item.volumeCount || volumeTags.length} volume(s)`
-      },
-      ...volumeTags.map((tag, index) => ({
-        title: 'VOLUME',
-        tag,
-        subtitle: `Volume ${index + 1} de ${volumeTags.length}`,
-        detail: `Principal #${item.tagNumber}`
-      }))
-    ];
+    const itemVolumes = getCloakroomItemVolumes(item);
+    const labels = itemVolumes.map((volume, index) => ({
+      title: 'VOLUME',
+      tag: volume.tag || `${item.tagNumber}-${index + 1}`,
+      subtitle: `Volume ${index + 1} de ${itemVolumes.length}`,
+      detail: `Volume ${index + 1} de ${itemVolumes.length}`,
+      description: volume.description || '-',
+      position: formatCloakroomVolumeAddress(volume)
+    }));
 
     const frame = document.createElement('iframe');
     frame.style.position = 'fixed';
@@ -2145,23 +2255,23 @@ export default function App() {
     frame.style.visibility = 'hidden';
 
     const labelHtml = labels.map((label, index) => `
-      <section class="label ${index === labels.length - 1 ? 'last' : ''}">
-        ${(cloakroomLabelConfig.showEventName || cloakroomLabelConfig.showLabelType) ? `
+      <section class="label ${index === labels.length - 1 ?'last' : ''}">
+        ${(cloakroomLabelConfig.showEventName || cloakroomLabelConfig.showLabelType) ?`
           <div class="meta">
-            <strong>${cloakroomLabelConfig.showLabelType ? escapePrintHtml(label.title) : ''}</strong>
-            <span>${cloakroomLabelConfig.showEventName ? escapePrintHtml(currentEvent?.name || '') : ''}</span>
+            <strong>${cloakroomLabelConfig.showLabelType ?escapePrintHtml(label.title) : ''}</strong>
+            <span>${cloakroomLabelConfig.showEventName ?escapePrintHtml(currentEvent?.name || '') : ''}</span>
           </div>
         ` : ''}
-        ${cloakroomLabelConfig.showTicketNumber ? `<div class="ticket">${escapePrintHtml(label.tag)}</div>` : ''}
-        ${cloakroomLabelConfig.showParticipantName ? `<div class="participant">${escapePrintHtml(item.participantName)}</div>` : ''}
-        ${cloakroomLabelConfig.showDescription ? `<div class="description">${escapePrintHtml(item.itemDescription || '-')}</div>` : ''}
-        ${(cloakroomLabelConfig.showVolumeCount || cloakroomLabelConfig.showDateTime || cloakroomLabelConfig.showOperator) ? `
+        ${cloakroomLabelConfig.showTicketNumber ?`<div class="ticket">${escapePrintHtml(label.tag)}</div>` : ''}
+        ${cloakroomLabelConfig.showParticipantName ?`<div class="participant">${escapePrintHtml(item.participantName)}</div>` : ''}
+        ${cloakroomLabelConfig.showDescription ?`<div class="description">${escapePrintHtml(item.itemDescription || '-')}</div>` : ''}
+        ${(cloakroomLabelConfig.showVolumeCount || cloakroomLabelConfig.showDateTime || cloakroomLabelConfig.showOperator) ?`
           <div class="footer">
-            <span>${cloakroomLabelConfig.showVolumeCount ? escapePrintHtml(label.detail) : ''}</span>
+            <span>${cloakroomLabelConfig.showVolumeCount ?escapePrintHtml(label.detail) : ''}</span>
             <span>${[
-              cloakroomLabelConfig.showOperator ? item.registeredByName || '' : '',
-              cloakroomLabelConfig.showDateTime ? new Date(item.registeredAt).toLocaleString('pt-BR') : ''
-            ].filter(Boolean).map(escapePrintHtml).join(' â€¢ ')}</span>
+              cloakroomLabelConfig.showOperator ?item.registeredByName || '' : '',
+              cloakroomLabelConfig.showDateTime ?new Date(item.registeredAt).toLocaleString('pt-BR') : ''
+            ].filter(Boolean).map(escapePrintHtml).join(' • ')}</span>
           </div>
         ` : ''}
       </section>
@@ -2179,12 +2289,12 @@ export default function App() {
         })
         .filter(Boolean)
         .join('');
-      const positionLine = item.storageAddress
-        ? `<div class="line line-storageAddress" style="font-size:11px">Posição: ${formatPrintLine(formatCloakroomStorageAddress(item))}</div>`
+      const positionLine = label.position && label.position !== '-'
+        ?`<div class="line line-storageAddress" style="font-size:11px">Posição: ${formatPrintLine(label.position)}</div>`
         : '';
 
       return `
-        <section class="label ${index === labels.length - 1 ? 'last' : ''}">
+        <section class="label ${index === labels.length - 1 ?'last' : ''}">
           <div class="label-content">${lines}${positionLine}</div>
         </section>
       `;
@@ -2309,28 +2419,65 @@ export default function App() {
       addToast('Localize e selecione um participante antes de guardar os pertences.', 'error');
       return;
     }
-    if (!cloakroomSelectedPosition) {
-      addToast('Selecione uma posição livre no mapa da chapelaria.', 'error');
+    const normalizedVolumes: CloakroomVolume[] = cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).map((volume, index) => ({
+      id: volume.id || `vol_${index + 1}`,
+      tag: volume.tag || '',
+      description: (volume.description || '').trim(),
+      storageRackId: volume.storageRackId,
+      storageRackName: volume.storageRackName,
+      storageColumn: volume.storageColumn,
+      storageRow: volume.storageRow,
+      storageAddress: volume.storageAddress,
+      storageOccupiedAt: volume.storageOccupiedAt || new Date().toISOString(),
+      storageOperatorId: currentUser?.id
+    }));
+    const missingVolume = normalizedVolumes.find(volume => !volume.description || !volume.storageAddress);
+    if (missingVolume) {
+      addToast('Informe a descrição e selecione a posição de todos os volumes.', 'error');
       return;
     }
-    if (cloakroomOccupiedAddresses.has(cloakroomSelectedPosition.address)) {
-      addToast('Esta posição já está ocupada. Escolha uma posição livre.', 'error');
+    const duplicatedAddress = normalizedVolumes.find((volume, index) => (
+      Boolean(volume.storageAddress) && normalizedVolumes.findIndex(item => item.storageAddress === volume.storageAddress) !== index
+    ));
+    if (duplicatedAddress) {
+      addToast('Cada volume precisa ocupar uma posição diferente na estante.', 'error');
+      return;
+    }
+    const occupiedVolume = normalizedVolumes.find(volume => volume.storageAddress && cloakroom
+      .filter(item => item.status === 'guardado')
+      .flatMap(getCloakroomItemVolumes)
+      .some(savedVolume => savedVolume.storageAddress === volume.storageAddress));
+    if (occupiedVolume) {
+      addToast(`A posição ${occupiedVolume.storageAddress} já está ocupada. Escolha uma posição livre.`, 'error');
       return;
     }
 
     try {
-      const storagePayload = getCloakroomStoragePayload();
+      const firstVolume = normalizedVolumes[0];
+      const storagePayload = firstVolume ?{
+        storageRackId: firstVolume.storageRackId,
+        storageRackName: firstVolume.storageRackName,
+        storageColumn: firstVolume.storageColumn,
+        storageRow: firstVolume.storageRow,
+        storageAddress: firstVolume.storageAddress,
+        storageOccupiedAt: firstVolume.storageOccupiedAt,
+        storageOperatorId: firstVolume.storageOperatorId
+      } : {};
+      const itemDescription = normalizedVolumes
+        .map((volume, index) => `Volume ${index + 1}: ${volume.description}`)
+        .join('\n');
       const saved = await apiCall(`/api/events/${selectedEventId}/cloakroom`, {
         method: 'POST',
         body: JSON.stringify({
           participantId: cloakroomSelectedParticipant.id,
           participantName: cloakroomSelectedParticipant.name,
-          itemDescription: cloakroomDescription.trim(),
+          itemDescription,
           volumeCount: cloakroomVolumeCount,
+          volumes: normalizedVolumes,
           ...storagePayload
         })
       });
-      const savedWithPosition = { ...saved, ...storagePayload } as CloakroomItem;
+      const savedWithPosition = { ...saved, ...storagePayload, volumes: (saved as CloakroomItem).volumes || normalizedVolumes } as CloakroomItem;
 
       setCloakroom(prev => [savedWithPosition, ...prev]);
       setCloakroomSuccess(savedWithPosition);
@@ -2338,6 +2485,8 @@ export default function App() {
       setCloakroomSelectedParticipant(null);
       setCloakroomVolumeCount(1);
       setCloakroomDescription('');
+      setCloakroomVolumeDrafts([{ id: 'vol_1', description: '' }]);
+      setActiveCloakroomVolumeIndex(0);
       printCloakroomLabels(savedWithPosition);
       addToast(`Pertences registrados. Ticket #${savedWithPosition.tagNumber}`, 'success');
       loadDataForEvent(selectedEventId);
@@ -2357,7 +2506,7 @@ export default function App() {
         method: 'PUT',
         body: JSON.stringify({ cloakroomLabelConfig })
       });
-      setEvents(prev => prev.map(event => event.id === updated.id ? updated : event));
+      setEvents(prev => prev.map(event => event.id === updated.id ?updated : event));
       addToast('Configuração da etiqueta da chapelaria salva com sucesso.', 'success');
     } catch (error: any) {
       addToast(error.message || 'Erro ao salvar configuração da etiqueta.', 'error');
@@ -2371,7 +2520,7 @@ export default function App() {
       return;
     }
     if (!cloakroomForm.participantName) {
-      addToast('Nome do participante é obrigatório', 'error');
+      addToast('Nome do participante ? obrigatério', 'error');
       return;
     }
 
@@ -2412,12 +2561,12 @@ export default function App() {
         ...updated,
         storageReleasedAt: new Date().toISOString()
       } as CloakroomItem;
-      setCloakroom(prev => prev.map(item => item.id === id ? updatedWithPosition : item));
+      setCloakroom(prev => prev.map(item => item.id === id ?updatedWithPosition : item));
       setCloakroomReturnSuccess(updatedWithPosition);
       setCloakroomReturnItem(null);
       setPendingCloakroomReturn(null);
       setCloakroomReturnSearch('');
-      addToast(`Etiqueta #${tagNum} devolvida e concluída com sucesso!`, 'success');
+      addToast(`Etiqueta #${tagNum} devolvida e conclu?da com sucesso!`, 'success');
       if (selectedEventId) {
         loadDataForEvent(selectedEventId);
       }
@@ -2425,7 +2574,7 @@ export default function App() {
   };
 
   const handleDeleteCloakroomItem = async (id: string) => {
-    if (!window.confirm('Remover definitivamente este registro de chapelaria do histórico?')) return;
+    if (!window.confirm('Remover definitivamente este registro de chapelaria do hist?rico?')) return;
     try {
       await apiCall(`/api/cloakroom/${id}`, { method: 'DELETE' });
       setCloakroom(prev => prev.filter(item => item.id !== id));
@@ -2473,7 +2622,7 @@ export default function App() {
     if (['nome', 'name', 'participante', 'participant'].includes(normalized)) return 'name';
     if (['cpf', 'c p f', 'documento', 'identidade', 'cpf cnpj'].includes(normalized)) return 'cpf';
     if (['email', 'e mail', 'mail'].includes(normalized)) return 'email';
-    if (['empresa', 'company', 'corporação', 'corporacao', 'organizacao', 'organizacao', 'org', 'trabalho'].includes(normalized)) return 'company';
+    if (['empresa', 'company', 'corporação', 'corporacao', 'organizacao', 'organização', 'org', 'trabalho'].includes(normalized)) return 'company';
     if (['categoria', 'category', 'grupo'].includes(normalized)) return 'category';
     if (['codigo qr', 'qr code', 'codigo do ingresso', 'ingresso', 'ticket', 'ticket code', 'ticketcode', 'codigo'].includes(normalized)) return 'ticketCode';
     if (['area', 'areas', 'area de acesso', 'areas de acesso', 'acesso', 'acessos', 'allowed areas'].includes(normalized)) return 'areas';
@@ -2497,7 +2646,7 @@ export default function App() {
     });
 
     const nonEmptyRows = matrix
-      .map(row => Array.isArray(row) ? row : [])
+      .map(row => Array.isArray(row) ?row : [])
       .filter(row => row.some(cell => String(cell ?? '').trim() !== ''));
 
     if (nonEmptyRows.length === 0) {
@@ -2508,13 +2657,13 @@ export default function App() {
     const hasHeader = hasImportHeaderSignal(firstRow);
     const maxColumns = Math.max(...nonEmptyRows.map(row => row.length));
     const headers = hasHeader
-      ? Array.from({ length: maxColumns }, (_, index) => {
+      ?Array.from({ length: maxColumns }, (_, index) => {
           const header = String(firstRow[index] ?? '').trim();
           return header || `Coluna ${index + 1}`;
         })
-      : Array.from({ length: maxColumns }, (_, index) => index === 0 ? 'Nome' : `Coluna ${index + 1}`);
+      : Array.from({ length: maxColumns }, (_, index) => index === 0 ?'Nome' : `Coluna ${index + 1}`);
 
-    const dataRows = hasHeader ? nonEmptyRows.slice(1) : nonEmptyRows;
+    const dataRows = hasHeader ?nonEmptyRows.slice(1) : nonEmptyRows;
     const rows = dataRows
       .filter(row => row.some(cell => String(cell ?? '').trim() !== ''))
       .map(row => headers.reduce<Record<string, any>>((acc, header, index) => {
@@ -2528,7 +2677,7 @@ export default function App() {
   const loadImportTemplates = () => {
     try {
       const stored = localStorage.getItem(IMPORT_TEMPLATES_STORAGE_KEY);
-      setImportTemplates(stored ? JSON.parse(stored) : []);
+      setImportTemplates(stored ?JSON.parse(stored) : []);
     } catch (error) {
       console.warn('Unable to load import templates', error);
       setImportTemplates([]);
@@ -2564,7 +2713,7 @@ export default function App() {
       });
       return next;
     });
-    setImportFieldOrder(template.fieldOrder && template.fieldOrder.length > 0 ? template.fieldOrder : DEFAULT_IMPORT_FIELD_ORDER);
+    setImportFieldOrder(template.fieldOrder && template.fieldOrder.length > 0 ?template.fieldOrder : DEFAULT_IMPORT_FIELD_ORDER);
     if (editMode) {
       setImportTemplateName(template.name);
       setImportTemplateGlobal(template.global);
@@ -2584,14 +2733,14 @@ export default function App() {
     const template: ImportTemplate = {
       id: editingImportTemplateId || `tpl_${Date.now().toString(36)}`,
       name,
-      eventId: importTemplateGlobal ? undefined : selectedEventId,
+      eventId: importTemplateGlobal ?undefined : selectedEventId,
       global: importTemplateGlobal,
       mapping: importColumnMapping,
       fieldOrder: importFieldOrder,
       updatedAt: new Date().toISOString()
     };
     const next = editingImportTemplateId
-      ? importTemplates.map(item => item.id === editingImportTemplateId ? template : item)
+      ?importTemplates.map(item => item.id === editingImportTemplateId ?template : item)
       : [...importTemplates, template];
     setImportTemplates(next);
     localStorage.setItem(IMPORT_TEMPLATES_STORAGE_KEY, JSON.stringify(next));
@@ -2647,22 +2796,22 @@ export default function App() {
       const rawProfile = getMappedValue(row, 'profile');
       const rawAreas = getMappedValue(row, 'areas');
 
-      const nome = rawNome !== undefined ? String(rawNome).trim() : '';
-      const email = rawEmail !== undefined ? String(rawEmail).trim() : '';
-      const originalCpf = rawCpf !== undefined ? String(rawCpf).trim() : '';
+      const nome = rawNome !== undefined ?String(rawNome).trim() : '';
+      const email = rawEmail !== undefined ?String(rawEmail).trim() : '';
+      const originalCpf = rawCpf !== undefined ?String(rawCpf).trim() : '';
       const cleanCpf = originalCpf.replace(/\D/g, '');
-      const category = rawCategory !== undefined ? String(rawCategory).trim() : 'Participante';
-      const company = rawCompany !== undefined ? String(rawCompany).trim() : '';
-      const ticketCode = rawTicketCode !== undefined ? String(rawTicketCode).trim() : '';
-      const profile = rawProfile !== undefined ? String(rawProfile).trim() : '';
-      const areasText = rawAreas !== undefined ? String(rawAreas).trim() : '';
+      const category = rawCategory !== undefined ?String(rawCategory).trim() : 'Participante';
+      const company = rawCompany !== undefined ?String(rawCompany).trim() : '';
+      const ticketCode = rawTicketCode !== undefined ?String(rawTicketCode).trim() : '';
+      const profile = rawProfile !== undefined ?String(rawProfile).trim() : '';
+      const areasText = rawAreas !== undefined ?String(rawAreas).trim() : '';
       const errors: string[] = [];
 
       if (!nome) errors.push('Nome e obrigatorio');
 
       if (originalCpf) {
         if (!validateCPF(cleanCpf)) {
-          errors.push('CPF invalido');
+          errors.push('CPF inválido');
         } else {
           if (seenCPFsInSheet.has(cleanCpf)) errors.push('CPF duplicado na planilha');
           else seenCPFsInSheet.add(cleanCpf);
@@ -2689,7 +2838,7 @@ export default function App() {
         if (!matchedProfile) {
           errors.push(`Perfil de acesso "${profile}" nao encontrado no sistema`);
         } else {
-          const profileAreaIds = Array.isArray(matchedProfile.area_ids) ? matchedProfile.area_ids : [];
+          const profileAreaIds = Array.isArray(matchedProfile.area_ids) ?matchedProfile.area_ids : [];
           resolvedAreaIds = [...new Set([...resolvedAreaIds, ...profileAreaIds])];
           const profileAreaNames = profileAreaIds
             .map(areaId => availableAreas.find(area => area.id === areaId)?.name)
@@ -2797,12 +2946,12 @@ export default function App() {
 
   const confirmBatchImport = async () => {
     if (importRows.some(row => !row.isValid)) {
-      addToast('Corrija todas as inconsistências e erros antes de importar os dados.', 'error');
+      addToast('Corrija todas as inconsist?ncias e erros antes de importar os dados.', 'error');
       return;
     }
 
     if (importRows.length === 0) {
-      addToast('Sua planilha não possui registros válidos.', 'error');
+      addToast('Sua planilha não possui registros v?lidos.', 'error');
       return;
     }
 
@@ -2838,7 +2987,7 @@ export default function App() {
 
       addToast(
         `Sucesso! Importados: ${responseData.totalImported}, Ignorados por duplicidade: ${responseData.skipped}`,
-        responseData.totalImported > 0 ? 'success' : 'info'
+        responseData.totalImported > 0 ?'success' : 'info'
       );
       
       setIsImportPreviewModalOpen(false);
@@ -2884,17 +3033,17 @@ export default function App() {
   const exportParticipantsToExcelWithFilter = (presentOnly: boolean, sourceList?: Participant[], fileLabel?: string) => {
     if (!currentEvent) return;
     if (!hasReportSelection()) {
-      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
+      addToast('Selecione pelo menos uma informação para gerar o relatério.', 'error');
       return;
     }
 
     const reportSource = sourceList || participants;
     
     const baseList = presentOnly 
-      ? reportSource.filter(isOfficialParticipantCheckin)
+      ?reportSource.filter(isOfficialParticipantCheckin)
       : reportSource;
 
-    const titleSuffix = fileLabel || (presentOnly ? 'Presentes' : 'Inscritos_Geral');
+    const titleSuffix = fileLabel || (presentOnly ?'Presentes' : 'Inscritos_Geral');
     
     const outputRows = baseList.map(p => {
       const participantAreaLogs = officialAreaAccessLogs.filter(log => log.participantId === p.id);
@@ -2910,14 +3059,14 @@ export default function App() {
         CPF: p.cpf,
         Empresa: p.company || '',
         Categoria: p.category,
-        'Credenciado?': isOfficialParticipantCheckin(p) ? 'Sim' : 'Não',
-        'Horário do Credenciamento': isOfficialParticipantCheckin(p) && p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
-        'Acessos por Sala': allowedAreaNames.length > 0 ? allowedAreaNames.join(', ') : '-',
+        'Credenciado?': isOfficialParticipantCheckin(p) ?'Sim' : 'Não',
+        'Horário do Credenciamento': isOfficialParticipantCheckin(p) && p.checkedInAt ?new Date(p.checkedInAt).toLocaleString('pt-BR') : 'Não realizado',
+        'Acessos por Sala': allowedAreaNames.length > 0 ?allowedAreaNames.join(', ') : '-',
         'Acessos Negados': deniedCount,
         'Certificados Emitidos': participantCertificates.length,
         'Códigos dos Certificados': participantCertificates.map(certificate => certificate.certificateCode).join(', '),
         'Horas em Certificados': participantCertificates.reduce((sum, certificate) => sum + (Number(certificate.totalHours) || 0), 0),
-        'Operador Responsável': getReportCheckinOperator(p),
+        'Operador Respons?vel': getReportCheckinOperator(p),
         'Código do Convite': p.ticketCode
       };
     });
@@ -2926,13 +3075,13 @@ export default function App() {
       const filtered: Record<string, string | number> = {};
       const findColumn = (patterns: string[]) => {
         const key = Object.keys(row).find(column => patterns.some(pattern => column.toLowerCase().includes(pattern)));
-        return key ? row[key] : '';
+        return key ?row[key] : '';
       };
 
       if (reportConfig.eventName) filtered['Evento'] = currentEvent.name;
-      if (reportConfig.eventDate) filtered['Data do Evento'] = currentEvent.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : '';
-      if (reportConfig.eventCategory) filtered['Categoria Filtrada'] = selectedCategoryFilter === 'all' ? 'Todas' : selectedCategoryFilter;
-      if (reportConfig.eventStatusFilter) filtered['Status Filtrado'] = selectedPresenceFilter === 'all' ? 'Todos' : selectedPresenceFilter === 'present' ? 'Credenciados' : 'Pendentes';
+      if (reportConfig.eventDate) filtered['Data do Evento'] = currentEvent.date ?new Date(currentEvent.date).toLocaleDateString('pt-BR') : '';
+      if (reportConfig.eventCategory) filtered['Categoria Filtrada'] = selectedCategoryFilter === 'all' ?'Todas' : selectedCategoryFilter;
+      if (reportConfig.eventStatusFilter) filtered['Status Filtrado'] = selectedPresenceFilter === 'all' ?'Todos' : selectedPresenceFilter === 'present' ?'Credenciados' : 'Pendentes';
       if (reportConfig.issuedAt) filtered['Emitido em'] = new Date().toLocaleString('pt-BR');
       if (reportConfig.participantName) filtered['Nome'] = row.Nome || '';
       if (reportConfig.participantCpf) filtered['CPF'] = row.CPF || '';
@@ -2958,7 +3107,7 @@ export default function App() {
   // Direct CSV printable list
   const triggerPrintableReport = () => {
     if (!hasReportSelection()) {
-      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
+      addToast('Selecione pelo menos uma informação para gerar o relatério.', 'error');
       return;
     }
     window.print();
@@ -2974,7 +3123,7 @@ export default function App() {
       
       const matchCategory = selectedCategoryFilter === 'all' || p.category === selectedCategoryFilter;
       const matchPresence = selectedPresenceFilter === 'all' || 
-                            (selectedPresenceFilter === 'present' ? isOfficialParticipantCheckin(p) : !isOfficialParticipantCheckin(p));
+                            (selectedPresenceFilter === 'present' ?isOfficialParticipantCheckin(p) : !isOfficialParticipantCheckin(p));
 
       return matchSearch && matchCategory && matchPresence;
     });
@@ -2986,7 +3135,7 @@ export default function App() {
     const total = reportParticipants.length;
     const checkedIn = reportParticipants.filter(isOfficialParticipantCheckin).length;
     const pending = total - checkedIn;
-    const attendanceRate = total > 0 ? Math.round((checkedIn / total) * 100) : 0;
+    const attendanceRate = total > 0 ?Math.round((checkedIn / total) * 100) : 0;
 
     return { total, checkedIn, pending, attendanceRate };
   }, [reportParticipants]);
@@ -3117,9 +3266,9 @@ export default function App() {
 
     return cloakroom
       .filter(item => {
-        const participant = item.participantId ? participants.find(p => p.id === item.participantId) : undefined;
+        const participant = item.participantId ?participants.find(p => p.id === item.participantId) : undefined;
         const matchesParticipantFilters = item.participantId
-          ? reportParticipantIds.has(item.participantId)
+          ?reportParticipantIds.has(item.participantId)
           : selectedCategoryFilter === 'all' && selectedPresenceFilter === 'all';
 
         const searchableText = [
@@ -3127,6 +3276,12 @@ export default function App() {
           item.itemDescription,
           String(item.tagNumber),
           ...(item.volumeTags || []),
+          ...getCloakroomItemVolumes(item).flatMap(volume => [
+            volume.tag,
+            volume.description,
+            volume.storageAddress,
+            volume.storageRackName
+          ]),
           participant?.cpf || ''
         ].join(' ').toLowerCase();
 
@@ -3138,8 +3293,8 @@ export default function App() {
   const reportCloakroomSummary = useMemo(() => {
     const stored = reportCloakroomItems.filter(item => item.status === 'guardado');
     const returned = reportCloakroomItems.filter(item => item.status === 'retirado');
-    const totalVolumes = reportCloakroomItems.reduce((sum, item) => sum + (item.volumeCount || 1), 0);
-    const storedVolumes = stored.reduce((sum, item) => sum + (item.volumeCount || 1), 0);
+    const totalVolumes = reportCloakroomItems.reduce((sum, item) => sum + getCloakroomItemVolumes(item).length, 0);
+    const storedVolumes = stored.reduce((sum, item) => sum + getCloakroomItemVolumes(item).length, 0);
 
     return {
       totalTickets: reportCloakroomItems.length,
@@ -3226,9 +3381,9 @@ export default function App() {
     { id: 'pending', title: 'Check-ins pendentes', value: reportSummary.pending, detail: 'Ainda ausentes', icon: Clock, tone: 'amber' as const },
     { id: 'events-active', title: 'Eventos ativos', value: reportEventStatusSummary.active, detail: 'Na organização', icon: Calendar, tone: 'blue' as const },
     { id: 'events-closed', title: 'Eventos encerrados', value: reportEventStatusSummary.closed, detail: 'Datas anteriores', icon: History, tone: 'graphite' as const },
-    { id: 'avg-checkin', title: 'Tempo médio check-in', value: reportAverageCheckinMinutes === null ? '-' : `${reportAverageCheckinMinutes} min`, detail: 'Baseado em criação x check-in', icon: BarChart3, tone: 'green' as const },
-    { id: 'avg-stay', title: 'Média permanência', value: reportAverageStayMinutes === null ? '-' : `${reportAverageStayMinutes} min`, detail: 'Quando há múltiplos acessos', icon: ShieldCheck, tone: 'graphite' as const },
-    { id: 'area-access', title: 'Total de acessos por área', value: reportAreaAccessLogs.length, detail: `${reportAreaAccessSummary.length} área(s) com fluxo`, icon: ShieldCheck, tone: 'green' as const },
+    { id: 'avg-checkin', title: 'Tempo médio check-in', value: reportAverageCheckinMinutes === null ?'-' : `${reportAverageCheckinMinutes} min`, detail: 'Baseado em criação x check-in', icon: BarChart3, tone: 'green' as const },
+    { id: 'avg-stay', title: 'M?dia perman?ncia', value: reportAverageStayMinutes === null ?'-' : `${reportAverageStayMinutes} min`, detail: 'Quando h? m?ltiplos acessos', icon: ShieldCheck, tone: 'graphite' as const },
+    { id: 'area-access', title: 'Total de acessos por Área', value: reportAreaAccessLogs.length, detail: `${reportAreaAccessSummary.length} Área(s) com fluxo`, icon: ShieldCheck, tone: 'green' as const },
     { id: 'operators', title: 'Credenc. por operador', value: reportOperatorSummary.reduce((sum, item) => sum + item.value, 0), detail: `${reportOperatorSummary.length} operador(es)`, icon: Users, tone: 'blue' as const }
   ]), [
     reportSummary,
@@ -3243,12 +3398,12 @@ export default function App() {
   const reportDefinitions: BIReportDefinition[] = [
     { id: 'events', title: 'Eventos', description: 'Visão de eventos ativos, encerrados e operação selecionada.', status: 'available' },
     { id: 'participants', title: 'Participantes', description: 'Dados cadastrais, categorias, presença e filtros atuais.', status: 'available' },
-    { id: 'checkin', title: 'Check-in', description: 'Fluxo por horário, pendências, operadores e status.', status: 'available' },
-    { id: 'access-control', title: 'Controle de acesso', description: 'Acessos liberados, negados e totais por área.', status: 'available' },
-    { id: 'printed-labels', title: 'Etiquetas impressas', description: 'Preparado para contabilizar impressões e reimpressões.', status: reportPrintedLabelsCount > 0 ? 'available' : 'prepared' },
+    { id: 'checkin', title: 'Check-in', description: 'Fluxo por horário, pend?ncias, operadores e status.', status: 'available' },
+    { id: 'access-control', title: 'Controle de acesso', description: 'Acessos liberados, negados e totais por Área.', status: 'available' },
+    { id: 'printed-labels', title: 'Etiquetas impressas', description: 'Preparado para contabilizar impressões e reimpressões.', status: reportPrintedLabelsCount > 0 ?'available' : 'prepared' },
     { id: 'cloakroom', title: 'Chapelaria', description: 'Tickets, volumes, guardados e retirados.', status: 'available' },
-    { id: 'users', title: 'Usuários', description: 'Base de usuários e níveis de operação.', status: 'prepared' },
-    { id: 'operators', title: 'Operadores', description: 'Credenciamentos e produtividade por operador.', status: reportOperatorSummary.length > 0 ? 'available' : 'prepared' }
+    { id: 'users', title: 'Usuários', description: 'Base de usuários e n?veis de operação.', status: 'prepared' },
+    { id: 'operators', title: 'Operadores', description: 'Credenciamentos e produtividade por operador.', status: reportOperatorSummary.length > 0 ?'available' : 'prepared' }
   ];
 
   const exportReportParticipantsToCsv = () => {
@@ -3261,8 +3416,8 @@ export default function App() {
         CPF: participant.cpf,
         Email: participant.email || '',
         Categoria: participant.category,
-      Status: isOfficialParticipantCheckin(participant) ? 'Credenciado' : 'Pendente',
-      'Horario do check-in': isOfficialParticipantCheckin(participant) && participant.checkedInAt ? new Date(participant.checkedInAt).toLocaleString('pt-BR') : '',
+      Status: isOfficialParticipantCheckin(participant) ?'Credenciado' : 'Pendente',
+      'Horario do check-in': isOfficialParticipantCheckin(participant) && participant.checkedInAt ?new Date(participant.checkedInAt).toLocaleString('pt-BR') : '',
         'Acessos por area': areaAccess?.allowedAreaNames.join(', ') || '',
         'Acessos negados': areaAccess?.deniedCount || 0,
         Certificados: participantCertificates.map(certificate => certificate.certificateCode).join(', '),
@@ -3278,8 +3433,8 @@ export default function App() {
       Nome: participant.name,
       CPF: participant.cpf || '-',
       Categoria: participant.category,
-      Status: isOfficialParticipantCheckin(participant) ? 'Credenciado' : 'Pendente',
-      'Horario do check-in': isOfficialParticipantCheckin(participant) && participant.checkedInAt ? new Date(participant.checkedInAt).toLocaleString('pt-BR') : '-',
+      Status: isOfficialParticipantCheckin(participant) ?'Credenciado' : 'Pendente',
+      'Horario do check-in': isOfficialParticipantCheckin(participant) && participant.checkedInAt ?new Date(participant.checkedInAt).toLocaleString('pt-BR') : '-',
       Operador: getReportCheckinOperator(participant)
     }));
 
@@ -3297,18 +3452,18 @@ export default function App() {
 
     return {
       eventName: currentEvent?.name || 'Evento não informado',
-      eventDate: currentEvent?.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : undefined,
+      eventDate: currentEvent?.date ?new Date(currentEvent.date).toLocaleDateString('pt-BR') : undefined,
       eventLocation: currentEvent?.location,
       organizationName: currentUser?.organizationName,
       generatedAt: new Date(),
-      logoUrl: reportBrandConfig.showLogo && reportBrandConfig.logoUrl ? reportBrandConfig.logoUrl : credenciaLogo,
+      logoUrl: reportBrandConfig.showLogo && reportBrandConfig.logoUrl ?reportBrandConfig.logoUrl : credenciaLogo,
       metrics: reportBIMetrics,
       summary: reportSummary,
       hourlyData: reportCheckinsByHour.map(item => ({ label: item.label, value: item.count })),
       presenceData: reportPresenceBreakdown.map(item => ({
         label: item.label,
         value: item.count,
-        color: item.label === 'Credenciados' ? '#12e000' : '#f5b842'
+        color: item.label === 'Credenciados' ?'#12e000' : '#f5b842'
       })),
       categoryData: reportParticipantsByCategory.map(item => ({ label: item.label, value: item.count })),
       areaData: reportAreaAccessSummary.map(item => ({ label: item.areaName, value: item.total })),
@@ -3324,16 +3479,16 @@ export default function App() {
 
   const handleGenerateReportPdf = async (kind: ReportPdfKind) => {
     if (!currentEvent) {
-      addToast('Selecione um evento para gerar o relatório.', 'error');
+      addToast('Selecione um evento para gerar o relatério.', 'error');
       return;
     }
 
     try {
-      setReportPdfLoadingLabel('Gerando relatório...');
+      setReportPdfLoadingLabel('Gerando relatério...');
       await generateReportPdf(buildReportPdfPayload(), kind, message => setReportPdfLoadingLabel(message));
       addToast('PDF gerado com sucesso.', 'success');
     } catch (error) {
-      console.error('Erro ao gerar PDF do relatório:', error);
+      console.error('Erro ao gerar PDF do relatério:', error);
       addToast('Não foi possível gerar o PDF. Tente novamente.', 'error');
     } finally {
       setTimeout(() => setReportPdfLoadingLabel(''), 500);
@@ -3404,7 +3559,7 @@ export default function App() {
           const Icon = group.icon;
           const groupPermissionIds = group.permissions.map(permission => permission.id);
           const selectedCount = groupPermissionIds.filter(permission => selected.includes(permission)).length;
-          const isOpen = normalizedSearch ? true : openGroups[group.id] !== false;
+          const isOpen = normalizedSearch ?true : openGroups[group.id] !== false;
 
           return (
             <div key={group.id} className="border border-slate-200 rounded-xl bg-white overflow-hidden">
@@ -3419,7 +3574,7 @@ export default function App() {
                 </span>
                 <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                   {selectedCount}/{groupPermissionIds.length}
-                  <ChevronRight size={15} className={`transition ${isOpen ? 'rotate-90' : ''}`} />
+                  <ChevronRight size={15} className={`transition ${isOpen ?'rotate-90' : ''}`} />
                 </span>
               </button>
 
@@ -3497,9 +3652,9 @@ export default function App() {
   const roleText = (() => {
     const role = String(currentUser?.role || '').toUpperCase();
     if (role === 'ADMIN' || currentUser?.role === 'admin') return 'Administrador';
-    if (role === 'SUPERVISOR') return 'Operador Nível 1';
-    if (role === 'CHECKIN_CADASTRO') return 'Operador Nível 2';
-    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador Nível 3';
+    if (role === 'SUPERVISOR') return 'Operador N?vel 1';
+    if (role === 'CHECKIN_CADASTRO') return 'Operador N?vel 2';
+    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador N?vel 3';
     return 'Operador';
   })();
 
@@ -3514,21 +3669,21 @@ export default function App() {
   };
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [
-    ...(isUserAdmin ? [{ id: 'dashboard' as const, label: 'Painel Geral', icon: BarChart3 }] : []),
-    ...(isUserAdmin ? [{ id: 'eventos' as const, label: 'Eventos', icon: Calendar }] : []),
-    ...(canManageOperators ? [{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
-    ...(canManageParticipants || isUserAdmin ? [{ id: 'participantes' as const, label: 'Participantes', icon: Users }] : []),
-    ...(isUserAdmin ? [{ id: 'inscricoes-online' as const, label: 'Inscrições Online', icon: ClipboardCheck }] : []),
-    ...(isUserAdmin ? [{ id: 'campos' as const, label: 'Campos de Cadastro', icon: FileText }] : []),
+    ...(isUserAdmin ?[{ id: 'dashboard' as const, label: 'Painel Geral', icon: BarChart3 }] : []),
+    ...(isUserAdmin ?[{ id: 'eventos' as const, label: 'Eventos', icon: Calendar }] : []),
+    ...(canManageOperators ?[{ id: 'usuarios' as const, label: 'Operadores', icon: Users }] : []),
+    ...(canManageParticipants || isUserAdmin ?[{ id: 'participantes' as const, label: 'Participantes', icon: Users }] : []),
+    ...(isUserAdmin ?[{ id: 'inscricoes-online' as const, label: 'Inscrições Online', icon: ClipboardCheck }] : []),
+    ...(isUserAdmin ?[{ id: 'campos' as const, label: 'Campos de Cadastro', icon: FileText }] : []),
     { id: 'checkin' as const, label: 'Check-in', icon: QrCode },
-    ...(isUserAdmin ? [{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
-    ...(isUserAdmin ? [{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
-    ...(isUserAdmin ? [{ id: 'atividades' as const, label: 'Atividades', icon: BookOpen }] : []),
+    ...(isUserAdmin ?[{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
+    ...(isUserAdmin ?[{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
+    ...(isUserAdmin ?[{ id: 'atividades' as const, label: 'Atividades', icon: BookOpen }] : []),
     { id: 'presenca-atividade' as const, label: 'Presença em Atividade', icon: ClipboardCheck },
-    ...(canIssueCertificates ? [{ id: 'certificados' as const, label: 'Certificados', icon: Award }] : []),
-    ...(isUserAdmin ? [{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
-    ...(canViewReports ? [{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
-    ...(isUserAdmin ? [{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
+    ...(canIssueCertificates ?[{ id: 'certificados' as const, label: 'Certificados', icon: Award }] : []),
+    ...(isUserAdmin ?[{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
+    ...(canViewReports ?[{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
+    ...(isUserAdmin ?[{ id: 'impressao' as const, label: 'Impressão de Etiquetas', icon: Printer }] : []),
   ];
 
   const secondaryNavItems: Array<{ id: ActiveTab; label: string; icon: React.ElementType }> = [];
@@ -3578,7 +3733,7 @@ export default function App() {
     issuedByUserId: currentUser?.id || ''
   } as Certificate);
   const certificateDynamicPreview = activeCertificate && certificateParticipant && certificateEvent
-    ? (certificateTemplate.elements || DEFAULT_CERTIFICATE_TEMPLATE.elements)
+    ?(certificateTemplate.elements || DEFAULT_CERTIFICATE_TEMPLATE.elements)
         .slice()
         .sort((a, b) => (a.order || 0) - (b.order || 0))
         .map(element => ({
@@ -3614,20 +3769,20 @@ export default function App() {
   })();
 
   return (
-    <div className={`cx-app-shell min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ? 'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
+    <div className={`cx-app-shell min-h-screen text-slate-900 flex flex-col overflow-hidden ${isDarkTheme ?'theme-dark bg-[#0B1120]' : 'bg-[#f7f7f2]'}`}>
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 no-print">
         {toasts.map(t => (
           <div
             key={t.id}
             className={`cx-glass px-4 py-3 rounded-xl flex items-center gap-3 text-sm font-semibold select-none ${
-              t.type === 'success' ? 'border-emerald-200 text-emerald-900' :
-              t.type === 'error' ? 'border-rose-200 text-rose-900' :
+              t.type === 'success' ?'border-emerald-200 text-emerald-900' :
+              t.type === 'error' ?'border-rose-200 text-rose-900' :
               'border-blue-200 text-blue-900'
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${
-              t.type === 'success' ? 'bg-emerald-500' :
-              t.type === 'error' ? 'bg-rose-500' :
+              t.type === 'success' ?'bg-emerald-500' :
+              t.type === 'error' ?'bg-rose-500' :
               'bg-blue-500'
             }`} />
             <span>{t.message}</span>
@@ -3635,12 +3790,12 @@ export default function App() {
         ))}
       </div>
 
-      <header className={`${shouldUseFullscreenCheckin ? 'hidden' : 'cx-premium-header no-print shrink-0'}`}>
+      <header className={`${shouldUseFullscreenCheckin ?'hidden' : 'cx-premium-header no-print shrink-0'}`}>
         <div className="px-5 lg:px-8 py-4 flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
               <button
-                onClick={() => isUserAdmin ? setActiveTab('dashboard') : setActiveTab('checkin')}
+                onClick={() => isUserAdmin ?setActiveTab('dashboard') : setActiveTab('checkin')}
                 className="flex items-center gap-2 shrink-0 cursor-pointer"
                 title="Ir para o inicio"
               >
@@ -3681,9 +3836,9 @@ export default function App() {
               <button
                 onClick={() => setIsDarkTheme(prev => !prev)}
                 className="cx-button-secondary inline-flex items-center justify-center w-10 h-10 rounded-xl text-slate-700 cursor-pointer"
-                title={isDarkTheme ? 'Usar tema claro' : 'Usar tema escuro'}
+                title={isDarkTheme ?'Usar tema claro' : 'Usar tema escuro'}
               >
-                {isDarkTheme ? <Sun size={16} /> : <Moon size={16} />}
+                {isDarkTheme ?<Sun size={16} /> : <Moon size={16} />}
               </button>
 
               <button
@@ -3730,7 +3885,7 @@ export default function App() {
                   }}
                   className={`cx-nav-item inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
                     isActive
-                      ? 'cx-nav-active'
+                      ?'cx-nav-active'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
                   }`}
                 >
@@ -3746,7 +3901,7 @@ export default function App() {
                   onClick={() => setIsMoreMenuOpen(prev => !prev)}
                   className={`cx-nav-item inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
                     isMoreActive || isMoreMenuOpen
-                      ? 'cx-nav-active'
+                      ?'cx-nav-active'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
                   }`}
                 >
@@ -3768,7 +3923,7 @@ export default function App() {
                           }}
                           className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold text-left transition cursor-pointer ${
                             isActive
-                              ? 'bg-slate-950 text-white'
+                              ?'bg-slate-950 text-white'
                               : 'text-slate-700 hover:bg-slate-100 hover:text-slate-950'
                           }`}
                         >
@@ -3908,13 +4063,13 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {eventUserForm.eventId && eventUsers.length === 0 ? (
+                        {eventUserForm.eventId && eventUsers.length === 0 ?(
                           <tr>
                             <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
                               Nenhum usuário vinculado a este evento.
                             </td>
                           </tr>
-                        ) : !eventUserForm.eventId ? (
+                        ) : !eventUserForm.eventId ?(
                           <tr>
                             <td colSpan={4} className="p-8 text-center text-xs font-semibold text-slate-400">
                               Selecione um evento para visualizar os vínculos.
@@ -3930,13 +4085,13 @@ export default function App() {
                                 </td>
                                 <td className="p-3 text-xs text-slate-600">
                                   <div className="font-semibold">{eventUserRoleLabels[link.role] || link.role}</div>
-                                  <div className="text-[11px] text-slate-400">{normalizePermissions(link.permissions?.length ? link.permissions : legacyPermissionsForRole(link.role)).length} permissões</div>
+                                  <div className="text-[11px] text-slate-400">{normalizePermissions(link.permissions?.length ?link.permissions : legacyPermissionsForRole(link.role)).length} permissões</div>
                                 </td>
                                 <td className="p-3 text-center">
                                   <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                    link.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                    link.active ?'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
                                   }`}>
-                                    {link.active ? 'Ativo' : 'Inativo'}
+                                    {link.active ?'Ativo' : 'Inativo'}
                                   </span>
                                 </td>
                                 <td className="p-3">
@@ -3947,7 +4102,7 @@ export default function App() {
                                         eventId: link.eventId,
                                         userId: link.userId,
                                         role: link.role,
-                                        permissions: normalizePermissions(link.permissions?.length ? link.permissions : legacyPermissionsForRole(link.role)),
+                                        permissions: normalizePermissions(link.permissions?.length ?link.permissions : legacyPermissionsForRole(link.role)),
                                         active: link.active
                                       })}
                                       className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-700 border border-blue-100 text-xs font-bold transition cursor-pointer"
@@ -3959,7 +4114,7 @@ export default function App() {
                                       onClick={() => handleToggleEventUser(link)}
                                       className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 border border-slate-200 text-xs font-bold transition cursor-pointer"
                                     >
-                                      {link.active ? 'Desativar' : 'Ativar'}
+                                      {link.active ?'Desativar' : 'Ativar'}
                                     </button>
                                     <button
                                       type="button"
@@ -3987,12 +4142,12 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto no-print">
         {/* DETECT AN EMPTY EVENT STATE */}
-        {loadingEvents ? (
+        {loadingEvents ?(
           <div className="flex-grow flex flex-col items-center justify-center gap-3 bg-[#f7f7f2]">
             <RefreshCw className="animate-spin text-blue-500" size={32} />
             <p className="text-slate-500 font-medium text-sm">Carregando eventos...</p>
           </div>
-        ) : events.length === 0 ? (
+        ) : events.length === 0 ?(
           <div className="flex-1 p-8 flex flex-col items-center justify-center text-center bg-[#f7f7f2]">
             <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4">
               <Calendar size={32} />
@@ -4013,13 +4168,13 @@ export default function App() {
               </button>
             )}
           </div>
-        ) : loadingMain ? (
+        ) : loadingMain ?(
           <div className="flex-grow flex flex-col items-center justify-center gap-3 bg-[#f7f7f2]">
             <RefreshCw className="animate-spin text-blue-500" size={32} />
             <p className="text-slate-500 font-medium text-sm">Carregando painel em tempo real...</p>
           </div>
         ) : (
-          <div className={`flex-1 overflow-y-auto ${activeTab === 'checkin' || activeTab === 'checkin-mobile' ? 'p-0 bg-white' : 'p-8 bg-[#f7f7f2]'}`}>
+          <div className={`flex-1 overflow-y-auto ${activeTab === 'checkin' || activeTab === 'checkin-mobile' ?'p-0 bg-white' : 'p-8 bg-[#f7f7f2]'}`}>
             {currentEvent && isCurrentEventTestMode && activeTab !== 'checkin' && activeTab !== 'checkin-mobile' && (
               <div className="max-w-7xl mx-auto mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 flex items-start gap-3">
                 <AlertTriangle size={18} className="mt-0.5 text-amber-600" />
@@ -4050,12 +4205,12 @@ export default function App() {
                       <h1 className="text-2xl font-bold text-slate-950 font-display">{currentEvent.name}</h1>
                       <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide border ${
                         isCurrentEventClosed
-                          ? 'bg-slate-200 text-slate-700 border-slate-300'
+                          ?'bg-slate-200 text-slate-700 border-slate-300'
                           : isCurrentEventTestMode
-                            ? 'bg-amber-100 text-amber-800 border-amber-200'
+                            ?'bg-amber-100 text-amber-800 border-amber-200'
                             : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                       }`}>
-                        {isCurrentEventClosed ? 'EVENTO ENCERRADO' : isCurrentEventTestMode ? 'PREPARACAO' : 'EVENTO OFICIAL'}
+                        {isCurrentEventClosed ?'EVENTO ENCERRADO' : isCurrentEventTestMode ?'PREPARACAO' : 'EVENTO OFICIAL'}
                       </span>
                     </div>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
@@ -4084,8 +4239,8 @@ export default function App() {
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">Testes ativos: {testCheckinCount}</span>
-                          <span className={`rounded-full px-3 py-1 ${isCurrentEventClosed ? 'bg-slate-100 text-slate-700' : isCurrentEventTestMode ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            Atual: {isCurrentEventClosed ? 'EVENTO ENCERRADO' : isCurrentEventTestMode ? 'PREPARACAO' : 'EVENTO OFICIAL'}
+                          <span className={`rounded-full px-3 py-1 ${isCurrentEventClosed ?'bg-slate-100 text-slate-700' : isCurrentEventTestMode ?'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            Atual: {isCurrentEventClosed ?'EVENTO ENCERRADO' : isCurrentEventTestMode ?'PREPARACAO' : 'EVENTO OFICIAL'}
                           </span>
                         </div>
                       </div>
@@ -4155,21 +4310,21 @@ export default function App() {
                   />
                   <StatsCard
                     title="Salas"
-                    value={eventHasAccessControl ? availableAreas.length : 'Inativo'}
+                    value={eventHasAccessControl ?availableAreas.length : 'Inativo'}
                     iconName="ShieldCheck"
-                    description={eventHasAccessControl ? 'Áreas configuradas' : 'Módulo desligado'}
-                    trend={{ text: eventHasAccessControl ? 'Acessos' : 'Opcional', type: eventHasAccessControl ? 'success' : 'warning' }}
+                    description={eventHasAccessControl ?'Áreas configuradas' : 'Módulo desligado'}
+                    trend={{ text: eventHasAccessControl ?'Acessos' : 'Opcional', type: eventHasAccessControl ?'success' : 'warning' }}
                     colorTheme="purple"
-                    onClick={eventHasAccessControl ? () => setActiveTab('areas') : undefined}
+                    onClick={eventHasAccessControl ?() => setActiveTab('areas') : undefined}
                   />
                   <StatsCard
                     title="Chapelaria"
-                    value={eventHasCloakroom ? cloakroom.filter(c => c.status === 'guardado').length : 'Inativo'}
+                    value={eventHasCloakroom ?cloakroom.filter(c => c.status === 'guardado').length : 'Inativo'}
                     iconName="FolderLock"
-                    description={eventHasCloakroom ? 'Itens guardados agora' : 'Módulo desligado'}
-                    trend={{ text: eventHasCloakroom ? 'Ativa' : 'Opcional', type: eventHasCloakroom ? 'success' : 'warning' }}
+                    description={eventHasCloakroom ?'Itens guardados agora' : 'Módulo desligado'}
+                    trend={{ text: eventHasCloakroom ?'Ativa' : 'Opcional', type: eventHasCloakroom ?'success' : 'warning' }}
                     colorTheme="amber"
-                    onClick={eventHasCloakroom ? () => setActiveTab('chapelaria') : undefined}
+                    onClick={eventHasCloakroom ?() => setActiveTab('chapelaria') : undefined}
                   />
                 </div>
 
@@ -4190,7 +4345,7 @@ export default function App() {
                       <button onClick={() => setActiveTab('areas')} className="text-left p-4 rounded-lg border border-slate-200 hover:border-slate-400 bg-white transition cursor-pointer">
                         <ShieldCheck size={18} className="text-slate-500 mb-2" />
                         <div className="font-bold text-slate-900 text-sm">Salas e acessos</div>
-                        <div className="text-xs text-slate-500 mt-1">Setores, perfis e validação por área.</div>
+                        <div className="text-xs text-slate-500 mt-1">Setores, perfis e validação por Área.</div>
                       </button>
                     )}
                     {eventHasCloakroom && (
@@ -4234,30 +4389,30 @@ export default function App() {
                     const isSelected = ev.id === selectedEventId;
                     const eventStats = eventParticipantStats.get(ev.id) || { total: 0, checked: 0 };
                     const hasLoadedStats = isSelected && eventStats.total > 0;
-                    const percent = hasLoadedStats ? Math.round((eventStats.checked / eventStats.total) * 100) : 0;
+                    const percent = hasLoadedStats ?Math.round((eventStats.checked / eventStats.total) * 100) : 0;
                     return (
                       <button
                         key={ev.id}
                         type="button"
                         onClick={() => {
                           persistSelectedEvent(ev.id, ev.currentUserRole);
-                          setActiveTab(isUserAdmin ? 'evento-dashboard' : 'checkin');
+                          setActiveTab(isUserAdmin ?'evento-dashboard' : 'checkin');
                           addToast(`Evento ativo: ${ev.name}`, 'success');
                         }}
                         className={`text-left bg-white rounded-lg border p-5 shadow-sm transition cursor-pointer hover:border-slate-400 hover:shadow-md ${
-                          isSelected ? 'border-[#1D4ED8] ring-2 ring-[#1D4ED8]/10' : 'border-slate-200'
+                          isSelected ?'border-[#1D4ED8] ring-2 ring-[#1D4ED8]/10' : 'border-slate-200'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border ${
-                              isSelected ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]' : 'bg-slate-50 text-slate-600 border-slate-200'
+                              isSelected ?'bg-[#1D4ED8] text-white border-[#1D4ED8]' : 'bg-slate-50 text-slate-600 border-slate-200'
                             }`}>
-                              {isSelected ? 'Selecionado' : 'Disponível'}
+                              {isSelected ?'Selecionado' : 'Disponível'}
                             </span>
                             <h2 className="text-base font-bold text-slate-950 mt-3 line-clamp-2">{ev.name}</h2>
                           </div>
-                          <Calendar size={18} className={isSelected ? 'text-[#1D4ED8] shrink-0' : 'text-slate-400 shrink-0'} />
+                          <Calendar size={18} className={isSelected ?'text-[#1D4ED8] shrink-0' : 'text-slate-400 shrink-0'} />
                         </div>
 
                         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -4276,7 +4431,7 @@ export default function App() {
                         <div className="mt-5">
                           <div className="flex justify-between text-xs font-semibold text-slate-500 mb-2">
                             <span>Check-ins</span>
-                            <span>{hasLoadedStats ? `${eventStats.checked}/${eventStats.total} (${percent}%)` : 'Carrega ao selecionar'}</span>
+                            <span>{hasLoadedStats ?`${eventStats.checked}/${eventStats.total} (${percent}%)` : 'Carrega ao selecionar'}</span>
                           </div>
                           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full bg-[#1D4ED8] rounded-full transition-all" style={{ width: `${percent}%` }} />
@@ -4310,7 +4465,7 @@ export default function App() {
             {false && stats && (
               <div className="space-y-6">
                 
-                {/* 4 Cards das Métricas */}
+                {/* 4 Cards das M?tricas */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   
                   <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-100 flex flex-col gap-2 relative overflow-hidden group">
@@ -4328,11 +4483,11 @@ export default function App() {
                     <div className="w-full bg-slate-100 h-2 rounded-full mt-2">
                       <div 
                         className="bg-blue-600 h-2 rounded-full transition-all duration-500" 
-                        style={{ width: `${stats.totalRegistered > 0 ? (stats.totalCheckedIn / stats.totalRegistered) * 105 : 0}%` }}
+                        style={{ width: `${stats.totalRegistered > 0 ?(stats.totalCheckedIn / stats.totalRegistered) * 105 : 0}%` }}
                       ></div>
                     </div>
                     <span className="text-xs text-slate-400 mt-1">
-                      {stats.totalRegistered > 0 ? Math.round((stats.totalCheckedIn / stats.totalRegistered) * 100) : 0}% concluído
+                      {stats.totalRegistered > 0 ?Math.round((stats.totalCheckedIn / stats.totalRegistered) * 100) : 0}% conclu?do
                     </span>
                   </div>
 
@@ -4358,7 +4513,7 @@ export default function App() {
 
               </div>
 
-                {/* Gráfico de Horários e Logs Recentes de Check-in */}
+                {/* Gr?fico de Horários e Logs Recentes de Check-in */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
                   {/* Fluxo por Horário (SVG / CSS Custom Bar Chart altamente customizado) */}
@@ -4366,7 +4521,7 @@ export default function App() {
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
                       <div>
                         <h3 className="font-bold text-slate-800 font-display">Fluxo de Entrada de Credenciados</h3>
-                        <p className="text-xs text-slate-500">Número de check-ins registrados por faixa horária ativa</p>
+                        <p className="text-xs text-slate-500">Número de check-ins registrados por faixa hor?ria ativa</p>
                       </div>
                       <span className="px-3 py-1 bg-white text-blue-600 text-xs font-semibold border border-blue-100 rounded-full">
                         Hoje
@@ -4384,10 +4539,10 @@ export default function App() {
                             </span>
                             <div 
                               className={`w-full rounded-t-md transition-all duration-500 cursor-pointer ${
-                                entry.count > 0 ? 'bg-blue-600 hover:bg-blue-500 shadow-xs' : 'bg-slate-100'
+                                entry.count > 0 ?'bg-blue-600 hover:bg-blue-500 shadow-xs' : 'bg-slate-100'
                               }`} 
                               style={{ height: `${percentHeight || 4}%` }}
-                              title={`Check-ins às ${entry.hour}: ${entry.count}`}
+                              title={`Check-ins ?s ${entry.hour}: ${entry.count}`}
                             />
                             <span className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap">
                               {entry.hour}
@@ -4398,18 +4553,18 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Ãšltimos Check-ins realizados */}
+                  {/* Últimos Check-ins realizados */}
                   <div className="lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-100 flex flex-col h-[400px]">
                     <div className="p-6 border-b border-slate-100 bg-gray-50/50 rounded-t-2xl flex items-center justify-between">
                       <div>
-                        <h3 className="font-bold text-slate-800 font-display">Ãšltimos Check-ins</h3>
+                        <h3 className="font-bold text-slate-800 font-display">Últimos Check-ins</h3>
                         <p className="text-xs text-slate-500">Transmissão em tempo real</p>
                       </div>
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                     </div>
 
                     <div className="flex-grow overflow-y-auto p-4 space-y-3">
-                      {stats.recentCheckins.length === 0 ? (
+                      {stats.recentCheckins.length === 0 ?(
                         <div className="h-full flex flex-col items-center justify-center text-center p-4">
                           <UserCheck className="text-slate-300 mb-2" size={32} />
                           <p className="text-xs text-slate-500 font-medium">Nenhum scan registrado para este evento ainda.</p>
@@ -4424,8 +4579,8 @@ export default function App() {
                               <p className="text-sm font-bold text-slate-800 truncate">{p.participantName}</p>
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
-                                  p.category === 'VIP' ? 'bg-amber-100 text-amber-800' :
-                                  p.category === 'Palestrante' ? 'bg-purple-100 text-purple-800' :
+                                  p.category === 'VIP' ?'bg-amber-100 text-amber-800' :
+                                  p.category === 'Palestrante' ?'bg-purple-100 text-purple-800' :
                                   'bg-zinc-100 text-zinc-800'
                                 }`}>
                                   {p.category}
@@ -4457,7 +4612,7 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 2: INFORMAÃ‡Ã•ES DOS EVENTOS --- */}
+            {/* --- TAB 2: INFORMAÇÕES DOS EVENTOS --- */}
             {activeTab === 'eventos' && (
               <EventsPage
                 events={events}
@@ -4611,7 +4766,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredParticipantsList.length === 0 ? (
+                        {filteredParticipantsList.length === 0 ?(
                           <tr>
                             <td colSpan={6} className="p-12 text-center text-slate-400">
                               <Info className="mx-auto text-slate-300 mb-2" size={32} />
@@ -4665,7 +4820,7 @@ export default function App() {
 
                               <td className="p-4 align-middle text-center">
                                 <div className="flex flex-col items-center justify-center">
-                                  {p.checkedIn ? (
+                                  {p.checkedIn ?(
                                     <>
                                       <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 select-none">
                                         <Check size={12} strokeWidth={3} />
@@ -4690,11 +4845,11 @@ export default function App() {
                                     onClick={() => handleToggleCheckin(p)}
                                     className={`px-3 py-1.5 text-xs font-bold rounded-lg transition duration-200 cursor-pointer select-none ${
                                       p.checkedIn 
-                                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' 
+                                        ?'bg-rose-50 text-rose-700 hover:bg-rose-100' 
                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                     }`}
                                   >
-                                    {p.checkedIn ? 'Desfazer' : 'Dar Presença'}
+                                    {p.checkedIn ?'Desfazer' : 'Dar Presença'}
                                   </button>
 
                                   <button
@@ -4767,7 +4922,7 @@ export default function App() {
               />
             )}
 
-            {/* --- TAB 4: CHECK-IN RÁPIDO / SCANNER SIMULATOR --- */}
+            {/* --- TAB 4: CHECK-IN R?PIDO / SCANNER SIMULATOR --- */}
             {activeTab === 'checkin' && (
               <CheckinPage
                 events={events}
@@ -4783,7 +4938,7 @@ export default function App() {
                 canCreateParticipants={canCreateParticipants}
                 canConfigureCheckinScreen={isUserAdmin}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
-                onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ? updated : ev))}
+                onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ?updated : ev))}
                 onLogout={handleLogout}
               />
             )}
@@ -4843,7 +4998,7 @@ export default function App() {
                   </button>
                 </div>
 
-                {!selectedEventId ? (
+                {!selectedEventId ?(
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-900">
                     Selecione um evento ativo para gerenciar atividades.
                   </div>
@@ -4851,7 +5006,7 @@ export default function App() {
                   <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
                     <form onSubmit={handleSaveActivity} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 shadow-sm">
                       <div>
-                        <h3 className="text-base font-black text-slate-900">{activityForm.id ? 'Editar atividade' : 'Nova atividade'}</h3>
+                        <h3 className="text-base font-black text-slate-900">{activityForm.id ?'Editar atividade' : 'Nova atividade'}</h3>
                         <p className="text-xs text-slate-500 mt-1">Apenas administradores podem criar ou alterar atividades.</p>
                       </div>
                       <label className="block text-xs font-bold uppercase text-slate-500">
@@ -4892,7 +5047,7 @@ export default function App() {
                       </label>
                       <div className="flex gap-2">
                         <button type="submit" className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 transition">
-                          {activityForm.id ? 'Salvar alterações' : 'Criar atividade'}
+                          {activityForm.id ?'Salvar alterações' : 'Criar atividade'}
                         </button>
                         {activityForm.id && (
                           <button type="button" onClick={resetActivityForm} className="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition">
@@ -4921,24 +5076,24 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {activities.length === 0 ? (
+                            {activities.length === 0 ?(
                               <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-semibold">Nenhuma atividade cadastrada.</td></tr>
                             ) : activities.map(activity => (
                               <tr key={activity.id} className="border-t border-slate-100">
                                 <td className="p-4">
                                   <p className="font-black text-slate-900">{fixMojibake(activity.title)}</p>
-                                  <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)}{activity.speakerName ? ` - ${fixMojibake(activity.speakerName)}` : ''}</p>
+                                  <p className="text-xs text-slate-500">{fixMojibake(activity.roomName)}{activity.speakerName ?` - ${fixMojibake(activity.speakerName)}` : ''}</p>
                                 </td>
                                 <td className="p-4 text-slate-700">
-                                  {activity.date ? new Date(`${activity.date}T00:00:00`).toLocaleDateString('pt-BR') : '-'} às {activity.startTime} - {activity.endTime}
+                                  {activity.date ?new Date(`${activity.date}T00:00:00`).toLocaleDateString('pt-BR') : '-'} ?s {activity.startTime} - {activity.endTime}
                                 </td>
                                 <td className="p-4 font-semibold text-slate-700">{activity.workloadHours || 0}h</td>
                                 <td className="p-4 text-center">
                                   <button
                                     onClick={() => handleToggleActivity(activity)}
-                                    className={`inline-flex px-3 py-1 rounded-full text-xs font-black ${activity.active === false ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}
+                                    className={`inline-flex px-3 py-1 rounded-full text-xs font-black ${activity.active === false ?'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}
                                   >
-                                    {activity.active === false ? 'Inativa' : 'Ativa'}
+                                    {activity.active === false ?'Inativa' : 'Ativa'}
                                   </button>
                                 </td>
                                 <td className="p-4">
@@ -4987,7 +5142,7 @@ export default function App() {
                     {selectedActivity && (
                       <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                         <p className="text-lg font-black text-blue-950">{fixMojibake(selectedActivity.title)}</p>
-                        <p className="text-sm text-blue-800 mt-1">{fixMojibake(selectedActivity.roomName)}{selectedActivity.speakerName ? ` - ${fixMojibake(selectedActivity.speakerName)}` : ''}</p>
+                        <p className="text-sm text-blue-800 mt-1">{fixMojibake(selectedActivity.roomName)}{selectedActivity.speakerName ?` - ${fixMojibake(selectedActivity.speakerName)}` : ''}</p>
                         <p className="text-xs font-bold text-blue-700 mt-2">{selectedActivity.date} | {selectedActivity.startTime} - {selectedActivity.endTime} | {selectedActivity.workloadHours || 0}h</p>
                       </div>
                     )}
@@ -5030,12 +5185,12 @@ export default function App() {
                     {activityAttendanceFeedback && (
                       <div className={`rounded-xl border p-5 text-center ${
                         activityAttendanceFeedback.type === 'success'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          ?'border-emerald-200 bg-emerald-50 text-emerald-900'
                           : activityAttendanceFeedback.type === 'warning'
-                            ? 'border-amber-200 bg-amber-50 text-amber-900'
+                            ?'border-amber-200 bg-amber-50 text-amber-900'
                             : 'border-rose-200 bg-rose-50 text-rose-900'
                       }`}>
-                        <p className="text-xl font-black">{activityAttendanceFeedback.type === 'success' ? 'âœ”' : activityAttendanceFeedback.type === 'warning' ? 'âš ' : 'âœ•'} {activityAttendanceFeedback.title}</p>
+                        <p className="text-xl font-black">{activityAttendanceFeedback.type === 'success' ?'?Å“?' : activityAttendanceFeedback.type === 'warning' ?'?Å¡ ' : '?Å“?'} {activityAttendanceFeedback.title}</p>
                         <p className="text-sm font-semibold mt-2">{activityAttendanceFeedback.message}</p>
                       </div>
                     )}
@@ -5050,9 +5205,9 @@ export default function App() {
                       <ClipboardCheck className="text-slate-400" size={22} />
                     </div>
                     <div className="space-y-2 max-h-[520px] overflow-y-auto">
-                      {!activityAttendanceActivityId ? (
+                      {!activityAttendanceActivityId ?(
                         <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Selecione uma atividade.</p>
-                      ) : selectedActivityAttendances.length === 0 ? (
+                      ) : selectedActivityAttendances.length === 0 ?(
                         <p className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhuma presença registrada ainda.</p>
                       ) : selectedActivityAttendances.map(att => (
                         <div key={att.id} className="rounded-lg border border-slate-100 p-3">
@@ -5082,7 +5237,7 @@ export default function App() {
                         <p className="text-xs font-black uppercase tracking-widest text-slate-400">Template de Certificado</p>
                         <h3 className="text-lg font-black text-slate-950">Configuração por evento</h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          Configure a base visual do certificado. O editor visual ficará preparado para uma próxima etapa.
+                          Configure a base visual do certificado. O editor visual ficar? preparado para uma pr?xima etapa.
                         </p>
                       </div>
                       <button
@@ -5092,7 +5247,7 @@ export default function App() {
                         className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-black text-white hover:bg-slate-800 disabled:bg-slate-300 transition"
                       >
                         <Check size={16} />
-                        {savingCertificateTemplate ? 'Salvando...' : 'Salvar template'}
+                        {savingCertificateTemplate ?'Salvando...' : 'Salvar template'}
                       </button>
                     </div>
 
@@ -5182,7 +5337,7 @@ export default function App() {
                     </div>
 
                     <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-xs font-black uppercase text-slate-500">Placeholders disponíveis</p>
+                      <p className="text-xs font-black uppercase text-slate-500">Placeholders dispon?veis</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {DEFAULT_CERTIFICATE_TEMPLATE.elements.map(element => (
                           <span key={element.id} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-mono font-bold text-slate-600 border border-slate-200">
@@ -5210,21 +5365,21 @@ export default function App() {
                       <div
                         ref={certificateCanvasRef}
                         onMouseDown={() => setSelectedCertificateElementId('')}
-                        className={`relative mx-auto overflow-hidden rounded-lg border border-slate-300 bg-white shadow-inner ${certificateTemplate.orientation === 'portrait' ? 'aspect-[0.707/1] max-w-[520px]' : 'aspect-[1.414/1] w-full max-w-[900px]'}`}
-                        style={certificateTemplate.backgroundImageUrl ? { backgroundImage: `url(${certificateTemplate.backgroundImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+                        className={`relative mx-auto overflow-hidden rounded-lg border border-slate-300 bg-white shadow-inner ${certificateTemplate.orientation === 'portrait' ?'aspect-[0.707/1] max-w-[520px]' : 'aspect-[1.414/1] w-full max-w-[900px]'}`}
+                        style={certificateTemplate.backgroundImageUrl ?{ backgroundImage: `url(${certificateTemplate.backgroundImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
                       >
                         <div className="absolute inset-0 bg-white/75" />
                         {certificateTemplate.elements.map((element, index) => {
                           const normalized = getCertificateElementDefaults(element, index);
                           const isSelected = normalized.id === selectedCertificateElementId;
                           const value = normalized.type === 'image'
-                            ? ''
+                            ?''
                             : replaceCertificatePlaceholders(normalized.placeholder || normalized.text || '', certificatePreviewParticipant, certificatePreviewEvent, certificatePreviewCertificate, certificateActivity);
                           return (
                             <div
                               key={normalized.id}
                               onMouseDown={event => handleCertificateElementPointerDown(event, normalized, 'move')}
-                              className={`absolute cursor-move rounded border-2 bg-white/20 px-1 py-0.5 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-transparent hover:border-blue-300'}`}
+                              className={`absolute cursor-move rounded border-2 bg-white/20 px-1 py-0.5 ${isSelected ?'border-blue-500 shadow-lg' : 'border-transparent hover:border-blue-300'}`}
                               style={{
                                 left: `${normalized.x}%`,
                                 top: `${normalized.y}%`,
@@ -5233,16 +5388,16 @@ export default function App() {
                                 color: normalized.color,
                                 fontFamily: normalized.fontFamily,
                                 fontSize: `${Math.max(8, Math.min(normalized.fontSize || 14, 34))}px`,
-                                fontWeight: normalized.bold ? 900 : 500,
-                                fontStyle: normalized.italic ? 'italic' : 'normal',
+                                fontWeight: normalized.bold ?900 : 500,
+                                fontStyle: normalized.italic ?'italic' : 'normal',
                                 textAlign: normalized.align,
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: normalized.align === 'left' ? 'flex-start' : normalized.align === 'right' ? 'flex-end' : 'center'
+                                justifyContent: normalized.align === 'left' ?'flex-start' : normalized.align === 'right' ?'flex-end' : 'center'
                               }}
                             >
                               {normalized.type === 'image'
-                                ? (normalized.imageUrl ? <img src={normalized.imageUrl} alt={normalized.label} className="h-full w-full object-contain" /> : <span className="text-xs text-slate-400">Imagem</span>)
+                                ?(normalized.imageUrl ?<img src={normalized.imageUrl} alt={normalized.label} className="h-full w-full object-contain" /> : <span className="text-xs text-slate-400">Imagem</span>)
                                 : <span className="line-clamp-2">{value}</span>}
                               {isSelected && (
                                 <button
@@ -5268,7 +5423,7 @@ export default function App() {
 
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                       <p className="text-xs font-black uppercase tracking-widest text-slate-500">Painel lateral</p>
-                      {!selectedCertificateElement ? (
+                      {!selectedCertificateElement ?(
                         <p className="mt-3 rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Selecione um elemento no certificado para editar.</p>
                       ) : (
                         <div className="mt-3 space-y-3">
@@ -5276,7 +5431,7 @@ export default function App() {
                             Elemento
                             <input value={selectedCertificateElement.label} onChange={e => updateCertificateElement(selectedCertificateElement.id, { label: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
                           </label>
-                          {selectedCertificateElement.type === 'text' ? (
+                          {selectedCertificateElement.type === 'text' ?(
                             <label className="block text-xs font-bold uppercase text-slate-500">
                               Texto / Placeholder
                               <textarea value={selectedCertificateElement.placeholder} onChange={e => updateCertificateElement(selectedCertificateElement.id, { placeholder: e.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900" />
@@ -5401,9 +5556,9 @@ export default function App() {
                     {certificateFeedback && (
                       <div className={`rounded-xl border p-4 text-sm font-bold ${
                         certificateFeedback.type === 'success'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          ?'border-emerald-200 bg-emerald-50 text-emerald-900'
                           : certificateFeedback.type === 'warning'
-                            ? 'border-amber-200 bg-amber-50 text-amber-900'
+                            ?'border-amber-200 bg-amber-50 text-amber-900'
                             : 'border-rose-200 bg-rose-50 text-rose-900'
                       }`}>
                         {certificateFeedback.message}
@@ -5441,7 +5596,7 @@ export default function App() {
                         <div>
                           <p className="mb-2 text-xs font-black uppercase text-slate-400">Atividades frequentadas</p>
                           <div className="space-y-2 max-h-[320px] overflow-y-auto">
-                            {certificateLookup.attendedActivities.length === 0 ? (
+                            {certificateLookup.attendedActivities.length === 0 ?(
                               <p className="rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-900">Participante não possui presença registrada.</p>
                             ) : certificateLookup.attendedActivities.map(activity => (
                               <div key={activity.id} className="rounded-lg border border-slate-100 p-3">
@@ -5466,10 +5621,10 @@ export default function App() {
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                    {!activeCertificate || !certificateParticipant || !certificateEvent ? (
+                    {!activeCertificate || !certificateParticipant || !certificateEvent ?(
                       <div className="flex min-h-[520px] flex-col items-center justify-center text-center text-slate-400 no-print">
                         <Award size={44} />
-                        <p className="mt-3 text-sm font-bold">A prévia do certificado aparecerá aqui após a emissão.</p>
+                        <p className="mt-3 text-sm font-bold">A pr?via do certificado aparecer? aqui após a emissão.</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -5489,8 +5644,8 @@ export default function App() {
                         </div>
 
                         <div
-                          className={`certificate-print-area relative overflow-hidden rounded-xl border-[10px] border-slate-100 bg-white px-8 py-12 text-center shadow-inner min-h-[520px] flex flex-col justify-center ${certificateTemplate.orientation === 'portrait' ? 'max-w-[560px] mx-auto' : ''}`}
-                          style={certificateTemplate.backgroundImageUrl ? {
+                          className={`certificate-print-area relative overflow-hidden rounded-xl border-[10px] border-slate-100 bg-white px-8 py-12 text-center shadow-inner min-h-[520px] flex flex-col justify-center ${certificateTemplate.orientation === 'portrait' ?'max-w-[560px] mx-auto' : ''}`}
+                          style={certificateTemplate.backgroundImageUrl ?{
                             backgroundImage: `url(${certificateTemplate.backgroundImageUrl})`,
                             backgroundSize: 'cover',
                             backgroundPosition: 'center'
@@ -5500,7 +5655,7 @@ export default function App() {
                           {certificateTemplate.elements.map((element, index) => {
                             const normalized = getCertificateElementDefaults(element, index);
                             const value = normalized.type === 'image'
-                              ? ''
+                              ?''
                               : replaceCertificatePlaceholders(normalized.placeholder || normalized.text || '', certificateParticipant, certificateEvent, activeCertificate.certificate, certificateActivity);
                             return (
                               <div
@@ -5514,19 +5669,19 @@ export default function App() {
                                   color: normalized.color,
                                   fontFamily: normalized.fontFamily,
                                   fontSize: `${Math.max(8, Math.min(normalized.fontSize || 14, 34))}px`,
-                                  fontWeight: normalized.bold ? 900 : 500,
-                                  fontStyle: normalized.italic ? 'italic' : 'normal',
+                                  fontWeight: normalized.bold ?900 : 500,
+                                  fontStyle: normalized.italic ?'italic' : 'normal',
                                   textAlign: normalized.align,
-                                  justifyContent: normalized.align === 'left' ? 'flex-start' : normalized.align === 'right' ? 'flex-end' : 'center'
+                                  justifyContent: normalized.align === 'left' ?'flex-start' : normalized.align === 'right' ?'flex-end' : 'center'
                                 }}
                               >
                                 {normalized.type === 'image'
-                                  ? (normalized.imageUrl ? <img src={normalized.imageUrl} alt={normalized.label} className="h-full w-full object-contain" /> : null)
+                                  ?(normalized.imageUrl ?<img src={normalized.imageUrl} alt={normalized.label} className="h-full w-full object-contain" /> : null)
                                   : <span>{value}</span>}
                               </div>
                             );
                           })}
-                          <div className={`${certificateTemplate.elements.length > 0 ? 'hidden' : 'relative z-10'}`}>
+                          <div className={`${certificateTemplate.elements.length > 0 ?'hidden' : 'relative z-10'}`}>
                           {certificateTemplate.logoUrl && (
                             <img src={certificateTemplate.logoUrl} alt="Logo do certificado" className="mx-auto mb-5 max-h-20 max-w-[220px] object-contain" />
                           )}
@@ -5534,14 +5689,14 @@ export default function App() {
                           <h1 className="mt-5 text-4xl font-black text-slate-950 font-display">{certificateTemplate.name || 'CREDENCIA'}</h1>
                           <div className="mx-auto my-8 h-px w-28 bg-slate-300" />
 
-                          {activeCertificate.certificate.type === 'activity' && certificateActivity ? (
+                          {activeCertificate.certificate.type === 'activity' && certificateActivity ?(
                             <div className="space-y-4 text-slate-800">
                               <p className="text-xl leading-relaxed">Certificamos que <b>{certificateParticipant.name}</b></p>
                               <p className="text-xl leading-relaxed">participou da atividade</p>
                               <p className="text-3xl font-black text-slate-950">{fixMojibake(certificateActivity.title)}</p>
                               <p className="text-xl leading-relaxed">ministrada por</p>
                               <p className="text-2xl font-black text-slate-950">{fixMojibake(certificateActivity.speakerName || 'Palestrante não informado')}</p>
-                              <p className="text-xl leading-relaxed">com carga horária de</p>
+                              <p className="text-xl leading-relaxed">com carga hor?ria de</p>
                               <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
                             </div>
                           ) : (
@@ -5549,7 +5704,7 @@ export default function App() {
                               <p className="text-xl leading-relaxed">Certificamos que <b>{certificateParticipant.name}</b></p>
                               <p className="text-xl leading-relaxed">participou do evento</p>
                               <p className="text-3xl font-black text-slate-950">{certificateEvent.name}</p>
-                              <p className="text-xl leading-relaxed">com carga horária total de</p>
+                              <p className="text-xl leading-relaxed">com carga hor?ria total de</p>
                               <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
                             </div>
                           )}
@@ -5605,13 +5760,13 @@ export default function App() {
                     { id: 'return' as const, label: 'Devolução' },
                     { id: 'stored' as const, label: 'Itens Guardados' },
                     { id: 'history' as const, label: 'Histórico' },
-                    ...(isUserAdmin ? [{ id: 'settings' as const, label: 'Configurações' }] : [])
+                    ...(isUserAdmin ?[{ id: 'settings' as const, label: 'Configurações' }] : [])
                   ].map(tab => (
                     <button
                       key={tab.id}
                       onClick={() => setCloakroomTab(tab.id)}
                       className={`px-3 py-2 rounded-md text-xs font-bold transition cursor-pointer ${
-                        cloakroomTab === tab.id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'
+                        cloakroomTab === tab.id ?'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'
                       }`}
                     >
                       {tab.label}
@@ -5641,7 +5796,10 @@ export default function App() {
                       items={cloakroom}
                       selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
                       suggestedAddress={suggestedCloakroomAddress}
-                      onSelectPosition={setCloakroomSelectedPosition}
+                      onSelectPosition={(position) => {
+                        setCloakroomSelectedPosition(position);
+                        updateCloakroomVolumeDraft(activeCloakroomVolumeIndex, buildVolumePositionPayload(position));
+                      }}
                     />
                   </div>
                 )}
@@ -5692,14 +5850,14 @@ export default function App() {
                             >
                               <div className="font-black text-slate-950 text-base">{participant.name}</div>
                               <div className="text-xs text-slate-500 mt-1">
-                                {participant.category}{participant.company ? ` â€¢ ${participant.company}` : ''} â€¢ {participant.ticketCode}
+                                {participant.category}{participant.company ?` • ${participant.company}` : ''} • {participant.ticketCode}
                               </div>
                             </button>
                           ))}
                         </div>
                       )}
 
-                      {cloakroomSelectedParticipant ? (
+                      {cloakroomSelectedParticipant ?(
                         <div className="mt-4 rounded-xl border-2 border-blue-200 bg-blue-50 p-5 shadow-xs">
                           <div className="flex items-start justify-between gap-3">
                             <div>
@@ -5726,7 +5884,7 @@ export default function App() {
                           </button>
                           <div className="min-w-24 text-center">
                             <div className="text-5xl font-black text-slate-950 leading-none">{cloakroomVolumeCount}</div>
-                            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-1">volume{cloakroomVolumeCount > 1 ? 's' : ''}</div>
+                            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-1">volume{cloakroomVolumeCount > 1 ?'s' : ''}</div>
                           </div>
                           <button
                             type="button"
@@ -5740,14 +5898,47 @@ export default function App() {
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-black text-slate-950">Observações</h3>
-                        <textarea
-                          value={cloakroomDescription}
-                          onChange={event => setCloakroomDescription(event.target.value)}
-                          placeholder="Mochila preta, casaco azul, mala de bordo..."
-                          rows={5}
-                          className="w-full mt-3 px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl text-base text-slate-900 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 resize-none"
-                        />
+                        <h3 className="text-lg font-black text-slate-950">Descrição e posição por volume</h3>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">
+                          Selecione o volume abaixo e clique no mapa para definir a posição física.
+                        </p>
+                        <div className="mt-3 space-y-3">
+                          {cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).map((volume, index) => {
+                            const isActive = activeCloakroomVolumeIndex === index;
+                            return (
+                              <div
+                                key={volume.id || index}
+                                className={`rounded-xl border-2 p-4 transition ${isActive ?'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveCloakroomVolumeIndex(index)}
+                                    className="text-left"
+                                  >
+                                    <span className="block text-xs font-black uppercase tracking-wider text-slate-500">Volume {index + 1} de {cloakroomVolumeCount}</span>
+                                    <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isActive ?'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                      {isActive ?'Selecionando posição' : 'Selecionar no mapa'}
+                                    </span>
+                                  </button>
+                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm font-black text-slate-800">
+                                    {formatCloakroomVolumeAddress(volume)}
+                                  </span>
+                                </div>
+                                <label className="mt-3 block text-xs font-black uppercase tracking-wider text-slate-500">
+                                  Descrição
+                                  <input
+                                    value={volume.description || ''}
+                                    onFocus={() => setActiveCloakroomVolumeIndex(index)}
+                                    onChange={event => updateCloakroomVolumeDraft(index, { description: event.target.value })}
+                                    placeholder={`Descrição do volume ${index + 1}`}
+                                    className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                                  />
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
 
@@ -5756,11 +5947,10 @@ export default function App() {
                         <p className="text-xs font-black uppercase tracking-wider text-blue-200">Resumo da impressão</p>
                         <div className="mt-4 rounded-xl bg-white/8 border border-white/10 p-4">
                           <div className="flex items-center justify-between py-2 text-lg"><span>Volume(s)</span><b>{cloakroomVolumeCount}</b></div>
-                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiqueta principal</span><b>1</b></div>
-                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiquetas de volume</span><b>{cloakroomVolumeCount}</b></div>
+                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiquetas individuais</span><b>{cloakroomVolumeCount}</b></div>
                           <div className="mt-2 pt-4 border-t border-white/20 flex items-center justify-between text-2xl font-black">
                             <span>Total de etiquetas</span>
-                            <b>{1 + cloakroomVolumeCount}</b>
+                            <b>{cloakroomVolumeCount}</b>
                           </div>
                         </div>
 
@@ -5770,13 +5960,15 @@ export default function App() {
                         </div>
 
                         <div className="mt-4 rounded-xl bg-emerald-500/15 border border-emerald-300/20 p-4">
-                          <span className="block text-xs font-black uppercase tracking-wider text-emerald-100">Posição selecionada</span>
-                          <b className="block text-2xl font-black font-mono text-white mt-1">{cloakroomSelectedPosition ? `${cloakroomSelectedPosition.rackName} - ${cloakroomSelectedPosition.address}` : '-'}</b>
+                          <span className="block text-xs font-black uppercase tracking-wider text-emerald-100">Volume ativo</span>
+                          <b className="block text-2xl font-black font-mono text-white mt-1">
+                            Volume {activeCloakroomVolumeIndex + 1}: {formatCloakroomVolumeAddress(cloakroomVolumeDrafts[activeCloakroomVolumeIndex])}
+                          </b>
                         </div>
 
                         <button
                           onClick={handleOperationalCloakroomSave}
-                          disabled={!cloakroomSelectedParticipant || !cloakroomSelectedPosition || cloakroomOccupiedAddresses.has(cloakroomSelectedPosition.address)}
+                          disabled={!cloakroomSelectedParticipant || cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).some(volume => !(volume.description || '').trim() || !volume.storageAddress)}
                           className="mt-5 w-full px-4 py-5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-500 text-white text-base font-black transition cursor-pointer disabled:cursor-not-allowed"
                         >
                           GUARDAR PERTENCES
@@ -5793,12 +5985,18 @@ export default function App() {
                             <span className="block text-xs font-black uppercase tracking-wider text-slate-500">Ticket</span>
                             <b className="block font-mono text-3xl text-slate-950 mt-1">{cloakroomSuccess.tagNumber}</b>
                             <p className="mt-4 font-bold text-slate-800">Volumes</p>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {(cloakroomSuccess.volumeTags || []).map(tag => (
-                                <span key={tag} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg font-mono text-sm font-black text-emerald-800">{tag}</span>
+                            <div className="mt-2 space-y-2">
+                              {getCloakroomItemVolumes(cloakroomSuccess).map((volume, index) => (
+                                <div key={volume.id || volume.tag || index} className="rounded-lg border border-emerald-200 bg-white p-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="font-mono text-sm font-black text-emerald-800">{volume.tag}</span>
+                                    <span className="text-xs font-black text-slate-500">Volume {index + 1} de {cloakroomSuccess.volumeCount || 1}</span>
+                                  </div>
+                                  <p className="mt-1 font-bold text-slate-800">{volume.description || '-'}</p>
+                                  <p className="mt-1 font-mono text-xs text-slate-500">Posição: {formatCloakroomVolumeAddress(volume)}</p>
+                                </div>
                               ))}
                             </div>
-                            <p className="mt-3 font-bold text-slate-800">Posição: <span className="font-mono">{formatCloakroomStorageAddress(cloakroomSuccess)}</span></p>
                             <p className="mt-4 text-emerald-700 font-black">Impressão realizada com sucesso</p>
                           </div>
                         </div>
@@ -5813,7 +6011,10 @@ export default function App() {
                       items={cloakroom}
                       selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
                       suggestedAddress={suggestedCloakroomAddress}
-                      onSelectPosition={setCloakroomSelectedPosition}
+                      onSelectPosition={(position) => {
+                        setCloakroomSelectedPosition(position);
+                        updateCloakroomVolumeDraft(activeCloakroomVolumeIndex, buildVolumePositionPayload(position));
+                      }}
                     />
                   </div>
                 )}
@@ -5849,7 +6050,7 @@ export default function App() {
                                 className="w-full text-left p-3 hover:bg-blue-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer"
                               >
                                 <div className="font-bold text-slate-900 text-sm">{participant.name}</div>
-                                <div className="text-xs text-slate-500 mt-0.5">{participant.category}{participant.company ? ` â€¢ ${participant.company}` : ''} â€¢ {participant.ticketCode}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{participant.category}{participant.company ?` • ${participant.company}` : ''} • {participant.ticketCode}</div>
                               </button>
                             ))}
                           </div>
@@ -5857,7 +6058,7 @@ export default function App() {
                         {cloakroomSelectedParticipant && (
                           <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
                             <div className="font-black text-slate-950">{cloakroomSelectedParticipant.name}</div>
-                            <div className="text-sm text-slate-600 mt-1">{cloakroomSelectedParticipant.category}{cloakroomSelectedParticipant.company ? ` â€¢ ${cloakroomSelectedParticipant.company}` : ''}</div>
+                            <div className="text-sm text-slate-600 mt-1">{cloakroomSelectedParticipant.category}{cloakroomSelectedParticipant.company ?` • ${cloakroomSelectedParticipant.company}` : ''}</div>
                             <div className="text-xs font-mono text-blue-700 mt-2">Código: {cloakroomSelectedParticipant.ticketCode}</div>
                           </div>
                         )}
@@ -5868,8 +6069,8 @@ export default function App() {
                         <h3 className="text-lg font-bold text-slate-900 mt-1">Quantidade de volumes</h3>
                         <div className="flex flex-wrap items-center gap-2 mt-3">
                           {[1, 2, 3, 4, 5].map(volume => (
-                            <button key={volume} onClick={() => setCloakroomVolumeCount(volume)} className={`px-4 py-3 rounded-lg text-sm font-bold border transition cursor-pointer ${cloakroomVolumeCount === volume ? 'bg-slate-950 text-white border-slate-950' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'}`}>
-                              {volume} volume{volume > 1 ? 's' : ''}
+                            <button key={volume} onClick={() => setCloakroomVolumeCount(volume)} className={`px-4 py-3 rounded-lg text-sm font-bold border transition cursor-pointer ${cloakroomVolumeCount === volume ?'bg-slate-950 text-white border-slate-950' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'}`}>
+                              {volume} volume{volume > 1 ?'s' : ''}
                             </button>
                           ))}
                         </div>
@@ -5918,27 +6119,39 @@ export default function App() {
                       <span className="rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Mapa ativo</span>
                     </div>
                     <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                      {cloakroom.filter(item => item.status === 'guardado').length === 0 ? (
+                      {cloakroom.filter(item => item.status === 'guardado').length === 0 ?(
                         <div className="md:col-span-2 xl:col-span-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-400">
                           <FolderLock className="mx-auto mb-2" size={30} />
                           <p className="font-bold">Nenhum pertence guardado no momento.</p>
                         </div>
                       ) : (
-                        cloakroom.filter(item => item.status === 'guardado').map(item => (
+                        cloakroom.filter(item => item.status === 'guardado').map(item => {
+                          const itemVolumes = getCloakroomItemVolumes(item);
+                          return (
                           <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="font-mono text-xl font-black text-slate-950">#{item.tagNumber}</p>
                                 <p className="mt-1 text-sm font-bold text-slate-800">{item.participantName}</p>
                               </div>
-                              <span className="rounded-lg bg-white border border-emerald-200 px-2.5 py-1 font-mono text-sm font-black text-emerald-700">
-                                {formatCloakroomStorageAddress(item)}
+                              <span className="rounded-lg bg-white border border-emerald-200 px-2.5 py-1 text-xs font-black text-emerald-700">
+                                {itemVolumes.length} volume(s)
                               </span>
                             </div>
-                            <p className="mt-3 text-xs text-slate-500">{item.itemDescription || 'Sem descrição'}</p>
-                            <p className="mt-2 text-xs font-bold text-slate-500">{item.volumeCount || 1} volume(s)</p>
+                            <div className="mt-3 space-y-2">
+                              {itemVolumes.map((volume, index) => (
+                                <div key={volume.id || volume.tag || index} className="rounded-lg border border-slate-200 bg-white p-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono text-xs font-black text-slate-800">{volume.tag}</span>
+                                    <span className="font-mono text-xs font-bold text-emerald-700">{formatCloakroomVolumeAddress(volume)}</span>
+                                  </div>
+                                  <p className="mt-1 text-xs text-slate-600">{volume.description || 'Sem descrição'}</p>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -5954,27 +6167,50 @@ export default function App() {
                       </div>
                       {cloakroomReturnResults.length > 0 && (
                         <div className="mt-3 border border-slate-100 rounded-lg overflow-hidden">
-                          {cloakroomReturnResults.map(item => (
-                            <button key={item.id} onClick={() => { setCloakroomReturnItem(item); setCloakroomReturnSearch(String(item.tagNumber)); }} className="w-full text-left p-3 hover:bg-amber-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer">
-                              <div className="flex items-center justify-between gap-3"><span className="font-mono font-black text-amber-700">#{item.tagNumber}</span><span className="text-xs text-slate-500">{item.volumeCount || 1} volume(s)</span></div>
-                              <div className="font-bold text-slate-900 text-sm mt-1">{item.participantName}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">{item.itemDescription || 'Sem descrição'}</div>
-                              <div className="text-xs font-mono text-emerald-700 mt-1">Posição: {formatCloakroomStorageAddress(item)}</div>
-                            </button>
-                          ))}
+                          {cloakroomReturnResults.map(item => {
+                            const itemVolumes = getCloakroomItemVolumes(item);
+                            return (
+                              <button key={item.id} onClick={() => { setCloakroomReturnItem(item); setCloakroomReturnSearch(String(item.tagNumber)); }} className="w-full text-left p-3 hover:bg-amber-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer">
+                                <div className="flex items-center justify-between gap-3"><span className="font-mono font-black text-amber-700">#{item.tagNumber}</span><span className="text-xs text-slate-500">{itemVolumes.length} volume(s)</span></div>
+                                <div className="font-bold text-slate-900 text-sm mt-1">{item.participantName}</div>
+                                <div className="mt-2 grid gap-1">
+                                  {itemVolumes.map((volume, index) => (
+                                    <div key={volume.id || volume.tag || index} className="text-xs text-slate-600">
+                                      <span className="font-mono font-black text-slate-800">{volume.tag}</span>
+                                      <span> - {volume.description || 'Sem descrição'} - </span>
+                                      <span className="font-mono text-emerald-700">{formatCloakroomVolumeAddress(volume)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                     <div className="space-y-4">
-                      {cloakroomReturnItem ? (
+                      {cloakroomReturnItem ?(
                         <div className="bg-white border border-amber-200 rounded-lg p-5 shadow-xs">
                           <p className="text-xs font-bold uppercase tracking-wider text-amber-600">Item localizado</p>
                           <h3 className="text-xl font-black text-slate-950 mt-1">#{cloakroomReturnItem.tagNumber}</h3>
                           <div className="mt-4 space-y-2 text-sm text-slate-700">
                             <p><b>Participante:</b> {cloakroomReturnItem.participantName}</p>
-                            <p><b>Volumes:</b> {cloakroomReturnItem.volumeCount || 1}</p>
-                            <p><b>Descrição:</b> {cloakroomReturnItem.itemDescription || '-'}</p>
-                            <p><b>Posição:</b> <span className="font-mono">{formatCloakroomStorageAddress(cloakroomReturnItem)}</span></p>
+                            <p><b>Volumes:</b> {getCloakroomItemVolumes(cloakroomReturnItem).length}</p>
+                            <div>
+                              <b>Volumes individuais:</b>
+                              <div className="mt-2 space-y-2">
+                                {getCloakroomItemVolumes(cloakroomReturnItem).map((volume, index) => (
+                                  <div key={volume.id || volume.tag || index} className="rounded-lg border border-amber-100 bg-amber-50/60 p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="font-mono font-black text-amber-800">{volume.tag}</span>
+                                      <span className="text-xs font-bold text-slate-500">Volume {index + 1}</span>
+                                    </div>
+                                    <p className="mt-1 font-semibold text-slate-800">{volume.description || '-'}</p>
+                                    <p className="mt-1 font-mono text-xs text-emerald-700">Posição: {formatCloakroomVolumeAddress(volume)}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                             <p><b>Entrada:</b> {new Date(cloakroomReturnItem.registeredAt).toLocaleString('pt-BR')}</p>
                             <p><b>Operador entrada:</b> {cloakroomReturnItem.registeredByName || '-'}</p>
                           </div>
@@ -6022,7 +6258,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredCloakroomHistory.length === 0 ? (
+                        {filteredCloakroomHistory.length === 0 ?(
                           <tr>
                             <td colSpan={7} className="p-12 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={32} />
@@ -6041,13 +6277,24 @@ export default function App() {
                               </td>
 
                               <td className="p-4 text-center align-middle">
-                                <span className="inline-flex items-center justify-center font-mono font-bold text-xs bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">
-                                  {formatCloakroomStorageAddress(item)}
-                                </span>
+                                <div className="space-y-1">
+                                  {getCloakroomItemVolumes(item).map((volume, index) => (
+                                    <span key={volume.id || volume.tag || index} className="inline-flex items-center justify-center font-mono font-bold text-xs bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">
+                                      {formatCloakroomVolumeAddress(volume)}
+                                    </span>
+                                  ))}
+                                </div>
                               </td>
 
                               <td className="p-4 font-medium text-slate-800 text-sm">
-                                {item.itemDescription}
+                                <div className="space-y-1">
+                                  {getCloakroomItemVolumes(item).map((volume, index) => (
+                                    <div key={volume.id || volume.tag || index}>
+                                      <span className="font-mono text-xs font-black text-slate-500">{volume.tag}</span>
+                                      <span className="ml-2">{volume.description || '-'}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               </td>
 
                               <td className="p-4 text-slate-600 text-xs">
@@ -6056,9 +6303,9 @@ export default function App() {
 
                               <td className="p-4 align-middle text-center">
                                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                                  item.status === 'guardado' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                                  item.status === 'guardado' ?'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
                                 }`}>
-                                  {item.status === 'guardado' ? 'Com a Organização' : 'Retirado / Devolvido'}
+                                  {item.status === 'guardado' ?'Com a Organização' : 'Retirado / Devolvido'}
                                 </span>
                               </td>
 
@@ -6073,7 +6320,7 @@ export default function App() {
 
                               <td className="p-4 align-middle text-center no-print">
                                 <div className="flex items-center justify-center gap-2">
-                                  {item.status === 'guardado' ? (
+                                  {item.status === 'guardado' ?(
                                     <button
                                       onClick={() => handleWithdrawCloakroomItem(item.id, item.tagNumber)}
                                       className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer select-none transition"
@@ -6114,7 +6361,7 @@ export default function App() {
                     <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
                       <div className="mb-5 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
                         <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Configuração do mapa</p>
-                        <h3 className="text-lg font-bold text-slate-900 mt-1">Organização física da estante</h3>
+                        <h3 className="text-lg font-bold text-slate-900 mt-1">Organização f?sica da estante</h3>
                         <p className="text-sm text-slate-500 mt-1">Defina o nome da estante, colunas e linhas usadas no mapa operacional.</p>
                         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                           <label className="text-xs font-black uppercase tracking-wider text-slate-500">
@@ -6195,10 +6442,10 @@ export default function App() {
                             if (!option) return null;
                             const isVisible = cloakroomLabelConfig[option.showKey];
                             return (
-                              <div key={key} className={`grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_120px_96px] gap-2 items-center rounded-lg border px-3 py-2 ${isVisible ? 'bg-white border-slate-200' : 'bg-slate-100 border-slate-200 opacity-60'}`}>
+                              <div key={key} className={`grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_120px_96px] gap-2 items-center rounded-lg border px-3 py-2 ${isVisible ?'bg-white border-slate-200' : 'bg-slate-100 border-slate-200 opacity-60'}`}>
                                 <div>
                                   <div className="text-sm font-bold text-slate-800">{option.label}</div>
-                                  <div className="text-[11px] text-slate-500">{isVisible ? `Linha ${index + 1}` : 'Oculta'}</div>
+                                  <div className="text-[11px] text-slate-500">{isVisible ?`Linha ${index + 1}` : 'Oculta'}</div>
                                 </div>
                                 <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
                                   <span>Fonte</span>
@@ -6229,7 +6476,7 @@ export default function App() {
                                     className="w-8 h-8 rounded border border-slate-200 bg-white disabled:opacity-35 text-slate-700 font-black"
                                     title="Subir linha"
                                   >
-                                    â†‘
+                                    ↑
                                   </button>
                                   <button
                                     type="button"
@@ -6242,7 +6489,7 @@ export default function App() {
                                     className="w-8 h-8 rounded border border-slate-200 bg-white disabled:opacity-35 text-slate-700 font-black"
                                     title="Descer linha"
                                   >
-                                    â†“
+                                    ↓
                                   </button>
                                 </div>
                               </div>
@@ -6298,7 +6545,7 @@ export default function App() {
                           return (
                             <div
                               key={key}
-                              className={`text-center leading-tight ${key === 'ticketNumber' ? 'font-black font-mono' : key === 'description' ? 'font-medium' : 'font-bold'}`}
+                              className={`text-center leading-tight ${key === 'ticketNumber' ?'font-black font-mono' : key === 'description' ?'font-medium' : 'font-bold'}`}
                               style={{ fontSize: `${getCloakroomLabelFontSize(key)}px`, whiteSpace: 'pre-line' }}
                             >
                               {value}
@@ -6313,8 +6560,8 @@ export default function App() {
                       <div className="mt-4 bg-white text-black rounded-md p-4 min-h-[160px] flex flex-col justify-between">
                         {(cloakroomLabelConfig.showLabelType || cloakroomLabelConfig.showEventName) && (
                           <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-wider">
-                            <b>{cloakroomLabelConfig.showLabelType ? 'CHAPELARIA' : ''}</b>
-                            <span>{cloakroomLabelConfig.showEventName ? currentEvent?.name || 'Evento' : ''}</span>
+                            <b>{cloakroomLabelConfig.showLabelType ?'CHAPELARIA' : ''}</b>
+                            <span>{cloakroomLabelConfig.showEventName ?currentEvent?.name || 'Evento' : ''}</span>
                           </div>
                         )}
                         {cloakroomLabelConfig.showTicketNumber && (
@@ -6328,12 +6575,12 @@ export default function App() {
                         )}
                         {(cloakroomLabelConfig.showVolumeCount || cloakroomLabelConfig.showOperator || cloakroomLabelConfig.showDateTime) && (
                           <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider">
-                            <span>{cloakroomLabelConfig.showVolumeCount ? '2 volume(s)' : ''}</span>
+                            <span>{cloakroomLabelConfig.showVolumeCount ?'2 volume(s)' : ''}</span>
                             <span>
                               {[
-                                cloakroomLabelConfig.showOperator ? currentUser?.name || 'Operador' : '',
-                                cloakroomLabelConfig.showDateTime ? new Date().toLocaleString('pt-BR') : ''
-                              ].filter(Boolean).join(' â€¢ ')}
+                                cloakroomLabelConfig.showOperator ?currentUser?.name || 'Operador' : '',
+                                cloakroomLabelConfig.showDateTime ?new Date().toLocaleString('pt-BR') : ''
+                              ].filter(Boolean).join(' • ')}
                             </span>
                           </div>
                         )}
@@ -6345,14 +6592,14 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 6: RELATÃ“RIOS --- */}
+            {/* --- TAB 6: RELATÓRIOS --- */}
             {activeTab === 'relatorios' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-3">
                       {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
-                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatório" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
+                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatério" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
                       )}
                       <div>
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Relatórios</p>
@@ -6394,7 +6641,7 @@ export default function App() {
                   presenceData={reportPresenceBreakdown.map(item => ({
                     label: item.label,
                     value: item.count,
-                    color: item.label === 'Credenciados' ? '#12e000' : '#f5b842'
+                    color: item.label === 'Credenciados' ?'#12e000' : '#f5b842'
                   }))}
                   areaData={reportAreaAccessSummary.map(item => ({ label: item.areaName, value: item.total }))}
                   operatorData={reportOperatorSummary}
@@ -6402,7 +6649,7 @@ export default function App() {
                   pollingEnabled={isReportPollingEnabled}
                   onTogglePolling={() => {
                     setIsReportPollingEnabled(prev => !prev);
-                    addToast(isReportPollingEnabled ? 'Atualização automática pausada.' : 'Atualização automática ativada a cada 45 segundos.', 'info');
+                    addToast(isReportPollingEnabled ?'Atualização automática pausada.' : 'Atualização automática ativada a cada 45 segundos.', 'info');
                   }}
                   onExportExcel={() => exportParticipantsToExcelWithFilter(false, reportParticipants, 'BI_Relatorio_Filtrado')}
                   onExportCsv={exportReportParticipantsToCsv}
@@ -6495,13 +6742,13 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <Sliders size={17} className="text-slate-500" />
-                        <span>Configurar relatório</span>
+                        <span>Configurar relatério</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
                         Escolha quais informações devem sair no relatório impresso ou exportado.
                       </p>
                       <p className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
-                        Este relatório será gerado com {getReportSelectedSectionCount()} seções selecionadas
+                        Este relatério ser? gerado com {getReportSelectedSectionCount()} seções selecionadas
                       </p>
                     </div>
 
@@ -6539,7 +6786,7 @@ export default function App() {
                           <div
                             key={group.id}
                             className={`rounded-xl border p-4 transition ${
-                              isSelected ? 'border-emerald-200 bg-emerald-50/40 shadow-xs' : 'border-slate-200 bg-white'
+                              isSelected ?'border-emerald-200 bg-emerald-50/40 shadow-xs' : 'border-slate-200 bg-white'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
@@ -6548,7 +6795,7 @@ export default function App() {
                                 <p className="text-xs text-slate-500 mt-1">{group.description}</p>
                               </div>
                               <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
-                                isSelected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                isSelected ?'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
                               }`}>
                                 {selectedCount}/{group.keys.length}
                               </span>
@@ -6576,7 +6823,7 @@ export default function App() {
                       <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Prévia simples</h4>
                       <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 space-y-2">
                         <div className="h-3 w-28 rounded bg-slate-900" />
-                        {reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate ? (
+                        {reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate ?(
                           <div className="grid grid-cols-2 gap-2">
                             {[1, 2, 3, 4].slice(0, Math.max(1, REPORT_CONFIG_GROUPS[0].keys.filter(item => reportConfig[item.key]).length)).map(item => (
                               <div key={item} className="h-10 rounded bg-emerald-100 border border-emerald-200" />
@@ -6610,7 +6857,7 @@ export default function App() {
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <FileText size={17} className="text-slate-500" />
-                        <span>Identidade visual do relatório</span>
+                        <span>Identidade visual do relatério</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
                         Configure uma logo no topo e uma marca d'água para a versão impressa do relatório.
@@ -6660,7 +6907,7 @@ export default function App() {
                       <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
                       {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
                         <div className="h-16 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-2">
-                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatório" className="max-h-full max-w-full object-contain" />
+                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatério" className="max-h-full max-w-full object-contain" />
                         </div>
                       )}
                     </div>
@@ -6722,7 +6969,7 @@ export default function App() {
                       <History size={17} className="text-slate-400" />
                     </div>
                     <div className="space-y-3">
-                      {reportCheckinsByHour.length === 0 ? (
+                      {reportCheckinsByHour.length === 0 ?(
                         <p className="text-sm text-slate-400 py-8 text-center">Nenhum check-in nos filtros atuais.</p>
                       ) : (
                         reportCheckinsByHour.map(item => {
@@ -6749,7 +6996,7 @@ export default function App() {
                       <Tag size={17} className="text-slate-400" />
                     </div>
                     <div className="space-y-3">
-                      {reportParticipantsByCategory.length === 0 ? (
+                      {reportParticipantsByCategory.length === 0 ?(
                         <p className="text-sm text-slate-400 py-8 text-center">Nenhuma categoria encontrada.</p>
                       ) : (
                         reportParticipantsByCategory.map(item => {
@@ -6781,7 +7028,7 @@ export default function App() {
                           <div
                             key={item.label}
                             className={`${item.color} h-full`}
-                            style={{ width: `${reportSummary.total > 0 ? (item.count / reportSummary.total) * 100 : 0}%` }}
+                            style={{ width: `${reportSummary.total > 0 ?(item.count / reportSummary.total) * 100 : 0}%` }}
                           />
                         ))}
                       </div>
@@ -6816,7 +7063,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {reportAreaAccessSummary.length === 0 ? (
+                    {reportAreaAccessSummary.length === 0 ?(
                       <div className="py-8 text-center border border-dashed border-slate-200 rounded-lg bg-slate-50">
                         <ShieldAlert className="mx-auto text-slate-300 mb-2" size={28} />
                         <p className="text-sm font-semibold text-slate-500">Nenhum acesso por sala registrado nos filtros atuais.</p>
@@ -6832,8 +7079,8 @@ export default function App() {
                                 <span className="text-xs font-black text-slate-500">{item.total} leituras</span>
                               </div>
                               <div className="h-3 bg-white rounded-full overflow-hidden flex border border-slate-100">
-                                <div className="h-full bg-emerald-500" style={{ width: `${Math.max((item.allowed / max) * 100, item.allowed > 0 ? 5 : 0)}%` }} />
-                                <div className="h-full bg-rose-500" style={{ width: `${Math.max((item.denied / max) * 100, item.denied > 0 ? 5 : 0)}%` }} />
+                                <div className="h-full bg-emerald-500" style={{ width: `${Math.max((item.allowed / max) * 100, item.allowed > 0 ?5 : 0)}%` }} />
+                                <div className="h-full bg-rose-500" style={{ width: `${Math.max((item.denied / max) * 100, item.denied > 0 ?5 : 0)}%` }} />
                               </div>
                               <div className="flex items-center justify-between text-xs text-slate-600 mt-2">
                                 <span>{item.allowed} liberados</span>
@@ -6900,7 +7147,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {reportCertificates.length === 0 ? (
+                        {reportCertificates.length === 0 ?(
                           <tr>
                             <td colSpan={7} className="p-6 text-center text-slate-500 font-semibold">
                               Nenhum certificado emitido para os participantes filtrados.
@@ -6915,11 +7162,11 @@ export default function App() {
                                 <p className="text-xs text-slate-500">{certificate.participantCpf || '-'}</p>
                               </td>
                               <td className="p-3">
-                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${certificate.type === 'general' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
-                                  {certificate.type === 'general' ? 'Geral' : 'Atividade'}
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${certificate.type === 'general' ?'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
+                                  {certificate.type === 'general' ?'Geral' : 'Atividade'}
                                 </span>
                               </td>
-                              <td className="p-3 text-slate-700">{certificate.type === 'activity' ? fixMojibake(certificate.activityTitle || '-') : '-'}</td>
+                              <td className="p-3 text-slate-700">{certificate.type === 'activity' ?fixMojibake(certificate.activityTitle || '-') : '-'}</td>
                               <td className="p-3 font-black text-slate-900">{certificate.totalHours}h</td>
                               <td className="p-3 text-slate-600">{new Date(certificate.issuedAt).toLocaleString('pt-BR')}</td>
                               <td className="p-3 text-slate-600">{certificate.operatorName || 'Operador'}</td>
@@ -6988,7 +7235,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {reportCloakroomItems.length === 0 ? (
+                        {reportCloakroomItems.length === 0 ?(
                           <tr>
                             <td colSpan={9} className="p-10 text-center text-slate-400">
                               <FolderLock className="mx-auto text-slate-300 mb-2" size={30} />
@@ -6996,19 +7243,31 @@ export default function App() {
                             </td>
                           </tr>
                         ) : (
-                          reportCloakroomItems.map(item => (
+                          reportCloakroomItems.map(item => {
+                            const itemVolumes = getCloakroomItemVolumes(item);
+                            return (
                             <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
                               <td className="p-3 font-mono text-xs font-black text-slate-800">#{item.tagNumber}</td>
                               <td className="p-3">
                                 <div className="font-bold text-slate-800 text-sm">{item.participantName}</div>
-                                {item.volumeTags && item.volumeTags.length > 0 && (
-                                  <div className="text-[11px] text-slate-400 font-mono mt-1">{item.volumeTags.join(', ')}</div>
+                                {itemVolumes.length > 0 && (
+                                  <div className="text-[11px] text-slate-400 font-mono mt-1">{itemVolumes.map(volume => volume.tag).join(', ')}</div>
                                 )}
                               </td>
-                              <td className="p-3 text-sm font-bold text-slate-700">{item.volumeCount || 1}</td>
-                              <td className="p-3 text-xs text-slate-600 max-w-[220px]">{item.itemDescription || '-'}</td>
+                              <td className="p-3 text-sm font-bold text-slate-700">{itemVolumes.length}</td>
+                              <td className="p-3 text-xs text-slate-600 max-w-[280px]">
+                                <div className="space-y-1">
+                                  {itemVolumes.map((volume, index) => (
+                                    <div key={volume.id || volume.tag || index}>
+                                      <span className="font-mono font-black text-slate-500">{volume.tag}</span>
+                                      <span> - {volume.description || '-'}</span>
+                                      <span className="block font-mono text-emerald-700">{formatCloakroomVolumeAddress(volume)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
                               <td className="p-3">
-                                {item.status === 'retirado' ? (
+                                {item.status === 'retirado' ?(
                                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
                                     <CheckCircle2 size={12} />
                                     Retirado
@@ -7022,10 +7281,11 @@ export default function App() {
                               </td>
                               <td className="p-3 font-mono text-xs text-slate-700">{new Date(item.registeredAt).toLocaleString('pt-BR')}</td>
                               <td className="p-3 text-xs text-slate-600">{item.registeredByName || '-'}</td>
-                              <td className="p-3 font-mono text-xs text-slate-700">{item.returnedAt ? new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td>
+                              <td className="p-3 font-mono text-xs text-slate-700">{item.returnedAt ?new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td>
                               <td className="p-3 text-xs text-slate-600">{item.returnedByName || '-'}</td>
                             </tr>
-                          ))
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -7035,7 +7295,7 @@ export default function App() {
                 <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatório</h3>
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatério</h3>
                       <p className="text-xs text-slate-500">{reportParticipants.length} registros nos filtros atuais.</p>
                     </div>
                   </div>
@@ -7050,11 +7310,11 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Horário do check-in</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos por sala</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Certificados</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsável</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador respons?vel</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {reportParticipants.length === 0 ? (
+                        {reportParticipants.length === 0 ?(
                           <tr>
                             <td colSpan={8} className="p-12 text-center text-slate-400">
                               <Info className="mx-auto text-slate-300 mb-2" size={32} />
@@ -7078,7 +7338,7 @@ export default function App() {
                                 </span>
                               </td>
                               <td className="p-4">
-                                {isOfficialParticipantCheckin(p) ? (
+                                {isOfficialParticipantCheckin(p) ?(
                                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
                                     <Check size={12} strokeWidth={3} />
                                     Credenciado
@@ -7091,13 +7351,13 @@ export default function App() {
                                 )}
                               </td>
                               <td className="p-4 font-mono text-xs text-slate-700">
-                                {isOfficialParticipantCheckin(p) && p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}
+                                {isOfficialParticipantCheckin(p) && p.checkedInAt ?new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}
                               </td>
                               <td className="p-4 text-xs text-slate-600">
-                                {areaAccess && areaAccess.total > 0 ? (
+                                {areaAccess && areaAccess.total > 0 ?(
                                   <div className="space-y-1">
                                     <div className="font-semibold text-slate-800">
-                                      {areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}
+                                      {areaAccess.allowedAreaNames.length > 0 ?areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}
                                     </div>
                                     {areaAccess.deniedCount > 0 && (
                                       <div className="text-rose-600 font-semibold">{areaAccess.deniedCount} negado(s)</div>
@@ -7106,7 +7366,7 @@ export default function App() {
                                 ) : '-'}
                               </td>
                               <td className="p-4 text-xs text-slate-600">
-                                {participantCertificates.length === 0 ? '-' : (
+                                {participantCertificates.length === 0 ?'-' : (
                                   <div className="space-y-1">
                                     <div className="font-black text-slate-900">{participantCertificates.length} emitido(s)</div>
                                     <div className="font-mono text-[10px] text-slate-500">
@@ -7129,7 +7389,7 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 7: CONFIGURAÃ‡ÃƒO DE ETIQUETAS DE CRACHÁ --- */}
+            {/* --- TAB 7: CONFIGURAÇÃO DE ETIQUETAS DE CRACHÁ --- */}
             {activeTab === 'impressao' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
@@ -7146,7 +7406,7 @@ export default function App() {
                     currentEvent={currentEvent}
                     addToast={addToast}
                     apiCall={apiCall}
-                    onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ? updated : ev))}
+                    onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ?updated : ev))}
                     onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
                   />
                 </div>
@@ -7159,19 +7419,19 @@ export default function App() {
                 currentEvent={currentEvent}
                 addToast={addToast}
                 apiCall={apiCall}
-                onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ? updated : ev))}
+                onUpdateEvent={(updated) => setEvents(prev => prev.map(ev => ev.id === updated.id ?updated : ev))}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
               />
             )}
 
-            {/* --- TAB 11: CONFIGURAÃ‡ÃƒO DOS CAMPOS DE CADASTRO --- */}
+            {/* --- TAB 11: CONFIGURAÇÃO DOS CAMPOS DE CADASTRO --- */}
             {activeTab === 'campos' && (
               <div className="space-y-6 animate-fade-in">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Campos de Cadastro</p>
                   <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração dos campos de cadastro</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Defina os campos exibidos nos cadastros e formulários rápidos dos participantes.
+                    Defina os campos exibidos nos cadastros e formul?rios r?pidos dos participantes.
                   </p>
                 </div>
 
@@ -7185,13 +7445,13 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB 8: GERENCIAMENTO DE USUÁRIOS DO SISTEMA --- */}
+            {/* --- TAB 8: GERENCIAMENTO DE USU?RIOS DO SISTEMA --- */}
             {activeTab === 'usuarios' && (
               <div className="bg-white rounded-xl shadow-xs border border-slate-205 p-6 animate-fade-in">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800 font-display">Operadores do Sistema</h2>
-                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e níveis de acesso dos operadores e administradores.</p>
+                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e n?veis de acesso dos operadores e administradores.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -7216,7 +7476,7 @@ export default function App() {
                   </button>
                 </div>
 
-                {isLoadingUsers ? (
+                {isLoadingUsers ?(
                   <div className="flex flex-col items-center justify-center py-16 text-slate-400">
                     <RefreshCw className="animate-spin mb-3 text-blue-500" size={32} />
                     <p className="font-medium text-slate-600">Carregando credenciais...</p>
@@ -7234,7 +7494,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {usersList.length === 0 ? (
+                        {usersList.length === 0 ?(
                           <tr>
                             <td colSpan={5} className="p-12 text-center text-slate-400">
                               <Info className="mx-auto text-slate-300 mb-2" size={32} />
@@ -7248,15 +7508,15 @@ export default function App() {
                               <td className="p-4 text-slate-650 text-xs font-mono">{u.email}</td>
                                <td className="p-4 text-center">
                                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                                  String(u.role).toUpperCase() === 'ADMIN' ? 'bg-amber-100 text-amber-800' :
-                                  String(u.role).toUpperCase() === 'SUPERVISOR' ? 'bg-purple-100 text-purple-800' :
-                                  String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'bg-emerald-100 text-emerald-800' :
+                                  String(u.role).toUpperCase() === 'ADMIN' ?'bg-amber-100 text-amber-800' :
+                                  String(u.role).toUpperCase() === 'SUPERVISOR' ?'bg-purple-100 text-purple-800' :
+                                  String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ?'bg-emerald-100 text-emerald-800' :
                                   'bg-blue-100 text-blue-800'
                                 }`}>
-                                  {String(u.role).toUpperCase() === 'ADMIN' ? 'Administrador' :
-                                   String(u.role).toUpperCase() === 'SUPERVISOR' ? 'Operador Nível 1' :
-                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ? 'Operador Nível 2' :
-                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ? 'Operador Nível 3' :
+                                  {String(u.role).toUpperCase() === 'ADMIN' ?'Administrador' :
+                                   String(u.role).toUpperCase() === 'SUPERVISOR' ?'Operador N?vel 1' :
+                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ?'Operador N?vel 2' :
+                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ?'Operador N?vel 3' :
                                    String(u.role)}
                                 </span>
                               </td>
@@ -7273,7 +7533,7 @@ export default function App() {
                                         email: u.email,
                                         password: '',
                                         role: u.role,
-                                        permissions: normalizePermissions(u.permissions?.length ? u.permissions : legacyPermissionsForRole(u.role)),
+                                        permissions: normalizePermissions(u.permissions?.length ?u.permissions : legacyPermissionsForRole(u.role)),
                                         eventId: '',
                                         eventRole: 'CHECKIN',
                                         eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
@@ -7341,7 +7601,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- PRINT SHADOW LOG: APENAS VISÍVEL DURANTE O PRINT REAL --- */}
+      {/* --- PRINT SHADOW LOG: APENAS VIS?VEL DURANTE O PRINT REAL --- */}
       <div className="hidden print:block relative p-8 bg-white text-black min-h-screen overflow-hidden">
         {reportBrandConfig.showWatermark && reportBrandConfig.watermarkUrl && (
           <img
@@ -7357,16 +7617,16 @@ export default function App() {
             <h1 className="text-2xl font-bold font-display uppercase">Relatório Central de Credenciamento</h1>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-650">
               {reportConfig.eventName && <span>Evento: {currentEvent?.name}</span>}
-              {reportConfig.eventDate && <span>Data do evento: {currentEvent?.date ? new Date(currentEvent.date).toLocaleDateString('pt-BR') : '-'}</span>}
-              {reportConfig.eventCategory && <span>Categoria: {selectedCategoryFilter === 'all' ? 'Todas' : selectedCategoryFilter}</span>}
-              {reportConfig.eventStatusFilter && <span>Status: {selectedPresenceFilter === 'all' ? 'Todos' : selectedPresenceFilter === 'present' ? 'Credenciados' : 'Pendentes'}</span>}
+              {reportConfig.eventDate && <span>Data do evento: {currentEvent?.date ?new Date(currentEvent.date).toLocaleDateString('pt-BR') : '-'}</span>}
+              {reportConfig.eventCategory && <span>Categoria: {selectedCategoryFilter === 'all' ?'Todas' : selectedCategoryFilter}</span>}
+              {reportConfig.eventStatusFilter && <span>Status: {selectedPresenceFilter === 'all' ?'Todos' : selectedPresenceFilter === 'present' ?'Credenciados' : 'Pendentes'}</span>}
               {reportConfig.issuedAt && <span>Emitido em: {new Date().toLocaleString('pt-BR')}</span>}
             </div>
           </div>
           {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
             <img
               src={reportBrandConfig.logoUrl}
-              alt="Logo do relatório"
+              alt="Logo do relatério"
               className="max-h-16 max-w-[180px] object-contain"
             />
           )}
@@ -7403,14 +7663,14 @@ export default function App() {
 
         {(reportConfig.checkinsByHour || reportConfig.participantsByCategory || reportConfig.presenceBreakdown || reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
           <div className="relative z-10 mb-6 space-y-5">
-            <h2 className="text-sm font-black uppercase border-b border-black pb-2">Gráficos e estatísticas</h2>
+            <h2 className="text-sm font-black uppercase border-b border-black pb-2">Gr?ficos e estatésticas</h2>
 
             {reportConfig.checkinsByHour && (
               <div>
                 <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">Check-ins por horário</h3>
                 <table className="w-full text-left text-[10px] text-slate-950">
                   <tbody>
-                    {reportCheckinsByHour.length === 0 ? (
+                    {reportCheckinsByHour.length === 0 ?(
                       <tr><td className="py-2 text-zinc-500">Nenhum check-in nos filtros atuais.</td></tr>
                     ) : reportCheckinsByHour.map(item => (
                       <tr key={item.label} className="border-b border-zinc-200">
@@ -7458,7 +7718,7 @@ export default function App() {
             {(reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
               <div>
                 <h3 className="text-xs font-black uppercase text-zinc-600 mb-2">
-                  {reportConfig.areaAccess && reportConfig.areaAccessDecisions ? 'Acessos por sala, liberações e negações' : reportConfig.areaAccess ? 'Acessos por sala' : 'Liberações e negações de acesso'}
+                  {reportConfig.areaAccess && reportConfig.areaAccessDecisions ?'Acessos por sala, liberações e negações' : reportConfig.areaAccess ?'Acessos por sala' : 'Liberações e negações de acesso'}
                 </h3>
                 <table className="w-full text-left text-[10px] text-slate-950">
                   <thead>
@@ -7470,7 +7730,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reportAreaAccessSummary.length === 0 ? (
+                    {reportAreaAccessSummary.length === 0 ?(
                       <tr><td colSpan={4} className="py-2 text-center text-zinc-500">Nenhum acesso por sala registrado nos filtros atuais.</td></tr>
                     ) : reportAreaAccessSummary.map(item => (
                       <tr key={item.areaId} className="border-b border-zinc-200">
@@ -7511,12 +7771,12 @@ export default function App() {
                     {reportConfig.participantEmail && <td className="py-2">{p.email || '-'}</td>}
                     {reportConfig.participantPhone && <td className="py-2">{getReportParticipantPhone(p) || '-'}</td>}
                     {reportConfig.participantCategory && <td className="py-2">{p.category}</td>}
-                    {reportConfig.participantCheckinStatus && <td className="py-2">{isOfficialParticipantCheckin(p) ? 'CREDENCIADO' : 'PENDENTE'}</td>}
-                    {reportConfig.participantCheckinTime && <td className="py-2 font-mono">{isOfficialParticipantCheckin(p) && p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>}
+                    {reportConfig.participantCheckinStatus && <td className="py-2">{isOfficialParticipantCheckin(p) ?'CREDENCIADO' : 'PENDENTE'}</td>}
+                    {reportConfig.participantCheckinTime && <td className="py-2 font-mono">{isOfficialParticipantCheckin(p) && p.checkedInAt ?new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}</td>}
                     {reportConfig.participantAreaAccess && (
                       <td className="py-2">
                         {areaAccess && areaAccess.total > 0
-                          ? `${areaAccess.allowedAreaNames.length > 0 ? areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ? ` (${areaAccess.deniedCount} negado(s))` : ''}`
+                          ?`${areaAccess.allowedAreaNames.length > 0 ?areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}${areaAccess.deniedCount > 0 ?` (${areaAccess.deniedCount} negado(s))` : ''}`
                           : '-'}
                       </td>
                     )}
@@ -7536,7 +7796,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-4">
-              {eventForm.id ? 'Editar Informações do Evento' : 'Cadastrar Novo Evento'}
+              {eventForm.id ?'Editar Informações do Evento' : 'Cadastrar Novo Evento'}
             </h3>
             
             <form onSubmit={handleSaveEvent} className="space-y-4">
@@ -7646,7 +7906,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-4">
-              {participantForm.id ? 'Editar Participante' : 'Adicionar Participante Manual'}
+              {participantForm.id ?'Editar Participante' : 'Adicionar Participante Manual'}
             </h3>
             
             <form onSubmit={handleSaveParticipant} className="space-y-4">
@@ -7692,7 +7952,7 @@ export default function App() {
                   type="text"
                   value={participantForm.company || ''}
                   onChange={e => setParticipantForm(prev => ({ ...prev, company: e.target.value }))}
-                  placeholder="Ex: Nome da Empresa ou Ã“rgão"
+                  placeholder="Ex: Nome da Empresa ou Órgão"
                   className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
                 />
               </div>
@@ -7715,9 +7975,9 @@ export default function App() {
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Áreas Autorizadas (Controle de Acesso)</label>
                 <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  {availableAreas.length === 0 ? (
+                  {availableAreas.length === 0 ?(
                     <div className="col-span-3 text-xs text-slate-400 py-1.5 text-center">
-                      Nenhuma área configurada para este evento.
+                      Nenhuma Área configurada para este evento.
                     </div>
                   ) : (
                     availableAreas.map(arr => {
@@ -7725,14 +7985,14 @@ export default function App() {
                       const selectedAreas = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
                       const checked = selectedAreas.includes(arr.id);
                       return (
-                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ? 'opacity-50' : ''}`} title={!isActive ? 'Área Inativa' : ''}>
+                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ?'opacity-50' : ''}`} title={!isActive ?'Área Inativa' : ''}>
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={() => {
                               const current = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
                               const updated = checked
-                                ? current.filter(aid => aid !== arr.id)
+                                ?current.filter(aid => aid !== arr.id)
                                 : [...current, arr.id];
                               setParticipantForm(prev => ({ ...prev, allowedAreaIds: updated, allowedAreas: updated }));
                             }}
@@ -7747,7 +8007,7 @@ export default function App() {
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                {participantForm.id ? (
+                {participantForm.id ?(
                   <button
                     type="button"
                     onClick={async () => {
@@ -7842,7 +8102,7 @@ export default function App() {
       )}
 
 
-      {/* 4. IMPRESSÃƒO DE CRACHÁ / CREDENCIAL MODAL OVERLAY */}
+      {/* 4. IMPRESSÃO DE CRACHÁ / CREDENCIAL MODAL OVERLAY */}
       {pendingCloakroomReturn && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-100 p-6 text-center">
@@ -7923,9 +8183,9 @@ export default function App() {
               </div>
 
               <div className="space-y-1 text-left bg-slate-50 p-3 rounded-lg text-[11px] text-slate-600">
-                <p>â€¢ <b>CPF:</b> <span className="font-mono">{selectedQrParticipant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</span></p>
-                <p>â€¢ <b>Ticket:</b> <span className="font-mono">{selectedQrParticipant.ticketCode}</span></p>
-                <p>â€¢ <b>ID:</b> <span className="font-mono">{selectedQrParticipant.id}</span></p>
+                <p>• <b>CPF:</b> <span className="font-mono">{selectedQrParticipant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</span></p>
+                <p>• <b>Ticket:</b> <span className="font-mono">{selectedQrParticipant.ticketCode}</span></p>
+                <p>• <b>ID:</b> <span className="font-mono">{selectedQrParticipant.id}</span></p>
               </div>
 
               <div className="pt-2 flex gap-3">
@@ -7951,7 +8211,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. MEU PERFIL E ALTERAÃ‡ÃƒO DE SENHA MODAL */}
+      {/* 5. MEU PERFIL E ALTERAÇÃO DE SENHA MODAL */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
@@ -8004,7 +8264,7 @@ export default function App() {
                   type="password"
                   value={profileForm.password}
                   onChange={e => setProfileForm(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="••••••••"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -8034,10 +8294,10 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-1">
-              {userForm.id ? 'Editar Dados do Operador' : 'Adicionar Novo Operador'}
+              {userForm.id ?'Editar Dados do Operador' : 'Adicionar Novo Operador'}
             </h3>
             <p className="text-slate-500 text-xs mb-4">
-              {userForm.id ? 'Modifique os dados ou redefina a senha do operador.' : 'Cadastre um novo login e senha segura de acesso.'}
+              {userForm.id ?'Modifique os dados ou redefina a senha do operador.' : 'Cadastre um novo login e senha segura de acesso.'}
             </p>
 
             <form onSubmit={handleSaveUser} className="space-y-4">
@@ -8067,14 +8327,14 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
-                  {userForm.id ? 'Nova Senha (deixe em branco para manter)' : 'Senha de Login'}
+                  {userForm.id ?'Nova Senha (deixe em branco para manter)' : 'Senha de Login'}
                 </label>
                 <input
                   type="password"
                   required={!userForm.id}
                   value={userForm.password}
                   onChange={e => setUserForm(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="••••••••"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -8322,7 +8582,7 @@ export default function App() {
                     key={item.step}
                     className={`px-3 py-2 rounded-lg text-xs font-bold border ${
                       importStep >= item.step
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        ?'bg-emerald-50 border-emerald-200 text-emerald-700'
                         : 'bg-slate-50 border-slate-200 text-slate-400'
                     }`}
                   >
@@ -8378,7 +8638,7 @@ export default function App() {
                     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
                       <h4 className="font-bold text-slate-800 text-sm mb-3">Modelos de importacao</h4>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {importTemplates.filter(tpl => tpl.global || tpl.eventId === selectedEventId).length === 0 ? (
+                        {importTemplates.filter(tpl => tpl.global || tpl.eventId === selectedEventId).length === 0 ?(
                           <p className="text-xs text-slate-400">Nenhum modelo salvo para usar neste evento.</p>
                         ) : (
                           importTemplates.filter(tpl => tpl.global || tpl.eventId === selectedEventId).map(tpl => (
@@ -8386,7 +8646,7 @@ export default function App() {
                               <div className="flex items-center justify-between gap-2">
                                 <div className="min-w-0">
                                   <div className="text-xs font-bold text-slate-700 truncate">{tpl.name}</div>
-                                  <div className="text-[11px] text-slate-400">{tpl.global ? 'Global' : 'Evento atual'}</div>
+                                  <div className="text-[11px] text-slate-400">{tpl.global ?'Global' : 'Evento atual'}</div>
                                 </div>
                                 <button
                                   type="button"
@@ -8408,7 +8668,7 @@ export default function App() {
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
-                      <h4 className="font-bold text-slate-800 text-sm mb-3">{editingImportTemplateId ? 'Editar modelo' : 'Salvar modelo'}</h4>
+                      <h4 className="font-bold text-slate-800 text-sm mb-3">{editingImportTemplateId ?'Editar modelo' : 'Salvar modelo'}</h4>
                       <input
                         type="text"
                         value={importTemplateName}
@@ -8430,7 +8690,7 @@ export default function App() {
                         onClick={saveImportTemplate}
                         className="w-full px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 text-sm font-bold"
                       >
-                        {editingImportTemplateId ? 'Salvar alteracoes' : 'Salvar modelo'}
+                        {editingImportTemplateId ?'Salvar alteracoes' : 'Salvar modelo'}
                       </button>
                     </div>
                   </div>
@@ -8456,8 +8716,8 @@ export default function App() {
                           </div>
                         </div>
                         <div className="flex gap-1">
-                          <button type="button" disabled={index === 0} onClick={() => moveImportField(field, -1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">â†‘</button>
-                          <button type="button" disabled={index === visibleFields.length - 1} onClick={() => moveImportField(field, 1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">â†“</button>
+                          <button type="button" disabled={index === 0} onClick={() => moveImportField(field, -1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">↑</button>
+                          <button type="button" disabled={index === visibleFields.length - 1} onClick={() => moveImportField(field, 1)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-40">↓</button>
                         </div>
                       </div>
                     ))}
@@ -8487,7 +8747,7 @@ export default function App() {
                       <XCircle className="text-rose-500" size={24} />
                     </div>
                     <div className="flex items-center">
-                      {importRows.some(r => !r.isValid) ? (
+                      {importRows.some(r => !r.isValid) ?(
                         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-xl text-xs flex gap-2 w-full">
                           <AlertTriangle className="text-amber-500 shrink-0" size={16} />
                           <span>Corrija os erros antes de importar.</span>
@@ -8516,7 +8776,7 @@ export default function App() {
                         <tbody className="divide-y divide-slate-100">
                           {importRows.map((row) => {
                             const rowBgClass = row.isValid
-                              ? 'bg-emerald-50/20 hover:bg-emerald-50/45 text-slate-800 transition'
+                              ?'bg-emerald-50/20 hover:bg-emerald-50/45 text-slate-800 transition'
                               : 'bg-rose-50/20 hover:bg-rose-50/45 text-slate-800 transition';
                             const previewValues: Record<ImportTargetField, React.ReactNode> = {
                               name: row.nome || <span className="text-rose-400 italic font-normal">Ausente</span>,
@@ -8525,7 +8785,7 @@ export default function App() {
                               company: row.company || <span className="text-slate-400 italic">Vazio</span>,
                               category: row.category || <span className="text-slate-400 italic">Vazio</span>,
                               ticketCode: row.ticketCode || <span className="text-slate-400 italic">Gerar novo</span>,
-                              areas: row.resolvedAreaNames?.length ? row.resolvedAreaNames.join(', ') : (row.areasText || <span className="text-slate-400 italic">Padrao</span>),
+                              areas: row.resolvedAreaNames?.length ?row.resolvedAreaNames.join(', ') : (row.areasText || <span className="text-slate-400 italic">Padrao</span>),
                               profile: row.profile || <span className="text-slate-400 italic">Nenhum</span>,
                               ignore: ''
                             };
@@ -8537,7 +8797,7 @@ export default function App() {
                                   <td key={field} className="py-3 px-4 text-xs text-slate-700">{previewValues[field]}</td>
                                 ))}
                                 <td className="py-3 px-4">
-                                  {row.isValid ? (
+                                  {row.isValid ?(
                                     <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">
                                       <Check className="text-emerald-500" size={14} />
                                       <span>Valido</span>
@@ -8580,14 +8840,14 @@ export default function App() {
                 {importStep > 2 && importStep < 5 && (
                   <button
                     type="button"
-                    onClick={() => setImportStep(prev => (prev === 4 ? 3 : 2))}
+                    onClick={() => setImportStep(prev => (prev === 4 ?3 : 2))}
                     className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-semibold transition cursor-pointer"
                   >
                     Voltar
                   </button>
                 )}
 
-                {importStep < 4 ? (
+                {importStep < 4 ?(
                   <button
                     type="button"
                     onClick={() => {
@@ -8616,11 +8876,11 @@ export default function App() {
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition shadow-sm ${
                       importRows.some(row => !row.isValid) || importRows.length === 0 || isImportingInProgress
-                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        ?'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-550/10 cursor-pointer'
                     }`}
                   >
-                    {isImportingInProgress ? (
+                    {isImportingInProgress ?(
                       <>
                         <RefreshCw className="animate-spin" size={16} />
                         <span>Processando Importacao...</span>
