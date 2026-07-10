@@ -760,7 +760,7 @@ export default function CheckinPage({
       {isSelectedEventInTestMode && (
         <div className="mx-auto max-w-4xl rounded-2xl border border-amber-300/70 bg-amber-100/90 px-4 py-3 text-center text-sm font-black text-amber-950 shadow-sm backdrop-blur">
           <AlertTriangle size={18} className="mr-2 inline-block align-[-3px] text-amber-700" />
-          Evento em modo teste. Os check-ins e impressoes realizados agora nao entrarao no relatorio oficial.
+          Evento em modo teste. Os check-ins e impressões realizados agora não entrarão no relatório oficial.
         </div>
       )}
 

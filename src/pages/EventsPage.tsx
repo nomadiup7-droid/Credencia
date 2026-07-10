@@ -62,13 +62,13 @@ export default function EventsPage({
     try {
       const updated = await apiCall(`/api/events/${selectedEvent.id}/mode-test`, { method: 'POST' });
       updateEventInState(updated);
-      addToast('Evento colocado em preparacao.', 'success');
+      addToast('Evento colocado em preparação.', 'success');
     } catch (error) {}
   };
 
   const handleResetTests = async () => {
     if (!selectedEvent || !isAdmin) return;
-    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressoes de teste deste evento? Essa acao nao apagara participantes nem configuracoes.\n\nDigite ZERAR TESTES para confirmar.');
+    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressões de teste deste evento? Essa ação não apagará participantes nem configurações.\n\nDigite ZERAR TESTES para confirmar.');
     if (confirmation !== 'ZERAR TESTES') {
       if (confirmation !== null) addToast('Confirmacao invalida. Nenhum registro foi alterado.', 'error');
       return;
@@ -85,7 +85,7 @@ export default function EventsPage({
 
   const handleStartOfficial = async () => {
     if (!selectedEvent || !isAdmin) return;
-    if (!window.confirm('Iniciar evento oficial agora? Os novos check-ins, impressoes e acessos passarao a entrar no relatorio oficial.')) return;
+    if (!window.confirm('Iniciar evento oficial agora? Os novos check-ins, impressões e acessos passarão a entrar no relatório oficial.')) return;
     try {
       const updated = await apiCall(`/api/events/${selectedEvent.id}/start-official`, { method: 'POST' });
       updateEventInState(updated);
@@ -95,7 +95,7 @@ export default function EventsPage({
 
   const handleCloseEvent = async () => {
     if (!selectedEvent || !isAdmin) return;
-    if (!window.confirm('Encerrar este evento agora? Novos check-ins, impressoes e acessos ficarao bloqueados ate um ADMIN reabrir o evento.')) return;
+    if (!window.confirm('Encerrar este evento agora? Novos check-ins, impressões e acessos ficarão bloqueados até um ADMIN reabrir o evento.')) return;
     try {
       const updated = await apiCall(`/api/events/${selectedEvent.id}/close-event`, { method: 'POST' });
       updateEventInState(updated);
@@ -105,7 +105,7 @@ export default function EventsPage({
 
   const handleReopenEvent = async () => {
     if (!selectedEvent || !isAdmin) return;
-    if (!window.confirm('Reabrir este evento em modo oficial? Novos registros voltarao a entrar nos relatorios oficiais.')) return;
+    if (!window.confirm('Reabrir este evento em modo oficial? Novos registros voltarão a entrar nos relatórios oficiais.')) return;
     try {
       const updated = await apiCall(`/api/events/${selectedEvent.id}/reopen-event`, { method: 'POST' });
       updateEventInState(updated);
@@ -284,11 +284,11 @@ export default function EventsPage({
                       ? 'bg-amber-100 text-amber-800 border-amber-200'
                       : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                 }`}>
-                  {isClosed ? 'EVENTO ENCERRADO' : isPreparation ? 'PREPARACAO' : 'EVENTO OFICIAL'}
+                  {isClosed ? 'EVENTO ENCERRADO' : isPreparation ? 'PREPARAÇÃO' : 'EVENTO OFICIAL'}
                 </span>
               </div>
               <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                Controle quando a operacao esta em teste, quando passa a contar oficialmente e quando o evento fica encerrado para consolidar os relatorios.
+                Controle quando a operação está em teste, quando passa a contar oficialmente e quando o evento fica encerrado para consolidar os relatórios.
               </p>
             </div>
 

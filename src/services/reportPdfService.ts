@@ -319,8 +319,8 @@ export async function generateReportPdf(payload: ReportPdfPayload, kind: ReportP
       addTable(
         doc,
         payload,
-        'Etiquetas e impressoes',
-        [{ Indicador: 'Reimpressoes registradas', Total: payload.printedLabelsCount }],
+        'Etiquetas e impressões',
+        [{ Indicador: 'Reimpressões registradas', Total: payload.printedLabelsCount }],
         ['Indicador', 'Total']
       );
     }

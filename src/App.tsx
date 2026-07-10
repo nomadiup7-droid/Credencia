@@ -76,6 +76,30 @@ import ReportExportMenu from './components/reports/ReportExportMenu';
 import { generateReportPdf } from './services/reportPdfService';
 import type { ReportPdfKind, ReportPdfPayload, ReportPdfTableRow } from './types/report.types';
 
+interface CloakroomRackConfig {
+  id: string;
+  name: string;
+  columns: number;
+  rows: number;
+}
+
+interface CloakroomMapConfig {
+  activeRackId: string;
+  racks: CloakroomRackConfig[];
+}
+
+const DEFAULT_CLOAKROOM_RACK: CloakroomRackConfig = {
+  id: 'principal',
+  name: 'Principal',
+  columns: 10,
+  rows: 25
+};
+
+const DEFAULT_CLOAKROOM_MAP_CONFIG: CloakroomMapConfig = {
+  activeRackId: DEFAULT_CLOAKROOM_RACK.id,
+  racks: [DEFAULT_CLOAKROOM_RACK]
+};
+
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -160,6 +184,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     if (window.location.pathname === '/checkin/mobile') return 'checkin-mobile';
     if (window.location.pathname === '/checkin') return 'checkin';
+    if (window.location.pathname === '/chapelaria') return 'chapelaria';
 
     const savedTab = readStoredActiveTab();
     if (savedTab) return savedTab;
@@ -224,7 +249,7 @@ export default function App() {
   ]);
   const [activeCloakroomVolumeIndex, setActiveCloakroomVolumeIndex] = useState(0);
   const [cloakroomSelectedPosition, setCloakroomSelectedPosition] = useState<CloakroomStoragePosition | null>(null);
-  const [cloakroomMapConfig, setCloakroomMapConfig] = useState({ rackName: 'Principal', columns: 10, rows: 25 });
+  const [cloakroomMapConfig, setCloakroomMapConfig] = useState<CloakroomMapConfig>(DEFAULT_CLOAKROOM_MAP_CONFIG);
   const [cloakroomSuccess, setCloakroomSuccess] = useState<CloakroomItem | null>(null);
   const cloakroomSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [cloakroomReturnSearch, setCloakroomReturnSearch] = useState('');
@@ -483,7 +508,7 @@ export default function App() {
     setCertificateTemplate(prev => ({
       ...prev,
       id: `ctpl_${Math.random().toString(36).slice(2, 9)}`,
-      name: `${prev.name || 'Template'} - c?pia`,
+      name: `${prev.name || 'Template'} - cópia`,
       elements: prev.elements.map((element, index) => ({
         ...element,
         id: `ctel_${Math.random().toString(36).slice(2, 9)}`,
@@ -1287,16 +1312,31 @@ export default function App() {
       const storedConfig = localStorage.getItem(storageKey);
       if (storedConfig) {
         const parsed = JSON.parse(storedConfig);
-        setCloakroomMapConfig({
-          rackName: String(parsed.rackName || 'Principal'),
-          columns: Math.max(1, Math.min(26, Number(parsed.columns) || 10)),
-          rows: Math.max(1, Math.min(99, Number(parsed.rows) || 25))
-        });
+        if (Array.isArray(parsed.racks) && parsed.racks.length > 0) {
+          const racks = parsed.racks.map((rack: Partial<CloakroomRackConfig>, index: number) => ({
+            id: String(rack.id || `rack_${index + 1}`),
+            name: String(rack.name ?? (index === 0 ?'Principal' : `Estante ${index + 1}`)),
+            columns: Math.max(1, Math.min(26, Number(rack.columns) || 10)),
+            rows: Math.max(1, Math.min(99, Number(rack.rows) || 25))
+          }));
+          const activeRackId = racks.some(rack => rack.id === parsed.activeRackId)
+            ?String(parsed.activeRackId)
+            : racks[0].id;
+          setCloakroomMapConfig({ activeRackId, racks });
+        } else {
+          const legacyRack: CloakroomRackConfig = {
+            id: 'principal',
+            name: String(parsed.rackName ?? 'Principal'),
+            columns: Math.max(1, Math.min(26, Number(parsed.columns) || 10)),
+            rows: Math.max(1, Math.min(99, Number(parsed.rows) || 25))
+          };
+          setCloakroomMapConfig({ activeRackId: legacyRack.id, racks: [legacyRack] });
+        }
       } else {
-        setCloakroomMapConfig({ rackName: 'Principal', columns: 10, rows: 25 });
+        setCloakroomMapConfig(DEFAULT_CLOAKROOM_MAP_CONFIG);
       }
     } catch {
-      setCloakroomMapConfig({ rackName: 'Principal', columns: 10, rows: 25 });
+      setCloakroomMapConfig(DEFAULT_CLOAKROOM_MAP_CONFIG);
     }
   }, [selectedEventId]);
 
@@ -1404,7 +1444,7 @@ export default function App() {
 
   const handleStartOfficialEvent = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    if (!window.confirm('Iniciar evento oficial agora?Os novos check-ins, impressoes e acessos passarao a entrar no relatorio oficial.')) return;
+    if (!window.confirm('Iniciar evento oficial agora? Os novos check-ins, impressões e acessos passarão a entrar no relatório oficial.')) return;
     try {
       const updated = await apiCall(`/api/events/${currentEvent.id}/start-official`, { method: 'POST' });
       updateEventInState(updated);
@@ -1415,7 +1455,7 @@ export default function App() {
 
   const handleCloseOfficialEvent = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    if (!window.confirm('Encerrar este evento agora?Novos check-ins, impressoes e acessos ficarao bloqueados ate um ADMIN reabrir o evento.')) return;
+    if (!window.confirm('Encerrar este evento agora? Novos check-ins, impressões e acessos ficarão bloqueados até um ADMIN reabrir o evento.')) return;
     try {
       const updated = await apiCall(`/api/events/${currentEvent.id}/close-event`, { method: 'POST' });
       updateEventInState(updated);
@@ -1437,7 +1477,7 @@ export default function App() {
 
   const handleResetEventTests = async () => {
     if (!currentEvent || !isUserAdmin) return;
-    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressoes de teste deste evento?Essa acao nao apagara participantes nem configuracoes.\n\nDigite ZERAR TESTES para confirmar.');
+    const confirmation = window.prompt('Tem certeza que deseja zerar todos os check-ins e impressões de teste deste evento? Essa ação não apagará participantes nem configurações.\n\nDigite ZERAR TESTES para confirmar.');
     if (confirmation !== 'ZERAR TESTES') {
       if (confirmation !== null) addToast('Confirmacao invalida. Nenhum registro foi alterado.', 'error');
       return;
@@ -1676,14 +1716,14 @@ export default function App() {
         <h2>${escapeCertificateHtml(activity.title)}</h2>
         <p>ministrada por</p>
         <h3>${escapeCertificateHtml(activity.speakerName || 'Palestrante não informado')}</h3>
-        <p>com carga hor?ria de</p>
+        <p>com carga horária de</p>
         <h2>${activeCertificate.certificate.totalHours} horas.</h2>
       `
       : `
         <p>Certificamos que <strong>${escapeCertificateHtml(participant.name)}</strong></p>
         <p>participou do evento</p>
         <h2>${escapeCertificateHtml(event.name)}</h2>
-        <p>com carga hor?ria total de</p>
+        <p>com carga horária total de</p>
         <h2>${activeCertificate.certificate.totalHours} horas.</h2>
       `;
     const win = window.open('', '_blank', 'width=1120,height=760');
@@ -1870,7 +1910,7 @@ export default function App() {
       return;
     }
     if (!checkinAddForm.name || !checkinAddForm.email || !checkinAddForm.cpf) {
-      addToast('Preencha os campos obrigatérios!', 'error');
+      addToast('Preencha os campos obrigatórios!', 'error');
       return;
     }
 
@@ -1933,9 +1973,9 @@ export default function App() {
   };
 
   // --- Chapelaria Operations ---
-  const normalizeCloakroomQuery = (value: string) => value.toLowerCase().replace(/\D/g, '').trim();
-  const normalizeCloakroomText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  const normalizeCloakroomCode = (value: string) => normalizeCloakroomText(value).replace(/[^a-z0-9_-]/g, '');
+  const normalizeCloakroomQuery = (value: unknown) => String(value ?? '').toLowerCase().replace(/\D/g, '').trim();
+  const normalizeCloakroomText = (value: unknown) => String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const normalizeCloakroomCode = (value: unknown) => normalizeCloakroomText(value).replace(/[^a-z0-9_-]/g, '');
   const cloakroomCodeMatches = (source: string, query: string) => source.length > 0 && query.length > 0 && (source.includes(query) || query.includes(source));
 
   const cloakroomParticipantResults = useMemo(() => {
@@ -1949,7 +1989,7 @@ export default function App() {
     return participants
       .filter(participant => {
         const nameMatch = normalizeCloakroomText(participant.name).includes(textQuery);
-        const cpfMatch = numberQuery.length >= 3 && participant.cpf.replace(/\D/g, '').includes(numberQuery);
+        const cpfMatch = numberQuery.length >= 3 && normalizeCloakroomQuery(participant.cpf).includes(numberQuery);
         const participantId = normalizeCloakroomCode(participant.id || '');
         const participantTicketCode = normalizeCloakroomCode(participant.ticketCode || '');
         const codeMatch = cloakroomCodeMatches(participantId, codeQuery) || cloakroomCodeMatches(participantTicketCode, codeQuery);
@@ -1970,17 +2010,17 @@ export default function App() {
       .filter(item => item.status === 'guardado')
       .filter(item => {
         const itemVolumes = getCloakroomItemVolumes(item);
-        const tagMatch = String(item.tagNumber).includes(query)
-          || (item.volumeTags || []).some(tag => tag.includes(query))
+        const tagMatch = String(item.tagNumber ?? '').includes(query)
+          || (item.volumeTags || []).some(tag => String(tag ?? '').includes(query) || normalizeCloakroomCode(tag).includes(codeQuery))
           || itemVolumes.some(volume => (
-            volume.tag.includes(query)
+            String(volume.tag ?? '').includes(query)
             || normalizeCloakroomCode(volume.tag).includes(codeQuery)
             || normalizeCloakroomText(volume.description || '').includes(textQuery)
             || normalizeCloakroomText(volume.storageAddress || '').includes(textQuery)
           ));
         const participant = participants.find(p => p.id === item.participantId);
         const nameMatch = normalizeCloakroomText(item.participantName).includes(textQuery);
-        const cpfMatch = numberQuery.length >= 3 && (participant?.cpf || '').replace(/\D/g, '').includes(numberQuery);
+        const cpfMatch = numberQuery.length >= 3 && normalizeCloakroomQuery(participant?.cpf).includes(numberQuery);
         const participantId = normalizeCloakroomCode(participant?.id || item.participantId || '');
         const participantTicketCode = normalizeCloakroomCode(participant?.ticketCode || '');
         const codeMatch = cloakroomCodeMatches(participantId, codeQuery) || cloakroomCodeMatches(participantTicketCode, codeQuery);
@@ -1998,15 +2038,15 @@ export default function App() {
       const statusMatch = cloakroomHistoryFilter === 'all' || item.status === cloakroomHistoryFilter;
       const participant = participants.find(p => p.id === item.participantId);
       const searchMatch = !query
-        || String(item.tagNumber).includes(query)
-        || (item.volumeTags || []).some(tag => tag.includes(query))
+        || String(item.tagNumber ?? '').includes(query)
+        || (item.volumeTags || []).some(tag => String(tag ?? '').includes(query))
         || getCloakroomItemVolumes(item).some(volume => (
-          volume.tag.includes(query)
+          String(volume.tag ?? '').includes(query)
           || normalizeCloakroomText(volume.description || '').includes(textQuery)
           || normalizeCloakroomText(volume.storageAddress || '').includes(textQuery)
         ))
         || normalizeCloakroomText(item.participantName).includes(textQuery)
-        || (numberQuery.length >= 3 && (participant?.cpf || '').replace(/\D/g, '').includes(numberQuery));
+        || (numberQuery.length >= 3 && normalizeCloakroomQuery(participant?.cpf).includes(numberQuery));
       return statusMatch && searchMatch;
     });
   }, [cloakroom, cloakroomHistoryFilter, cloakroomHistorySearch, participants]);
@@ -2016,14 +2056,47 @@ export default function App() {
     return highestTicket + 1;
   }, [cloakroom]);
 
+  const activeCloakroomRack = useMemo(() => (
+    cloakroomMapConfig.racks.find(rack => rack.id === cloakroomMapConfig.activeRackId)
+    || cloakroomMapConfig.racks[0]
+    || DEFAULT_CLOAKROOM_RACK
+  ), [cloakroomMapConfig]);
+
+  const activeCloakroomRackName = activeCloakroomRack.name.trim() || 'Sem nome';
+
+  const updateActiveCloakroomRack = (updates: Partial<CloakroomRackConfig>) => {
+    setCloakroomMapConfig(prev => ({
+      ...prev,
+      racks: prev.racks.map(rack => (
+        rack.id === prev.activeRackId ?{ ...rack, ...updates } : rack
+      ))
+    }));
+  };
+
+  const createCloakroomRack = () => {
+    setCloakroomMapConfig(prev => {
+      const sourceRack = prev.racks.find(rack => rack.id === prev.activeRackId) || prev.racks[0] || DEFAULT_CLOAKROOM_RACK;
+      const newRack: CloakroomRackConfig = {
+        id: `rack_${Date.now()}`,
+        name: `Estante ${prev.racks.length + 1}`,
+        columns: sourceRack.columns,
+        rows: sourceRack.rows
+      };
+      return {
+        activeRackId: newRack.id,
+        racks: [...prev.racks, newRack]
+      };
+    });
+  };
+
   const cloakroomMapColumns = useMemo(
-    () => Array.from({ length: cloakroomMapConfig.columns }, (_, index) => String.fromCharCode(65 + index)),
-    [cloakroomMapConfig.columns]
+    () => Array.from({ length: activeCloakroomRack.columns }, (_, index) => String.fromCharCode(65 + index)),
+    [activeCloakroomRack.columns]
   );
 
   const cloakroomMapRows = useMemo(
-    () => Array.from({ length: cloakroomMapConfig.rows }, (_, index) => String(index + 1).padStart(2, '0')),
-    [cloakroomMapConfig.rows]
+    () => Array.from({ length: activeCloakroomRack.rows }, (_, index) => String(index + 1).padStart(2, '0')),
+    [activeCloakroomRack.rows]
   );
 
   useEffect(() => {
@@ -2041,42 +2114,42 @@ export default function App() {
     setActiveCloakroomVolumeIndex(index => Math.min(index, Math.max(0, cloakroomVolumeCount - 1)));
   }, [cloakroomVolumeCount]);
 
-  const getCloakroomItemVolumes = (item: CloakroomItem): CloakroomVolume[] => {
+  function getCloakroomItemVolumes(item: CloakroomItem): CloakroomVolume[] {
     if (Array.isArray(item.volumes) && item.volumes.length > 0) {
       return item.volumes.map((volume, index) => ({
         id: volume.id || `vol_${index + 1}`,
-        tag: volume.tag || item.volumeTags?.[index] || `${item.tagNumber}-${index + 1}`,
-        description: volume.description || '',
-        storageRackId: volume.storageRackId || item.storageRackId,
-        storageRackName: volume.storageRackName || item.storageRackName,
-        storageColumn: volume.storageColumn || item.storageColumn,
-        storageRow: volume.storageRow || item.storageRow,
-        storageAddress: volume.storageAddress || item.storageAddress,
-        storageOccupiedAt: volume.storageOccupiedAt || item.storageOccupiedAt,
-        storageReleasedAt: volume.storageReleasedAt || item.storageReleasedAt,
-        storageOperatorId: volume.storageOperatorId || item.storageOperatorId
+        tag: String(volume.tag || item.volumeTags?.[index] || `${item.tagNumber}-${index + 1}`),
+        description: String(volume.description || ''),
+        storageRackId: volume.storageRackId ?String(volume.storageRackId) : item.storageRackId ?String(item.storageRackId) : undefined,
+        storageRackName: volume.storageRackName ?String(volume.storageRackName) : item.storageRackName ?String(item.storageRackName) : undefined,
+        storageColumn: volume.storageColumn ?String(volume.storageColumn) : item.storageColumn ?String(item.storageColumn) : undefined,
+        storageRow: volume.storageRow ?String(volume.storageRow) : item.storageRow ?String(item.storageRow) : undefined,
+        storageAddress: volume.storageAddress ?String(volume.storageAddress) : item.storageAddress ?String(item.storageAddress) : undefined,
+        storageOccupiedAt: volume.storageOccupiedAt ?String(volume.storageOccupiedAt) : item.storageOccupiedAt ?String(item.storageOccupiedAt) : undefined,
+        storageReleasedAt: volume.storageReleasedAt ?String(volume.storageReleasedAt) : item.storageReleasedAt ?String(item.storageReleasedAt) : undefined,
+        storageOperatorId: volume.storageOperatorId ?String(volume.storageOperatorId) : item.storageOperatorId ?String(item.storageOperatorId) : undefined
       }));
     }
 
     const volumeCount = Math.max(1, Number(item.volumeCount) || 1);
     return Array.from({ length: volumeCount }, (_, index) => ({
       id: `vol_${index + 1}`,
-      tag: item.volumeTags?.[index] || `${item.tagNumber}-${index + 1}`,
-      description: item.itemDescription || '',
-      storageRackId: item.storageRackId,
-      storageRackName: item.storageRackName,
-      storageColumn: item.storageColumn,
-      storageRow: item.storageRow,
-      storageAddress: item.storageAddress,
-      storageOccupiedAt: item.storageOccupiedAt,
-      storageReleasedAt: item.storageReleasedAt,
-      storageOperatorId: item.storageOperatorId
+      tag: String(item.volumeTags?.[index] || `${item.tagNumber}-${index + 1}`),
+      description: String(item.itemDescription || ''),
+      storageRackId: item.storageRackId ?String(item.storageRackId) : undefined,
+      storageRackName: item.storageRackName ?String(item.storageRackName) : undefined,
+      storageColumn: item.storageColumn ?String(item.storageColumn) : undefined,
+      storageRow: item.storageRow ?String(item.storageRow) : undefined,
+      storageAddress: item.storageAddress ?String(item.storageAddress) : undefined,
+      storageOccupiedAt: item.storageOccupiedAt ?String(item.storageOccupiedAt) : undefined,
+      storageReleasedAt: item.storageReleasedAt ?String(item.storageReleasedAt) : undefined,
+      storageOperatorId: item.storageOperatorId ?String(item.storageOperatorId) : undefined
     }));
-  };
+  }
 
   const formatCloakroomVolumeAddress = (volume?: Partial<CloakroomVolume> | null) => {
     if (!volume?.storageAddress) return '-';
-    return `${volume.storageRackName || cloakroomMapConfig.rackName} - ${volume.storageAddress}`;
+    return `${volume.storageRackName || activeCloakroomRackName} - ${volume.storageAddress}`;
   };
 
   const updateCloakroomVolumeDraft = (index: number, updates: Partial<CloakroomVolume>) => {
@@ -2096,65 +2169,67 @@ export default function App() {
   });
 
   const cloakroomOccupiedAddresses = useMemo(() => {
-    const draftAddresses = cloakroomVolumeDrafts
-      .map((volume, index) => index === activeCloakroomVolumeIndex ?'' : volume.storageAddress)
-      .filter((address): address is string => Boolean(address));
-
     return new Set(
       [
-        ...draftAddresses,
         ...cloakroom
         .filter(item => item.status === 'guardado')
         .flatMap(item => {
           const volumeAddresses = getCloakroomItemVolumes(item)
+            .filter(volume => (volume.storageRackId || item.storageRackId || DEFAULT_CLOAKROOM_RACK.id) === activeCloakroomRack.id)
             .map(volume => volume.storageAddress)
             .filter((address): address is string => Boolean(address));
           return volumeAddresses.length > 0
-            ?volumeAddresses
-            : (item.storageAddress ?[item.storageAddress] : []);
+            ? volumeAddresses
+            : ((item.storageRackId || DEFAULT_CLOAKROOM_RACK.id) === activeCloakroomRack.id && item.storageAddress ?[item.storageAddress] : []);
         })
       ]
     );
-  }, [activeCloakroomVolumeIndex, cloakroom, cloakroomVolumeDrafts]);
+  }, [activeCloakroomRack.id, cloakroom]);
 
-  const suggestedCloakroomAddress = useMemo(() => {
-    for (const row of cloakroomMapRows) {
-      for (const column of cloakroomMapColumns) {
+  const nextCloakroomPositions = useMemo(() => {
+    const positions: CloakroomStoragePosition[] = [];
+    for (const column of cloakroomMapColumns) {
+      for (const row of cloakroomMapRows) {
         const address = `${column}${row}`;
-        if (!cloakroomOccupiedAddresses.has(address)) return address;
+        if (!cloakroomOccupiedAddresses.has(address)) {
+          positions.push({
+            rackId: activeCloakroomRack.id,
+            rackName: activeCloakroomRackName,
+            column,
+            row,
+            address
+          });
+        }
       }
     }
-    return '';
-  }, [cloakroomMapColumns, cloakroomMapRows, cloakroomOccupiedAddresses]);
+    return positions;
+  }, [activeCloakroomRack.id, activeCloakroomRackName, cloakroomMapColumns, cloakroomMapRows, cloakroomOccupiedAddresses]);
+
+  const suggestedCloakroomAddress = useMemo(() => {
+    return nextCloakroomPositions[cloakroomVolumeCount]?.address || nextCloakroomPositions[0]?.address || '';
+  }, [cloakroomVolumeCount, nextCloakroomPositions]);
 
   useEffect(() => {
-    const activeVolume = cloakroomVolumeDrafts[activeCloakroomVolumeIndex];
-    if (activeVolume?.storageAddress) {
-      setCloakroomSelectedPosition({
-        rackId: activeVolume.storageRackId || cloakroomMapConfig.rackName.toLowerCase().replace(/\s+/g, '-'),
-        rackName: activeVolume.storageRackName || cloakroomMapConfig.rackName,
-        column: activeVolume.storageColumn || activeVolume.storageAddress.match(/^[A-Z]+/)?.[0] || cloakroomMapColumns[0] || 'A',
-        row: activeVolume.storageRow || activeVolume.storageAddress.match(/\d+$/)?.[0] || cloakroomMapRows[0] || '01',
-        address: activeVolume.storageAddress
-      });
-      return;
-    }
-
-    if (!suggestedCloakroomAddress) {
+    const activePosition = nextCloakroomPositions[activeCloakroomVolumeIndex];
+    if (!activePosition) {
       setCloakroomSelectedPosition(null);
       return;
     }
 
-    const column = suggestedCloakroomAddress.match(/^[A-Z]+/)?.[0] || cloakroomMapColumns[0] || 'A';
-    const row = suggestedCloakroomAddress.match(/\d+$/)?.[0] || cloakroomMapRows[0] || '01';
-    setCloakroomSelectedPosition({
-      rackId: cloakroomMapConfig.rackName.toLowerCase().replace(/\s+/g, '-'),
-      rackName: cloakroomMapConfig.rackName,
-      column,
-      row,
-      address: suggestedCloakroomAddress
-    });
-  }, [activeCloakroomVolumeIndex, cloakroomMapColumns, cloakroomMapConfig.rackName, cloakroomMapRows, cloakroomVolumeDrafts, suggestedCloakroomAddress]);
+    setCloakroomSelectedPosition(activePosition);
+  }, [activeCloakroomVolumeIndex, nextCloakroomPositions]);
+
+  useEffect(() => {
+    setCloakroomVolumeDrafts(prev => Array.from({ length: cloakroomVolumeCount }, (_, index) => {
+      const position = nextCloakroomPositions[index];
+      return {
+        ...prev[index],
+        id: prev[index]?.id || `vol_${index + 1}`,
+        description: prev[index]?.description || '',
+        ...(position ?buildVolumePositionPayload(position) : {})
+      };
+    }));
+  }, [cloakroomVolumeCount, currentUser?.id, nextCloakroomPositions]);
 
   const getCloakroomStoragePayload = (position = cloakroomSelectedPosition) => position ?{
     storageRackId: position.rackId,
@@ -2168,7 +2243,7 @@ export default function App() {
 
   const formatCloakroomStorageAddress = (item?: Pick<CloakroomItem, 'storageRackName' | 'storageAddress'> | null) => {
     if (!item?.storageAddress) return '-';
-    return `${item.storageRackName || cloakroomMapConfig.rackName} - ${item.storageAddress}`;
+    return `${item.storageRackName || activeCloakroomRackName} - ${item.storageAddress}`;
   };
 
   const escapePrintHtml = (value: string) =>
@@ -2236,14 +2311,24 @@ export default function App() {
     const labelWidthCm = 9;
     const labelHeightCm = 4;
     const itemVolumes = getCloakroomItemVolumes(item);
-    const labels = itemVolumes.map((volume, index) => ({
-      title: 'VOLUME',
-      tag: volume.tag || `${item.tagNumber}-${index + 1}`,
-      subtitle: `Volume ${index + 1} de ${itemVolumes.length}`,
-      detail: `Volume ${index + 1} de ${itemVolumes.length}`,
-      description: volume.description || '-',
-      position: formatCloakroomVolumeAddress(volume)
-    }));
+    const labels = [
+      {
+        title: 'PRINCIPAL',
+        tag: String(item.tagNumber),
+        subtitle: `${itemVolumes.length} volume${itemVolumes.length > 1 ?'s' : ''}`,
+        detail: `${itemVolumes.length} volume${itemVolumes.length > 1 ?'s' : ''}`,
+        description: item.itemDescription || itemVolumes.map(volume => volume.description).filter(Boolean).join(' | ') || '-',
+        position: formatCloakroomStorageAddress(item)
+      },
+      ...itemVolumes.map((volume, index) => ({
+        title: 'VOLUME',
+        tag: volume.tag || `${item.tagNumber}-${index + 1}`,
+        subtitle: `Volume ${index + 1} de ${itemVolumes.length}`,
+        detail: `Volume ${index + 1} de ${itemVolumes.length}`,
+        description: volume.description || '-',
+        position: formatCloakroomVolumeAddress(volume)
+      }))
+    ];
 
     const frame = document.createElement('iframe');
     frame.style.position = 'fixed';
@@ -2419,21 +2504,20 @@ export default function App() {
       addToast('Localize e selecione um participante antes de guardar os pertences.', 'error');
       return;
     }
+    const autoPositions = nextCloakroomPositions.slice(0, cloakroomVolumeCount);
+    if (autoPositions.length < cloakroomVolumeCount) {
+      addToast('Não há posições livres suficientes na estante selecionada.', 'error');
+      return;
+    }
     const normalizedVolumes: CloakroomVolume[] = cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).map((volume, index) => ({
       id: volume.id || `vol_${index + 1}`,
       tag: volume.tag || '',
       description: (volume.description || '').trim(),
-      storageRackId: volume.storageRackId,
-      storageRackName: volume.storageRackName,
-      storageColumn: volume.storageColumn,
-      storageRow: volume.storageRow,
-      storageAddress: volume.storageAddress,
-      storageOccupiedAt: volume.storageOccupiedAt || new Date().toISOString(),
-      storageOperatorId: currentUser?.id
+      ...buildVolumePositionPayload(autoPositions[index])
     }));
-    const missingVolume = normalizedVolumes.find(volume => !volume.description || !volume.storageAddress);
+    const missingVolume = normalizedVolumes.find(volume => !volume.description);
     if (missingVolume) {
-      addToast('Informe a descrição e selecione a posição de todos os volumes.', 'error');
+      addToast('Informe a descrição de todos os volumes.', 'error');
       return;
     }
     const duplicatedAddress = normalizedVolumes.find((volume, index) => (
@@ -2472,9 +2556,9 @@ export default function App() {
           participantId: cloakroomSelectedParticipant.id,
           participantName: cloakroomSelectedParticipant.name,
           itemDescription,
-          volumeCount: cloakroomVolumeCount,
-          volumes: normalizedVolumes,
-          ...storagePayload
+        volumeCount: cloakroomVolumeCount,
+        volumes: normalizedVolumes,
+        ...storagePayload
         })
       });
       const savedWithPosition = { ...saved, ...storagePayload, volumes: (saved as CloakroomItem).volumes || normalizedVolumes } as CloakroomItem;
@@ -2520,7 +2604,7 @@ export default function App() {
       return;
     }
     if (!cloakroomForm.participantName) {
-      addToast('Nome do participante ? obrigatério', 'error');
+      addToast('Nome do participante é obrigatório', 'error');
       return;
     }
 
@@ -2574,7 +2658,7 @@ export default function App() {
   };
 
   const handleDeleteCloakroomItem = async (id: string) => {
-    if (!window.confirm('Remover definitivamente este registro de chapelaria do hist?rico?')) return;
+    if (!window.confirm('Remover definitivamente este registro de chapelaria do histórico?')) return;
     try {
       await apiCall(`/api/cloakroom/${id}`, { method: 'DELETE' });
       setCloakroom(prev => prev.filter(item => item.id !== id));
@@ -2807,7 +2891,7 @@ export default function App() {
       const areasText = rawAreas !== undefined ?String(rawAreas).trim() : '';
       const errors: string[] = [];
 
-      if (!nome) errors.push('Nome e obrigatorio');
+      if (!nome) errors.push('Nome é obrigatório');
 
       if (originalCpf) {
         if (!validateCPF(cleanCpf)) {
@@ -3033,7 +3117,7 @@ export default function App() {
   const exportParticipantsToExcelWithFilter = (presentOnly: boolean, sourceList?: Participant[], fileLabel?: string) => {
     if (!currentEvent) return;
     if (!hasReportSelection()) {
-      addToast('Selecione pelo menos uma informação para gerar o relatério.', 'error');
+      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
       return;
     }
 
@@ -3107,7 +3191,7 @@ export default function App() {
   // Direct CSV printable list
   const triggerPrintableReport = () => {
     if (!hasReportSelection()) {
-      addToast('Selecione pelo menos uma informação para gerar o relatério.', 'error');
+      addToast('Selecione pelo menos uma informação para gerar o relatório.', 'error');
       return;
     }
     window.print();
@@ -3382,7 +3466,7 @@ export default function App() {
     { id: 'events-active', title: 'Eventos ativos', value: reportEventStatusSummary.active, detail: 'Na organização', icon: Calendar, tone: 'blue' as const },
     { id: 'events-closed', title: 'Eventos encerrados', value: reportEventStatusSummary.closed, detail: 'Datas anteriores', icon: History, tone: 'graphite' as const },
     { id: 'avg-checkin', title: 'Tempo médio check-in', value: reportAverageCheckinMinutes === null ?'-' : `${reportAverageCheckinMinutes} min`, detail: 'Baseado em criação x check-in', icon: BarChart3, tone: 'green' as const },
-    { id: 'avg-stay', title: 'M?dia perman?ncia', value: reportAverageStayMinutes === null ?'-' : `${reportAverageStayMinutes} min`, detail: 'Quando h? m?ltiplos acessos', icon: ShieldCheck, tone: 'graphite' as const },
+    { id: 'avg-stay', title: 'Média permanência', value: reportAverageStayMinutes === null ?'-' : `${reportAverageStayMinutes} min`, detail: 'Quando há múltiplos acessos', icon: ShieldCheck, tone: 'graphite' as const },
     { id: 'area-access', title: 'Total de acessos por Área', value: reportAreaAccessLogs.length, detail: `${reportAreaAccessSummary.length} Área(s) com fluxo`, icon: ShieldCheck, tone: 'green' as const },
     { id: 'operators', title: 'Credenc. por operador', value: reportOperatorSummary.reduce((sum, item) => sum + item.value, 0), detail: `${reportOperatorSummary.length} operador(es)`, icon: Users, tone: 'blue' as const }
   ]), [
@@ -3402,7 +3486,7 @@ export default function App() {
     { id: 'access-control', title: 'Controle de acesso', description: 'Acessos liberados, negados e totais por Área.', status: 'available' },
     { id: 'printed-labels', title: 'Etiquetas impressas', description: 'Preparado para contabilizar impressões e reimpressões.', status: reportPrintedLabelsCount > 0 ?'available' : 'prepared' },
     { id: 'cloakroom', title: 'Chapelaria', description: 'Tickets, volumes, guardados e retirados.', status: 'available' },
-    { id: 'users', title: 'Usuários', description: 'Base de usuários e n?veis de operação.', status: 'prepared' },
+    { id: 'users', title: 'Usuários', description: 'Base de usuários e níveis de operação.', status: 'prepared' },
     { id: 'operators', title: 'Operadores', description: 'Credenciamentos e produtividade por operador.', status: reportOperatorSummary.length > 0 ?'available' : 'prepared' }
   ];
 
@@ -3479,16 +3563,16 @@ export default function App() {
 
   const handleGenerateReportPdf = async (kind: ReportPdfKind) => {
     if (!currentEvent) {
-      addToast('Selecione um evento para gerar o relatério.', 'error');
+      addToast('Selecione um evento para gerar o relatório.', 'error');
       return;
     }
 
     try {
-      setReportPdfLoadingLabel('Gerando relatério...');
+      setReportPdfLoadingLabel('Gerando relatório...');
       await generateReportPdf(buildReportPdfPayload(), kind, message => setReportPdfLoadingLabel(message));
       addToast('PDF gerado com sucesso.', 'success');
     } catch (error) {
-      console.error('Erro ao gerar PDF do relatério:', error);
+      console.error('Erro ao gerar PDF do relatório:', error);
       addToast('Não foi possível gerar o PDF. Tente novamente.', 'error');
     } finally {
       setTimeout(() => setReportPdfLoadingLabel(''), 500);
@@ -3652,9 +3736,9 @@ export default function App() {
   const roleText = (() => {
     const role = String(currentUser?.role || '').toUpperCase();
     if (role === 'ADMIN' || currentUser?.role === 'admin') return 'Administrador';
-    if (role === 'SUPERVISOR') return 'Operador N?vel 1';
-    if (role === 'CHECKIN_CADASTRO') return 'Operador N?vel 2';
-    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador N?vel 3';
+    if (role === 'SUPERVISOR') return 'Operador Nível 1';
+    if (role === 'CHECKIN_CADASTRO') return 'Operador Nível 2';
+    if (role === 'CHECKIN' || role === 'ATENDENTE' || role === 'OPERATOR' || currentUser?.role === 'operator') return 'Operador Nível 3';
     return 'Operador';
   })();
 
@@ -3691,8 +3775,10 @@ export default function App() {
   const isMoreActive = secondaryNavItems.some(item => item.id === activeTab);
   const isStandaloneCheckin = window.location.pathname === '/checkin';
   const isStandaloneCheckinMobile = window.location.pathname === '/checkin/mobile';
+  const isStandaloneCloakroom = window.location.pathname === '/chapelaria';
   const isCheckinOnlyOperator = !!currentUser && !isUserAdmin && !canCreateParticipants && !canViewReports;
   const shouldUseFullscreenCheckin = (activeTab === 'checkin' && (isStandaloneCheckin || isCheckinOnlyOperator)) || activeTab === 'checkin-mobile' || isStandaloneCheckinMobile;
+  const shouldUseStandaloneCloakroom = activeTab === 'chapelaria' && isStandaloneCloakroom;
   const activeActivities = activities.filter(activity => activity.active !== false);
   const selectedActivity = activities.find(activity => activity.id === activityAttendanceActivityId) || null;
   const selectedActivityAttendances = activityAttendances.filter(att => att.activityId === activityAttendanceActivityId);
@@ -3790,7 +3876,7 @@ export default function App() {
         ))}
       </div>
 
-      <header className={`${shouldUseFullscreenCheckin ?'hidden' : 'cx-premium-header no-print shrink-0'}`}>
+      <header className={`${shouldUseFullscreenCheckin || shouldUseStandaloneCloakroom ?'hidden' : 'cx-premium-header no-print shrink-0'}`}>
         <div className="px-5 lg:px-8 py-4 flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
@@ -4178,7 +4264,7 @@ export default function App() {
             {currentEvent && isCurrentEventTestMode && activeTab !== 'checkin' && activeTab !== 'checkin-mobile' && (
               <div className="max-w-7xl mx-auto mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 flex items-start gap-3">
                 <AlertTriangle size={18} className="mt-0.5 text-amber-600" />
-                <span>Evento em modo teste. Os check-ins e impressoes realizados agora nao entrarao no relatorio oficial.</span>
+                <span>Evento em modo teste. Os check-ins e impressões realizados agora não entrarão no relatório oficial.</span>
               </div>
             )}
             
@@ -4210,7 +4296,7 @@ export default function App() {
                             ?'bg-amber-100 text-amber-800 border-amber-200'
                             : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                       }`}>
-                        {isCurrentEventClosed ?'EVENTO ENCERRADO' : isCurrentEventTestMode ?'PREPARACAO' : 'EVENTO OFICIAL'}
+                        {isCurrentEventClosed ?'EVENTO ENCERRADO' : isCurrentEventTestMode ?'PREPARAÇÃO' : 'EVENTO OFICIAL'}
                       </span>
                     </div>
                     <p className="text-sm text-slate-500 mt-2 max-w-2xl">
@@ -4232,15 +4318,15 @@ export default function App() {
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-wider text-slate-400">Preparacao do Evento</p>
+                        <p className="text-xs font-black uppercase tracking-wider text-slate-400">Preparação do Evento</p>
                         <h2 className="mt-1 text-lg font-black text-slate-950">Modo operacional do evento</h2>
                         <p className="mt-2 text-sm text-slate-500 max-w-3xl">
-                          Use a preparacao para validar check-in, impressoes e acessos antes da abertura oficial. Relatorios e dashboard oficial ignoram registros marcados como teste. Ao encerrar, os dados oficiais ficam consolidados.
+                          Use a preparação para validar check-in, impressões e acessos antes da abertura oficial. Relatórios e dashboard oficial ignoram registros marcados como teste. Ao encerrar, os dados oficiais ficam consolidados.
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">Testes ativos: {testCheckinCount}</span>
                           <span className={`rounded-full px-3 py-1 ${isCurrentEventClosed ?'bg-slate-100 text-slate-700' : isCurrentEventTestMode ?'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            Atual: {isCurrentEventClosed ?'EVENTO ENCERRADO' : isCurrentEventTestMode ?'PREPARACAO' : 'EVENTO OFICIAL'}
+                            Atual: {isCurrentEventClosed ?'EVENTO ENCERRADO' : isCurrentEventTestMode ?'PREPARAÇÃO' : 'EVENTO OFICIAL'}
                           </span>
                         </div>
                       </div>
@@ -5337,7 +5423,7 @@ export default function App() {
                     </div>
 
                     <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-xs font-black uppercase text-slate-500">Placeholders dispon?veis</p>
+                      <p className="text-xs font-black uppercase text-slate-500">Placeholders disponíveis</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {DEFAULT_CERTIFICATE_TEMPLATE.elements.map(element => (
                           <span key={element.id} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-mono font-bold text-slate-600 border border-slate-200">
@@ -5624,7 +5710,7 @@ export default function App() {
                     {!activeCertificate || !certificateParticipant || !certificateEvent ?(
                       <div className="flex min-h-[520px] flex-col items-center justify-center text-center text-slate-400 no-print">
                         <Award size={44} />
-                        <p className="mt-3 text-sm font-bold">A pr?via do certificado aparecer? aqui após a emissão.</p>
+                        <p className="mt-3 text-sm font-bold">A prévia do certificado aparecerá aqui após a emissão.</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -5696,7 +5782,7 @@ export default function App() {
                               <p className="text-3xl font-black text-slate-950">{fixMojibake(certificateActivity.title)}</p>
                               <p className="text-xl leading-relaxed">ministrada por</p>
                               <p className="text-2xl font-black text-slate-950">{fixMojibake(certificateActivity.speakerName || 'Palestrante não informado')}</p>
-                              <p className="text-xl leading-relaxed">com carga hor?ria de</p>
+                              <p className="text-xl leading-relaxed">com carga horária de</p>
                               <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
                             </div>
                           ) : (
@@ -5704,7 +5790,7 @@ export default function App() {
                               <p className="text-xl leading-relaxed">Certificamos que <b>{certificateParticipant.name}</b></p>
                               <p className="text-xl leading-relaxed">participou do evento</p>
                               <p className="text-3xl font-black text-slate-950">{certificateEvent.name}</p>
-                              <p className="text-xl leading-relaxed">com carga hor?ria total de</p>
+                              <p className="text-xl leading-relaxed">com carga horária total de</p>
                               <p className="text-3xl font-black text-slate-950">{activeCertificate.certificate.totalHours} horas.</p>
                             </div>
                           )}
@@ -5740,23 +5826,24 @@ export default function App() {
                       Entrada automatizada de pertences sob etiquetas numéricas sequenciais. Evento ativo: <b>{currentEvent?.name}</b>
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      setCloakroomForm({ participantId: '', participantName: '', itemDescription: '' });
-                      setIsCloakroomModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition cursor-pointer"
-                  >
-                    <Plus size={16} />
-                    <span>Guardar Pertence</span>
-                  </button>
+                  {!isStandaloneCloakroom && (
+                    <a
+                      href="/chapelaria"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-950 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold transition"
+                    >
+                      <ChevronRight size={16} />
+                      <span>Abrir em tela separada</span>
+                    </a>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 bg-white border border-slate-200 rounded-lg p-1">
                   {[
                     { id: 'overview' as const, label: 'Visão Geral' },
                     { id: 'map' as const, label: 'Mapa da Chapelaria' },
-                    { id: 'store' as const, label: 'Nova Guarda' },
+                    { id: 'store' as const, label: 'Guarda Volume' },
                     { id: 'return' as const, label: 'Devolução' },
                     { id: 'stored' as const, label: 'Itens Guardados' },
                     { id: 'history' as const, label: 'Histórico' },
@@ -5790,12 +5877,14 @@ export default function App() {
                       ))}
                     </div>
                     <CloakroomMap
-                      rackName={cloakroomMapConfig.rackName}
+                      rackName={activeCloakroomRackName}
+                      rackId={activeCloakroomRack.id}
                       columns={cloakroomMapColumns}
                       rows={cloakroomMapRows}
                       items={cloakroom}
                       selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
                       suggestedAddress={suggestedCloakroomAddress}
+                      readOnly
                       onSelectPosition={(position) => {
                         setCloakroomSelectedPosition(position);
                         updateCloakroomVolumeDraft(activeCloakroomVolumeIndex, buildVolumePositionPayload(position));
@@ -5806,7 +5895,8 @@ export default function App() {
 
                 {cloakroomTab === 'map' && (
                   <CloakroomMap
-                    rackName={cloakroomMapConfig.rackName}
+                    rackName={activeCloakroomRackName}
+                    rackId={activeCloakroomRack.id}
                     columns={cloakroomMapColumns}
                     rows={cloakroomMapRows}
                     items={cloakroom}
@@ -5900,7 +5990,7 @@ export default function App() {
                       <div>
                         <h3 className="text-lg font-black text-slate-950">Descrição e posição por volume</h3>
                         <p className="mt-1 text-xs font-semibold text-slate-500">
-                          Selecione o volume abaixo e clique no mapa para definir a posição física.
+                          O sistema escolhe automaticamente a próxima posição livre para cada volume.
                         </p>
                         <div className="mt-3 space-y-3">
                           {cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).map((volume, index) => {
@@ -5918,7 +6008,7 @@ export default function App() {
                                   >
                                     <span className="block text-xs font-black uppercase tracking-wider text-slate-500">Volume {index + 1} de {cloakroomVolumeCount}</span>
                                     <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isActive ?'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                      {isActive ?'Selecionando posição' : 'Selecionar no mapa'}
+                                      {isActive ?'Posição ativa' : 'Posição automática'}
                                     </span>
                                   </button>
                                   <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm font-black text-slate-800">
@@ -5947,10 +6037,11 @@ export default function App() {
                         <p className="text-xs font-black uppercase tracking-wider text-blue-200">Resumo da impressão</p>
                         <div className="mt-4 rounded-xl bg-white/8 border border-white/10 p-4">
                           <div className="flex items-center justify-between py-2 text-lg"><span>Volume(s)</span><b>{cloakroomVolumeCount}</b></div>
-                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiquetas individuais</span><b>{cloakroomVolumeCount}</b></div>
+                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiqueta principal</span><b>1</b></div>
+                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiquetas de volume</span><b>{cloakroomVolumeCount}</b></div>
                           <div className="mt-2 pt-4 border-t border-white/20 flex items-center justify-between text-2xl font-black">
                             <span>Total de etiquetas</span>
-                            <b>{cloakroomVolumeCount}</b>
+                            <b>{cloakroomVolumeCount + 1}</b>
                           </div>
                         </div>
 
@@ -5968,7 +6059,7 @@ export default function App() {
 
                         <button
                           onClick={handleOperationalCloakroomSave}
-                          disabled={!cloakroomSelectedParticipant || cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).some(volume => !(volume.description || '').trim() || !volume.storageAddress)}
+                          disabled={!cloakroomSelectedParticipant || nextCloakroomPositions.length < cloakroomVolumeCount || cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).some(volume => !(volume.description || '').trim())}
                           className="mt-5 w-full px-4 py-5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-500 text-white text-base font-black transition cursor-pointer disabled:cursor-not-allowed"
                         >
                           GUARDAR PERTENCES
@@ -6005,12 +6096,14 @@ export default function App() {
                     </div>
 
                     <CloakroomMap
-                      rackName={cloakroomMapConfig.rackName}
+                      rackName={activeCloakroomRackName}
+                      rackId={activeCloakroomRack.id}
                       columns={cloakroomMapColumns}
                       rows={cloakroomMapRows}
                       items={cloakroom}
                       selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
                       suggestedAddress={suggestedCloakroomAddress}
+                      readOnly
                       onSelectPosition={(position) => {
                         setCloakroomSelectedPosition(position);
                         updateCloakroomVolumeDraft(activeCloakroomVolumeIndex, buildVolumePositionPayload(position));
@@ -6360,15 +6453,45 @@ export default function App() {
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.8fr] gap-5">
                     <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
                       <div className="mb-5 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
-                        <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Configuração do mapa</p>
-                        <h3 className="text-lg font-bold text-slate-900 mt-1">Organização f?sica da estante</h3>
-                        <p className="text-sm text-slate-500 mt-1">Defina o nome da estante, colunas e linhas usadas no mapa operacional.</p>
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Configuração do mapa</p>
+                            <h3 className="text-lg font-bold text-slate-900 mt-1">Organização física das estantes</h3>
+                            <p className="text-sm text-slate-500 mt-1">Crie estantes e defina nome, colunas e linhas usadas no mapa operacional.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={createCloakroomRack}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-500 transition cursor-pointer"
+                          >
+                            <Plus size={16} />
+                            Nova estante
+                          </button>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {cloakroomMapConfig.racks.map(rack => (
+                            <button
+                              key={rack.id}
+                              type="button"
+                              onClick={() => setCloakroomMapConfig(prev => ({ ...prev, activeRackId: rack.id }))}
+                              className={`rounded-full border px-3 py-1.5 text-xs font-black transition cursor-pointer ${
+                                activeCloakroomRack.id === rack.id
+                                  ?'border-emerald-500 bg-emerald-600 text-white'
+                                  : 'border-emerald-100 bg-white text-slate-700 hover:border-emerald-300'
+                              }`}
+                            >
+                              {rack.name.trim() || 'Sem nome'}
+                            </button>
+                          ))}
+                        </div>
+
                         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                           <label className="text-xs font-black uppercase tracking-wider text-slate-500">
                             Nome da estante
                             <input
-                              value={cloakroomMapConfig.rackName}
-                              onChange={event => setCloakroomMapConfig(prev => ({ ...prev, rackName: event.target.value || 'Principal' }))}
+                              value={activeCloakroomRack.name}
+                              onChange={event => updateActiveCloakroomRack({ name: event.target.value })}
                               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
                             />
                           </label>
@@ -6378,8 +6501,8 @@ export default function App() {
                               type="number"
                               min={1}
                               max={26}
-                              value={cloakroomMapConfig.columns}
-                              onChange={event => setCloakroomMapConfig(prev => ({ ...prev, columns: Math.max(1, Math.min(26, Number(event.target.value) || 1)) }))}
+                              value={activeCloakroomRack.columns}
+                              onChange={event => updateActiveCloakroomRack({ columns: Math.max(1, Math.min(26, Number(event.target.value) || 1)) })}
                               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
                             />
                           </label>
@@ -6389,8 +6512,8 @@ export default function App() {
                               type="number"
                               min={1}
                               max={99}
-                              value={cloakroomMapConfig.rows}
-                              onChange={event => setCloakroomMapConfig(prev => ({ ...prev, rows: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))}
+                              value={activeCloakroomRack.rows}
+                              onChange={event => updateActiveCloakroomRack({ rows: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
                               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
                             />
                           </label>
@@ -6599,7 +6722,7 @@ export default function App() {
                   <div>
                     <div className="flex items-center gap-3">
                       {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
-                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatério" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
+                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatório" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
                       )}
                       <div>
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Relatórios</p>
@@ -6742,13 +6865,13 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <Sliders size={17} className="text-slate-500" />
-                        <span>Configurar relatério</span>
+                        <span>Configurar relatório</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
                         Escolha quais informações devem sair no relatório impresso ou exportado.
                       </p>
                       <p className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
-                        Este relatério ser? gerado com {getReportSelectedSectionCount()} seções selecionadas
+                        Este relatório será gerado com {getReportSelectedSectionCount()} seções selecionadas
                       </p>
                     </div>
 
@@ -6857,7 +6980,7 @@ export default function App() {
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                         <FileText size={17} className="text-slate-500" />
-                        <span>Identidade visual do relatério</span>
+                        <span>Identidade visual do relatório</span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
                         Configure uma logo no topo e uma marca d'água para a versão impressa do relatório.
@@ -6907,7 +7030,7 @@ export default function App() {
                       <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
                       {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
                         <div className="h-16 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-2">
-                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatério" className="max-h-full max-w-full object-contain" />
+                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatório" className="max-h-full max-w-full object-contain" />
                         </div>
                       )}
                     </div>
@@ -7295,7 +7418,7 @@ export default function App() {
                 <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatério</h3>
+                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatório</h3>
                       <p className="text-xs text-slate-500">{reportParticipants.length} registros nos filtros atuais.</p>
                     </div>
                   </div>
@@ -7310,7 +7433,7 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Horário do check-in</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos por sala</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Certificados</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador respons?vel</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsável</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -7431,7 +7554,7 @@ export default function App() {
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Campos de Cadastro</p>
                   <h2 className="text-xl font-bold text-slate-800 font-display mt-1">Configuração dos campos de cadastro</h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    Defina os campos exibidos nos cadastros e formul?rios r?pidos dos participantes.
+                    Defina os campos exibidos nos cadastros e formulários rápidos dos participantes.
                   </p>
                 </div>
 
@@ -7451,7 +7574,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                   <div>
                     <h2 className="text-lg font-bold text-slate-800 font-display">Operadores do Sistema</h2>
-                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e n?veis de acesso dos operadores e administradores.</p>
+                    <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e níveis de acesso dos operadores e administradores.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -7514,9 +7637,9 @@ export default function App() {
                                   'bg-blue-100 text-blue-800'
                                 }`}>
                                   {String(u.role).toUpperCase() === 'ADMIN' ?'Administrador' :
-                                   String(u.role).toUpperCase() === 'SUPERVISOR' ?'Operador N?vel 1' :
-                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ?'Operador N?vel 2' :
-                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ?'Operador N?vel 3' :
+                                   String(u.role).toUpperCase() === 'SUPERVISOR' ?'Operador Nível 1' :
+                                   String(u.role).toUpperCase() === 'CHECKIN_CADASTRO' ?'Operador Nível 2' :
+                                   String(u.role).toUpperCase() === 'CHECKIN' || String(u.role).toUpperCase() === 'ATENDENTE' || u.role === 'operator' ?'Operador Nível 3' :
                                    String(u.role)}
                                 </span>
                               </td>
@@ -7601,7 +7724,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- PRINT SHADOW LOG: APENAS VIS?VEL DURANTE O PRINT REAL --- */}
+      {/* --- PRINT SHADOW LOG: APENAS VISÍVEL DURANTE O PRINT REAL --- */}
       <div className="hidden print:block relative p-8 bg-white text-black min-h-screen overflow-hidden">
         {reportBrandConfig.showWatermark && reportBrandConfig.watermarkUrl && (
           <img
@@ -7626,7 +7749,7 @@ export default function App() {
           {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
             <img
               src={reportBrandConfig.logoUrl}
-              alt="Logo do relatério"
+              alt="Logo do relatório"
               className="max-h-16 max-w-[180px] object-contain"
             />
           )}
@@ -7663,7 +7786,7 @@ export default function App() {
 
         {(reportConfig.checkinsByHour || reportConfig.participantsByCategory || reportConfig.presenceBreakdown || reportConfig.areaAccess || reportConfig.areaAccessDecisions) && (
           <div className="relative z-10 mb-6 space-y-5">
-            <h2 className="text-sm font-black uppercase border-b border-black pb-2">Gr?ficos e estatésticas</h2>
+            <h2 className="text-sm font-black uppercase border-b border-black pb-2">Gráficos e estatísticas</h2>
 
             {reportConfig.checkinsByHour && (
               <div>
@@ -8690,7 +8813,7 @@ export default function App() {
                         onClick={saveImportTemplate}
                         className="w-full px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 text-sm font-bold"
                       >
-                        {editingImportTemplateId ?'Salvar alteracoes' : 'Salvar modelo'}
+                        {editingImportTemplateId ?'Salvar alterações' : 'Salvar modelo'}
                       </button>
                     </div>
                   </div>
@@ -8785,7 +8908,7 @@ export default function App() {
                               company: row.company || <span className="text-slate-400 italic">Vazio</span>,
                               category: row.category || <span className="text-slate-400 italic">Vazio</span>,
                               ticketCode: row.ticketCode || <span className="text-slate-400 italic">Gerar novo</span>,
-                              areas: row.resolvedAreaNames?.length ?row.resolvedAreaNames.join(', ') : (row.areasText || <span className="text-slate-400 italic">Padrao</span>),
+                              areas: row.resolvedAreaNames?.length ?row.resolvedAreaNames.join(', ') : (row.areasText || <span className="text-slate-400 italic">Padrão</span>),
                               profile: row.profile || <span className="text-slate-400 italic">Nenhum</span>,
                               ignore: ''
                             };

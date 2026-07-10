@@ -11,6 +11,7 @@ export interface CloakroomStoragePosition {
 }
 
 interface CloakroomMapProps {
+  rackId: string;
   rackName: string;
   columns: string[];
   rows: string[];
@@ -18,25 +19,28 @@ interface CloakroomMapProps {
   selectedAddress: string;
   suggestedAddress: string;
   onSelectPosition: (position: CloakroomStoragePosition) => void;
+  readOnly?: boolean;
 }
 
 const buildAddress = (column: string, row: string) => `${column}${row}`;
 
 export default function CloakroomMap({
+  rackId,
   rackName,
   columns,
   rows,
   items,
   selectedAddress,
   suggestedAddress,
-  onSelectPosition
+  onSelectPosition,
+  readOnly = false
 }: CloakroomMapProps) {
   const occupiedEntries = items
     .filter(item => item.status === 'guardado')
     .flatMap(item => {
       if (Array.isArray(item.volumes) && item.volumes.length > 0) {
         return item.volumes
-          .filter(volume => volume.storageAddress)
+          .filter(volume => volume.storageAddress && (volume.storageRackId || item.storageRackId || 'principal') === rackId)
           .map(volume => ({
             address: volume.storageAddress as string,
             item,
@@ -45,22 +49,26 @@ export default function CloakroomMap({
           }));
       }
 
-      return item.storageAddress
+      return item.storageAddress && (item.storageRackId || 'principal') === rackId
         ?[{ address: item.storageAddress, item, description: item.itemDescription, tag: String(item.tagNumber) }]
         : [];
     });
+
   const occupiedByAddress = new Map(occupiedEntries.map(entry => [entry.address, entry]));
   const selectedItem = occupiedByAddress.get(selectedAddress);
   const selectedColumn = selectedAddress.match(/^[A-Z]+/)?.[0] || '-';
   const selectedRow = selectedAddress.match(/\d+$/)?.[0] || '-';
   const latestItems = items
-    .filter(item => item.storageAddress === selectedAddress || item.volumes?.some(volume => volume.storageAddress === selectedAddress))
+    .filter(item => (
+      (item.storageAddress === selectedAddress && (item.storageRackId || 'principal') === rackId)
+      || item.volumes?.some(volume => volume.storageAddress === selectedAddress && (volume.storageRackId || item.storageRackId || 'principal') === rackId)
+    ))
     .slice(0, 3);
   const isSelectedOccupied = Boolean(selectedItem);
 
   const selectAddress = (column: string, row: string) => {
     onSelectPosition({
-      rackId: rackName.toLowerCase().replace(/\s+/g, '-'),
+      rackId,
       rackName,
       column,
       row,
@@ -115,8 +123,11 @@ export default function CloakroomMap({
                     <button
                       key={address}
                       type="button"
-                      onClick={() => selectAddress(column, row)}
-                      className={`h-10 min-w-10 rounded-lg border text-[11px] font-black transition cursor-pointer ${statusClass}`}
+                      onClick={() => {
+                        if (readOnly) return;
+                        selectAddress(column, row);
+                      }}
+                      className={`h-10 min-w-10 rounded-lg border text-[11px] font-black transition ${readOnly ?'cursor-default' : 'cursor-pointer'} ${statusClass}`}
                       title={item ?`${address} ocupado por ${item.item.participantName}` : `${address} livre`}
                     >
                       {address}
@@ -162,19 +173,25 @@ export default function CloakroomMap({
           )}
         </div>
 
-        <button
-          type="button"
-          disabled={isSelectedOccupied || !selectedAddress}
-          onClick={() => {
-            if (!selectedAddress) return;
-            const column = selectedColumn === '-' ?columns[0] : selectedColumn;
-            const row = selectedRow === '-' ?rows[0] : selectedRow;
-            selectAddress(column, row);
-          }}
-          className="w-full px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 disabled:text-slate-500 text-white text-sm font-black transition cursor-pointer disabled:cursor-not-allowed"
-        >
-          Usar esta posição
-        </button>
+        {!readOnly ?(
+          <button
+            type="button"
+            disabled={isSelectedOccupied || !selectedAddress}
+            onClick={() => {
+              if (!selectedAddress) return;
+              const column = selectedColumn === '-' ?columns[0] : selectedColumn;
+              const row = selectedRow === '-' ?rows[0] : selectedRow;
+              selectAddress(column, row);
+            }}
+            className="w-full px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 disabled:text-slate-500 text-white text-sm font-black transition cursor-pointer disabled:cursor-not-allowed"
+          >
+            Usar esta posição
+          </button>
+        ) :(
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+            Alocação automática ativa
+          </div>
+        )}
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Detalhes</p>

@@ -94,10 +94,10 @@ export const PERMISSION_GROUPS: PermissionGroupDefinition[] = [
   },
   {
     id: 'reports',
-    title: 'Relatorios',
+    title: 'Relatórios',
     icon: Download,
     permissions: [
-      { id: 'reports.view', label: 'Visualizar relatorios' },
+      { id: 'reports.view', label: 'Visualizar relatórios' },
       { id: 'reports.exportExcel', label: 'Exportar Excel' },
       { id: 'reports.exportPdf', label: 'Exportar PDF' }
     ]
@@ -196,7 +196,7 @@ export const PERMISSION_PRESETS: Record<string, { label: string; role: UserRole;
     permissions: normalizePermissions(['events.view', 'participants.view', 'certificates.issue', 'certificates.manageActivities', 'certificates.editTemplate'])
   },
   RELATORIOS: {
-    label: 'Relatorios',
+    label: 'Relatórios',
     role: 'VISUALIZADOR',
     eventRole: 'RELATORIO',
     permissions: normalizePermissions(['events.view', 'participants.view', 'reports.view', 'reports.exportExcel', 'reports.exportPdf'])
