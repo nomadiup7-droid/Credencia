@@ -1200,43 +1200,67 @@ class Database {
     if (batch.length === 0) return [];
     const eventId = batch[0].eventId;
 
-    if (this.useSupabase) {
-      const existingParticipants = await this.getParticipants(eventId);
-      const existingCpfSet = new Set(
-        existingParticipants
-          .map(p => p.cpf?.replace(/\D/g, ''))
-          .filter(Boolean)
-      );
+    const normalizeText = (value?: string) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ');
 
-      const newItems = [];
-      for (const item of batch) {
-        const cleanCpf = item.cpf?.replace(/\D/g, '');
-        if (cleanCpf && existingCpfSet.has(cleanCpf)) {
-          continue;
-        }
-        
-        const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
-        const allowedAreaIds = Array.isArray(item.allowedAreaIds)
-          ? item.allowedAreaIds
-          : (Array.isArray(item.allowedAreas) ? item.allowedAreas : []);
-        
-        const newParticipant = {
-          ...item,
-          id: 'p_' + Math.random().toString(36).substring(2, 9),
-          checkedIn: false,
-          checkedInAt: null,
-          ticketCode: (item as any).ticketCode || defaultCode,
-          company: item.company || '',
-          allowedAreaIds,
-          allowedAreas: allowedAreaIds,
-          createdAt: new Date().toISOString()
-        };
-        newItems.push(newParticipant);
-        if (cleanCpf) {
-          existingCpfSet.add(cleanCpf);
-        }
+    const participantKeys = (participant: Partial<Participant>) => {
+      const keys: string[] = [];
+      const cleanCpf = String(participant.cpf || '').replace(/\D/g, '');
+      const email = normalizeText(participant.email);
+      const ticketCode = normalizeText(participant.ticketCode);
+      const name = normalizeText(participant.name);
+
+      if (cleanCpf) keys.push(`cpf:${cleanCpf}`);
+      if (email) keys.push(`email:${email}`);
+      if (ticketCode) keys.push(`ticket:${ticketCode}`);
+      if (name) keys.push(`name:${name}`);
+      return keys;
+    };
+
+    const existingParticipants = await this.getParticipants(eventId);
+    const existingKeySet = new Set<string>();
+    existingParticipants.forEach(participant => {
+      participantKeys(participant).forEach(key => existingKeySet.add(key));
+    });
+
+    const buildParticipant = (item: any) => {
+      const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
+      const allowedAreaIds = Array.isArray(item.allowedAreaIds)
+        ? item.allowedAreaIds
+        : (Array.isArray(item.allowedAreas) ? item.allowedAreas : []);
+
+      return {
+        ...item,
+        id: 'p_' + Math.random().toString(36).substring(2, 9),
+        checkedIn: false,
+        checkedInAt: this.useSupabase ? null : undefined,
+        ticketCode: item.ticketCode || defaultCode,
+        company: item.company || '',
+        allowedAreaIds,
+        allowedAreas: allowedAreaIds,
+        createdAt: new Date().toISOString()
+      };
+    };
+
+    const newItems = [];
+    for (const item of batch) {
+      const keys = participantKeys(item as Partial<Participant>);
+      const isDuplicate = keys.some(key => existingKeySet.has(key));
+      if (isDuplicate) {
+        continue;
       }
 
+      const newParticipant = buildParticipant(item);
+      newItems.push(newParticipant);
+      participantKeys(newParticipant as Partial<Participant>).forEach(key => existingKeySet.add(key));
+    }
+
+    if (this.useSupabase) {
       if (newItems.length > 0) {
         const { data, error } = await this.supabase
           .from('participants')
@@ -1248,35 +1272,9 @@ class Database {
       return [];
     }
 
-    const created: Participant[] = [];
-    for (const item of batch) {
-      const cleanCpf = item.cpf?.replace(/\D/g, '');
-      const existing = cleanCpf
-        ? this.data.participants.find(
-            p => p.eventId === eventId && p.cpf?.replace(/\D/g, '') === cleanCpf
-          )
-        : undefined;
-      if (!existing) {
-        const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
-        const allowedAreaIds = Array.isArray(item.allowedAreaIds)
-          ? item.allowedAreaIds
-          : (Array.isArray(item.allowedAreas) ? item.allowedAreas : []);
-        const newParticipant: Participant = {
-          ...item,
-          id: 'p_' + Math.random().toString(36).substring(2, 9),
-          checkedIn: false,
-          checkedInAt: undefined,
-          ticketCode: (item as any).ticketCode || defaultCode,
-          company: item.company || '',
-          allowedAreaIds,
-          allowedAreas: allowedAreaIds,
-          createdAt: new Date().toISOString()
-        };
-        this.data.participants.push(newParticipant);
-        created.push(newParticipant);
-      }
-    }
+    const created: Participant[] = newItems as Participant[];
     if (created.length > 0) {
+      this.data.participants.push(...created);
       this.saveLocal();
     }
     return created;
