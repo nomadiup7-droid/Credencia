@@ -2,6 +2,21 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+
+export class DatabaseConflictError extends Error {
+  status = 409;
+  constructor(message: string, public code = 'CONFLICT', public conflictPositions: string[] = []) {
+    super(message);
+    this.name = 'DatabaseConflictError';
+  }
+}
+
+export class DatabaseConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseConfigurationError';
+  }
+}
 import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate, OnlineRegistrationConfig, OnlineRegistration } from '../src/types';
 
 // Load environment variables early
@@ -35,6 +50,41 @@ interface DBSchema {
 }
 
 const DB_FILE_PATH = path.join(process.cwd(), 'db.json');
+const isProduction = process.env.NODE_ENV === 'production';
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SECRET_KEY) {
+  console.warn('SUPABASE_SERVICE_ROLE_KEY esta em compatibilidade legada. Prefira SUPABASE_SECRET_KEY no backend.');
+}
+
+function toConflictPositions(error: any) {
+  const detail = String(error?.details || error?.detail || '').trim();
+  return detail ? detail.split(',').map(value => value.trim()).filter(Boolean) : [];
+}
+
+function normalizeSupabaseError(error: any) {
+  if (!error) return error;
+  if (error?.hint === 'CLOAKROOM_POSITION_CONFLICT') {
+    const conflictPositions = toConflictPositions(error);
+    return new DatabaseConflictError(
+      `A posicao ${conflictPositions[0] || ''} acabou de ser ocupada por outro operador.`.trim(),
+      'CLOAKROOM_POSITION_CONFLICT',
+      conflictPositions
+    );
+  }
+  if (error?.hint === 'CLOAKROOM_DUPLICATE_REQUEST_POSITION') {
+    const conflictPositions = toConflictPositions(error);
+    return new DatabaseConflictError(
+      `A posicao ${conflictPositions[0] || ''} foi informada para mais de um volume.`.trim(),
+      'CLOAKROOM_DUPLICATE_REQUEST_POSITION',
+      conflictPositions
+    );
+  }
+  if (error?.code === '23505') {
+    return new DatabaseConflictError('Registro duplicado ou em conflito.', 'UNIQUE_CONSTRAINT_VIOLATION');
+  }
+  return error;
+}
 
 const fixMojibake = (value?: string) => {
   if (!value || !/[ÃÂ]/.test(value)) return value || '';
@@ -287,7 +337,7 @@ function toCamel(obj: any): any {
     if (key === 'field_order') camelKey = 'order';
     if (key === 'show_qr_code') camelKey = 'showQRCode';
 
-    if (['layout_config', 'checkin_screen_config', 'cloakroom_label_config', 'elements'].includes(key)) {
+    if (['layout_config', 'checkin_screen_config', 'cloakroom_label_config', 'elements', 'volumes', 'fields', 'custom_fields'].includes(key)) {
       newObj[camelKey] = obj[key];
     } else {
       newObj[camelKey] = toCamel(obj[key]);
@@ -324,7 +374,7 @@ function toSnake(obj: any): any {
     if (key === 'order') snakeKey = 'field_order';
     if (key === 'showQRCode') snakeKey = 'show_qr_code';
 
-    if (['layoutConfig', 'checkinScreenConfig', 'cloakroomLabelConfig', 'elements'].includes(key)) {
+    if (['layoutConfig', 'checkinScreenConfig', 'cloakroomLabelConfig', 'elements', 'volumes', 'fields', 'customFields'].includes(key)) {
       newObj[snakeKey] = obj[key];
     } else {
       newObj[snakeKey] = toSnake(obj[key]);
@@ -793,26 +843,13 @@ class Database {
 
   async resetEventTestData(eventId: string): Promise<{ participantsReset: number; actionLogsCanceled: number; areaLogsCanceled: number; checkinsCanceled: number }> {
     if (this.useSupabase) {
-      const participants = await this.getParticipants(eventId);
-      const testParticipants = participants.filter(p => p.checkinIsTest === true || p.checkinOrigin === 'TESTE');
-
-      await Promise.all(testParticipants.map(participant => this.updateParticipant(participant.id, {
-        checkedIn: false,
-        checkedInAt: undefined,
-        checkedInByUserId: undefined,
-        checkedInByName: undefined,
-        checkinOrigin: 'TESTE',
-        checkinIsTest: true,
-        checkinTestStatus: 'CANCELADO_TESTE'
-      } as Partial<Participant>)));
-
-      const actionLogs = (await this.getActionLogs(eventId)).filter(log => log.isTest === true || log.origin === 'TESTE');
-      const areaLogs = (await this.getAreaAccessLogs()).filter(log => log.isTest === true || log.origin === 'TESTE');
+      const { data, error } = await this.supabase.rpc('reset_event_test_data', { p_event_id: eventId });
+      if (error) throw normalizeSupabaseError(error);
       return {
-        participantsReset: testParticipants.length,
-        actionLogsCanceled: actionLogs.length,
-        areaLogsCanceled: areaLogs.length,
-        checkinsCanceled: testParticipants.length
+        participantsReset: Number(data?.participantsReset || data?.participants_reset || 0),
+        actionLogsCanceled: Number(data?.actionLogsCanceled || data?.action_logs_canceled || 0),
+        areaLogsCanceled: Number(data?.areaLogsCanceled || data?.area_logs_canceled || 0),
+        checkinsCanceled: Number(data?.checkinsCanceled || data?.checkins_canceled || 0)
       };
     }
 
@@ -1531,44 +1568,13 @@ class Database {
 
   async createCloakroomItem(item: Omit<CloakroomItem, 'id' | 'tagNumber' | 'status' | 'registeredAt' | 'returnedAt' | 'volumeTags'>): Promise<CloakroomItem> {
     if (this.useSupabase) {
-      const nextTag = await this.getNextTagNumber(item.eventId);
-      const volumeCount = Math.max(1, Math.min(5, Number(item.volumeCount) || 1));
-      const volumeTags = Array.from({ length: volumeCount }, (_, index) => `${nextTag}-${index + 1}`);
-      const volumes = Array.from({ length: volumeCount }, (_, index) => {
-        const source = item.volumes?.[index];
-        return {
-          id: source?.id || `vol_${index + 1}`,
-          tag: volumeTags[index],
-          description: source?.description || item.itemDescription || '',
-          storageRackId: source?.storageRackId || item.storageRackId,
-          storageRackName: source?.storageRackName || item.storageRackName,
-          storageColumn: source?.storageColumn || item.storageColumn,
-          storageRow: source?.storageRow || item.storageRow,
-          storageAddress: source?.storageAddress || item.storageAddress,
-          storageOccupiedAt: source?.storageOccupiedAt || item.storageOccupiedAt,
-          storageOperatorId: source?.storageOperatorId || item.storageOperatorId
-        };
-      });
-      const newItem = {
+      const payload = toSnake({
         ...item,
-        itemDescription: volumes.map((volume, index) => `Volume ${index + 1}: ${volume.description || '-'}`).join('\n'),
-        storageRackId: volumes[0]?.storageRackId,
-        storageRackName: volumes[0]?.storageRackName,
-        storageColumn: volumes[0]?.storageColumn,
-        storageRow: volumes[0]?.storageRow,
-        storageAddress: volumes[0]?.storageAddress,
-        storageOccupiedAt: volumes[0]?.storageOccupiedAt,
-        storageOperatorId: volumes[0]?.storageOperatorId,
         id: 'c_' + Math.random().toString(36).substring(2, 9),
-        tagNumber: nextTag,
-        volumeCount,
-        volumeTags,
-        volumes,
-        status: 'guardado',
-        registeredAt: new Date().toISOString()
-      };
-      const { data, error } = await this.supabase.from('cloakroom').insert(toSnake(newItem)).select().single();
-      if (error) throw error;
+        volumeCount: Math.max(1, Math.min(5, Number(item.volumeCount) || 1))
+      });
+      const { data, error } = await this.supabase.rpc('create_cloakroom_item_atomic', { p_item: payload });
+      if (error) throw normalizeSupabaseError(error);
       return toCamel(data);
     }
     const nextTag = await this.getNextTagNumber(item.eventId);
@@ -1586,7 +1592,8 @@ class Database {
         storageRow: source?.storageRow || item.storageRow,
         storageAddress: source?.storageAddress || item.storageAddress,
         storageOccupiedAt: source?.storageOccupiedAt || item.storageOccupiedAt,
-        storageOperatorId: source?.storageOperatorId || item.storageOperatorId
+        storageOperatorId: source?.storageOperatorId || item.storageOperatorId,
+        positionMode: source?.positionMode || 'auto'
       };
     });
     const newItem: CloakroomItem = {

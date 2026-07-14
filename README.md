@@ -46,10 +46,11 @@ Copie `.env.example` para `.env` e configure:
 - `JWT_SECRET`: segredo usado para assinar tokens JWT.
 - `PORT`: porta do servidor, padrão `3000`.
 - `SUPABASE_URL`: URL do projeto Supabase.
-- `SUPABASE_SERVICE_ROLE_KEY`: chave de service role usada apenas no backend.
+- `SUPABASE_SECRET_KEY`: chave secreta do Supabase usada apenas no backend.
+- `SUPABASE_SERVICE_ROLE_KEY`: compatibilidade legada; prefira `SUPABASE_SECRET_KEY`.
 - `DATABASE_URL`: URL PostgreSQL opcional para ferramentas/adaptadores futuros.
 
-Sem Supabase configurado, o backend usa `db.json` como persistencia local de desenvolvimento.
+Sem Supabase configurado, o backend usa `db.json` somente em desenvolvimento. Em `NODE_ENV=production`, o servidor falha ao iniciar se o Supabase nao estiver configurado.
 
 ## Estrutura principal
 
@@ -112,3 +113,25 @@ npm run build
 - Nao commitar `node_modules`.
 - Evitar novas chamadas diretas a `fetch` fora da camada de services.
 - Mudancas em permissao, banco ou autenticacao devem ser testadas com usuario ADMIN e usuario operador vinculado a evento.
+
+
+## Supabase em producao
+
+1. Crie o projeto no Supabase e configure `SUPABASE_URL` e `SUPABASE_SECRET_KEY` no ambiente do backend.
+2. Aplique migrations versionadas, sem seed de demonstracao:
+
+```powershell
+npx supabase login
+npx supabase link
+npx supabase db push
+```
+
+Nao use `--include-seed` em producao, nao cole chaves no codigo e nao envie `.env` ao GitHub. Depois de adotar migrations, evite alterar o schema remoto manualmente.
+
+Para criar o primeiro administrador, rode em um terminal com Supabase configurado:
+
+```powershell
+npm run admin:create
+```
+
+Eventos antigos sem `organization_id` devem ser regularizados manualmente com a organizacao correta antes do uso real. Faca backup antes de qualquer migration remota.

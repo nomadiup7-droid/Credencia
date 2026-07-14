@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { createServer as createViteServer } from 'vite';
-import { db } from './server/db';
+import { db, DatabaseConflictError } from './server/db';
 import { UserRole, EventUserRole, EventUser, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus } from './src/types';
 import checkInRouter from './routes/checkin';
 import { authenticateToken, hashPassword, requireAdmin, signAuthToken, verifyPassword } from './server/auth';

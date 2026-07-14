@@ -170,34 +170,5 @@ CREATE TABLE IF NOT EXISTS access_profiles (
   event_id TEXT REFERENCES events(id) ON DELETE CASCADE
 );
 
--- SEED DATA
-INSERT INTO organizations (id, name, created_at)
-VALUES 
-  ('org1', 'Credencia', '2026-06-13T21:53:24.8468291Z'),
-  ('org2', 'Organização Beta', '2026-01-01T10:00:00Z')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO users (id, name, email, role, password_hash, pin, organization_id, created_at)
-VALUES
-  ('admin_ewertton', 'Ewertton Herculano', 'ewertton@credencia.com', 'ADMIN', '123456', '1111', 'org1', '2026-06-13T21:53:24.8572831Z'),
-  ('admin_fernando', 'Fernando Mendes', 'fernando@credencia.com', 'ADMIN', '123456', '2222', 'org1', '2026-06-13T21:53:24.8572831Z'),
-  ('u_tlgu3xx', 'operador1', 'operador1@credencia.com', 'CHECKIN', '123456', '3333', 'org1', '2026-06-19T20:18:52.307Z')
-ON CONFLICT (id) DO UPDATE SET
-  pin = EXCLUDED.pin,
-  organization_id = EXCLUDED.organization_id;
-
-INSERT INTO participant_fields (id, name, type, required, options, active, field_order)
-VALUES
-  ('f_name', 'Nome Completo', 'text', TRUE, NULL, TRUE, 1),
-  ('f_email', 'E-mail de Contato', 'email', TRUE, NULL, TRUE, 2),
-  ('f_cpf', 'CPF', 'text', TRUE, NULL, TRUE, 3),
-  ('f_category', 'Categoria Operacional', 'select', TRUE, ARRAY['Participante', 'Palestrante', 'VIP', 'Expositor', 'Staff'], TRUE, 4),
-  ('f_company', 'Empresa', 'text', FALSE, NULL, TRUE, 5)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO areas (id, name, color, event_id, active, created_at)
-VALUES
-  ('a1', 'Sala', '#00E545', 'e1', TRUE, NOW()),
-  ('a2', 'Restaurante', '#F59E0B', 'e1', TRUE, NOW()),
-  ('a3', 'Shows', '#14B8A6', 'e1', TRUE, NOW())
-ON CONFLICT (id) DO NOTHING;
+-- Seed/demo data intentionally removed from production migrations.
+-- Use scripts/create-admin.ts (npm run admin:create) to create the first administrator securely.
