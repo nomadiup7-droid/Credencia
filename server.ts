@@ -2774,13 +2774,58 @@ app.post('/api/events/:eventId/cloakroom', authenticateToken, requireAdmin, asyn
     return;
   }
 
+  const normalizedVolumeCount = Math.max(1, Math.min(5, Number(volumeCount) || 1));
+  const normalizedVolumes = Array.isArray(volumes) ?volumes.slice(0, normalizedVolumeCount) : [];
+  const requestedPositions = normalizedVolumes
+    .map((volume: any, index: number) => ({
+      rackId: String(volume?.storageRackId || storageRackId || 'principal'),
+      address: String(volume?.storageAddress || storageAddress || '').trim(),
+      volumeIndex: index
+    }))
+    .filter(position => position.address);
+  const duplicatedRequestedPosition = requestedPositions.find((position, index) => (
+    requestedPositions.findIndex(other => other.rackId === position.rackId && other.address === position.address) !== index
+  ));
+  if (duplicatedRequestedPosition) {
+    res.status(409).json({ error: `A posição ${duplicatedRequestedPosition.address} foi informada para mais de um volume.` });
+    return;
+  }
+
+  const currentCloakroom = await db.getCloakroom(eventId);
+  const occupiedPositions = new Set<string>();
+  currentCloakroom
+    .filter(item => item.status === 'guardado')
+    .forEach(item => {
+      const itemVolumes = Array.isArray(item.volumes) && item.volumes.length > 0 ?item.volumes : [];
+      if (itemVolumes.length > 0) {
+        itemVolumes.forEach(volume => {
+          const address = volume.storageAddress;
+          if (!address) return;
+          occupiedPositions.add(`${volume.storageRackId || item.storageRackId || 'principal'}::${address}`);
+        });
+        return;
+      }
+      if (item.storageAddress) {
+        occupiedPositions.add(`${item.storageRackId || 'principal'}::${item.storageAddress}`);
+      }
+    });
+
+  const conflictingPosition = requestedPositions.find(position => occupiedPositions.has(`${position.rackId}::${position.address}`));
+  if (conflictingPosition) {
+    res.status(409).json({
+      error: `A posição ${conflictingPosition.address} acabou de ser ocupada por outro operador. Escolha uma nova posição livre.`,
+      conflictPositions: [conflictingPosition.address]
+    });
+    return;
+  }
+
   const newItem = await db.createCloakroomItem({
     eventId,
     participantId,
     participantName,
     itemDescription: itemDescription || '',
-    volumeCount: Math.max(1, Math.min(5, Number(volumeCount) || 1)),
-    volumes: Array.isArray(volumes) ?volumes : undefined,
+    volumeCount: normalizedVolumeCount,
+    volumes: normalizedVolumes.length > 0 ?normalizedVolumes : undefined,
     storageRackId,
     storageRackName,
     storageColumn,

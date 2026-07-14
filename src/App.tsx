@@ -100,6 +100,8 @@ const DEFAULT_CLOAKROOM_MAP_CONFIG: CloakroomMapConfig = {
   racks: [DEFAULT_CLOAKROOM_RACK]
 };
 
+const CLOAKROOM_MAX_VOLUMES = 5;
+
 export default function App() {
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -251,7 +253,14 @@ export default function App() {
   const [cloakroomSelectedPosition, setCloakroomSelectedPosition] = useState<CloakroomStoragePosition | null>(null);
   const [cloakroomMapConfig, setCloakroomMapConfig] = useState<CloakroomMapConfig>(DEFAULT_CLOAKROOM_MAP_CONFIG);
   const [cloakroomSuccess, setCloakroomSuccess] = useState<CloakroomItem | null>(null);
+  const [isCloakroomSaving, setIsCloakroomSaving] = useState(false);
+  const [isCloakroomPositionPanelOpen, setIsCloakroomPositionPanelOpen] = useState(false);
+  const [cloakroomPositionPanelMode, setCloakroomPositionPanelMode] = useState<'view' | 'edit'>('view');
+  const [pendingCloakroomPosition, setPendingCloakroomPosition] = useState<CloakroomStoragePosition | null>(null);
+  const [cloakroomPositionSearch, setCloakroomPositionSearch] = useState('');
+  const [showCloakroomStoredItemsInline, setShowCloakroomStoredItemsInline] = useState(false);
   const cloakroomSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const cloakroomPositionButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [cloakroomReturnSearch, setCloakroomReturnSearch] = useState('');
   const [cloakroomReturnItem, setCloakroomReturnItem] = useState<CloakroomItem | null>(null);
   const [cloakroomReturnSuccess, setCloakroomReturnSuccess] = useState<CloakroomItem | null>(null);
@@ -2109,7 +2118,8 @@ export default function App() {
       storageRow: prev[index]?.storageRow,
       storageAddress: prev[index]?.storageAddress,
       storageOccupiedAt: prev[index]?.storageOccupiedAt,
-      storageOperatorId: prev[index]?.storageOperatorId
+      storageOperatorId: prev[index]?.storageOperatorId,
+      positionMode: prev[index]?.positionMode || 'auto'
     })));
     setActiveCloakroomVolumeIndex(index => Math.min(index, Math.max(0, cloakroomVolumeCount - 1)));
   }, [cloakroomVolumeCount]);
@@ -2127,7 +2137,8 @@ export default function App() {
         storageAddress: volume.storageAddress ?String(volume.storageAddress) : item.storageAddress ?String(item.storageAddress) : undefined,
         storageOccupiedAt: volume.storageOccupiedAt ?String(volume.storageOccupiedAt) : item.storageOccupiedAt ?String(item.storageOccupiedAt) : undefined,
         storageReleasedAt: volume.storageReleasedAt ?String(volume.storageReleasedAt) : item.storageReleasedAt ?String(item.storageReleasedAt) : undefined,
-        storageOperatorId: volume.storageOperatorId ?String(volume.storageOperatorId) : item.storageOperatorId ?String(item.storageOperatorId) : undefined
+        storageOperatorId: volume.storageOperatorId ?String(volume.storageOperatorId) : item.storageOperatorId ?String(item.storageOperatorId) : undefined,
+        positionMode: volume.positionMode || 'auto'
       }));
     }
 
@@ -2143,7 +2154,8 @@ export default function App() {
       storageAddress: item.storageAddress ?String(item.storageAddress) : undefined,
       storageOccupiedAt: item.storageOccupiedAt ?String(item.storageOccupiedAt) : undefined,
       storageReleasedAt: item.storageReleasedAt ?String(item.storageReleasedAt) : undefined,
-      storageOperatorId: item.storageOperatorId ?String(item.storageOperatorId) : undefined
+      storageOperatorId: item.storageOperatorId ?String(item.storageOperatorId) : undefined,
+      positionMode: 'auto'
     }));
   }
 
@@ -2220,15 +2232,39 @@ export default function App() {
   }, [activeCloakroomVolumeIndex, nextCloakroomPositions]);
 
   useEffect(() => {
-    setCloakroomVolumeDrafts(prev => Array.from({ length: cloakroomVolumeCount }, (_, index) => {
-      const position = nextCloakroomPositions[index];
-      return {
-        ...prev[index],
-        id: prev[index]?.id || `vol_${index + 1}`,
-        description: prev[index]?.description || '',
-        ...(position ?buildVolumePositionPayload(position) : {})
-      };
-    }));
+    setCloakroomVolumeDrafts(prev => {
+      const manualAddresses = new Set(
+        prev
+          .slice(0, cloakroomVolumeCount)
+          .filter(volume => volume.positionMode === 'manual' && volume.storageAddress)
+          .map(volume => volume.storageAddress as string)
+      );
+      const assignedAutoAddresses = new Set<string>();
+
+      return Array.from({ length: cloakroomVolumeCount }, (_, index) => {
+        const current = prev[index] || {};
+        if (current.positionMode === 'manual' && current.storageAddress) {
+          return {
+            ...current,
+            id: current.id || `vol_${index + 1}`,
+            description: current.description || ''
+          };
+        }
+
+        const position = nextCloakroomPositions.find(candidate => (
+          !manualAddresses.has(candidate.address) && !assignedAutoAddresses.has(candidate.address)
+        ));
+        if (position) assignedAutoAddresses.add(position.address);
+
+        return {
+          ...current,
+          id: current.id || `vol_${index + 1}`,
+          description: current.description || '',
+          positionMode: 'auto',
+          ...(position ?buildVolumePositionPayload(position) : {})
+        };
+      });
+    });
   }, [cloakroomVolumeCount, currentUser?.id, nextCloakroomPositions]);
 
   const getCloakroomStoragePayload = (position = cloakroomSelectedPosition) => position ?{
@@ -2495,7 +2531,136 @@ export default function App() {
     }, 250);
   };
 
+  const selectedParticipantStoredItems = useMemo(() => {
+    if (!cloakroomSelectedParticipant) return [];
+    return cloakroom.filter(item => item.status === 'guardado' && item.participantId === cloakroomSelectedParticipant.id);
+  }, [cloakroom, cloakroomSelectedParticipant]);
+
+  const activeCloakroomDraft = cloakroomVolumeDrafts[activeCloakroomVolumeIndex];
+  const visibleCloakroomVolumes = cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount);
+  const hasInvalidCloakroomVolume = visibleCloakroomVolumes.some(volume => !(volume.description || '').trim() || !volume.storageAddress);
+  const hasDuplicatedCloakroomDraftAddress = visibleCloakroomVolumes.some((volume, index) => (
+    Boolean(volume.storageAddress) && visibleCloakroomVolumes.findIndex(item => item.storageAddress === volume.storageAddress) !== index
+  ));
+  const canSaveCloakroomStore = Boolean(cloakroomSelectedParticipant)
+    && !hasInvalidCloakroomVolume
+    && !hasDuplicatedCloakroomDraftAddress
+    && !isCloakroomSaving;
+
+  const resetCloakroomStoreFlow = () => {
+    setCloakroomSearch('');
+    setCloakroomSelectedParticipant(null);
+    setCloakroomVolumeCount(1);
+    setCloakroomDescription('');
+    setCloakroomVolumeDrafts([{ id: 'vol_1', description: '', positionMode: 'auto' }]);
+    setActiveCloakroomVolumeIndex(0);
+    setCloakroomSelectedPosition(null);
+    setPendingCloakroomPosition(null);
+    setIsCloakroomPositionPanelOpen(false);
+    setCloakroomPositionSearch('');
+    setShowCloakroomStoredItemsInline(false);
+  };
+
+  const changeCloakroomVolumeCount = (nextCount: number) => {
+    const safeCount = Math.max(1, Math.min(CLOAKROOM_MAX_VOLUMES, nextCount));
+    if (safeCount < cloakroomVolumeCount) {
+      const lastVolume = cloakroomVolumeDrafts[cloakroomVolumeCount - 1];
+      const hasLastVolumeData = Boolean((lastVolume?.description || '').trim()) || lastVolume?.positionMode === 'manual';
+      if (hasLastVolumeData && !window.confirm('Remover o último volume preenchido deste atendimento?')) {
+        return;
+      }
+    }
+    setCloakroomVolumeCount(safeCount);
+  };
+
+  const findCloakroomPositionByAddress = (address: string): CloakroomStoragePosition | null => {
+    const normalizedAddress = address.trim().toUpperCase();
+    if (!normalizedAddress) return null;
+    const column = cloakroomMapColumns.find(item => normalizedAddress.startsWith(item));
+    const row = cloakroomMapRows.find(item => normalizedAddress.endsWith(item));
+    if (!column || !row || `${column}${row}` !== normalizedAddress) return null;
+    return {
+      rackId: activeCloakroomRack.id,
+      rackName: activeCloakroomRackName,
+      column,
+      row,
+      address: normalizedAddress
+    };
+  };
+
+  const canUseCloakroomPanelPosition = (position: CloakroomStoragePosition) => {
+    const occupied = cloakroomOccupiedAddresses.has(position.address);
+    const usedByOtherDraft = visibleCloakroomVolumes.some((volume, index) => index !== activeCloakroomVolumeIndex && volume.storageAddress === position.address);
+    return !occupied && !usedByOtherDraft;
+  };
+
+  const openCloakroomPositionPanel = (mode: 'view' | 'edit', volumeIndex = activeCloakroomVolumeIndex) => {
+    setCloakroomPositionPanelMode(mode);
+    if (mode === 'edit') {
+      setActiveCloakroomVolumeIndex(volumeIndex);
+      const volume = cloakroomVolumeDrafts[volumeIndex];
+      setPendingCloakroomPosition(volume?.storageAddress ?{
+        rackId: volume.storageRackId || activeCloakroomRack.id,
+        rackName: volume.storageRackName || activeCloakroomRackName,
+        column: volume.storageColumn || '',
+        row: volume.storageRow || '',
+        address: volume.storageAddress
+      } : null);
+    } else {
+      setPendingCloakroomPosition(null);
+    }
+    setCloakroomPositionSearch('');
+    setIsCloakroomPositionPanelOpen(true);
+  };
+
+  const closeCloakroomPositionPanel = (restoreFocus = true) => {
+    const returnIndex = cloakroomPositionPanelMode === 'edit' ?activeCloakroomVolumeIndex : null;
+    setIsCloakroomPositionPanelOpen(false);
+    setPendingCloakroomPosition(null);
+    setCloakroomPositionSearch('');
+    if (restoreFocus && returnIndex !== null) {
+      window.setTimeout(() => cloakroomPositionButtonRefs.current[returnIndex]?.focus(), 0);
+    }
+  };
+
+  useEffect(() => {
+    if (!isCloakroomPositionPanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeCloakroomPositionPanel();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCloakroomPositionPanelOpen, cloakroomPositionPanelMode, activeCloakroomVolumeIndex]);
+
+  const selectCloakroomPanelPosition = (position: CloakroomStoragePosition) => {
+    if (!canUseCloakroomPanelPosition(position)) {
+      addToast(`A posição ${position.address} não está livre.`, 'error');
+      return;
+    }
+    setCloakroomSelectedPosition(position);
+    setPendingCloakroomPosition(position);
+  };
+
+  const handleCloakroomPositionSearch = () => {
+    const position = findCloakroomPositionByAddress(cloakroomPositionSearch);
+    if (!position) {
+      addToast('Posição não encontrada na estante ativa.', 'error');
+      return;
+    }
+    selectCloakroomPanelPosition(position);
+  };
+
+  const applyCloakroomPanelPosition = () => {
+    if (!pendingCloakroomPosition) return;
+    updateCloakroomVolumeDraft(activeCloakroomVolumeIndex, {
+      ...buildVolumePositionPayload(pendingCloakroomPosition),
+      positionMode: 'manual'
+    });
+    closeCloakroomPositionPanel();
+  };
+
   const handleOperationalCloakroomSave = async () => {
+    if (isCloakroomSaving) return;
     if (!selectedEventId) {
       addToast('Selecione um evento ativo', 'error');
       return;
@@ -2504,20 +2669,29 @@ export default function App() {
       addToast('Localize e selecione um participante antes de guardar os pertences.', 'error');
       return;
     }
-    const autoPositions = nextCloakroomPositions.slice(0, cloakroomVolumeCount);
-    if (autoPositions.length < cloakroomVolumeCount) {
-      addToast('Não há posições livres suficientes na estante selecionada.', 'error');
-      return;
-    }
-    const normalizedVolumes: CloakroomVolume[] = cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).map((volume, index) => ({
+
+    const normalizedVolumes: CloakroomVolume[] = visibleCloakroomVolumes.map((volume, index) => ({
       id: volume.id || `vol_${index + 1}`,
       tag: volume.tag || '',
       description: (volume.description || '').trim(),
-      ...buildVolumePositionPayload(autoPositions[index])
+      storageRackId: volume.storageRackId,
+      storageRackName: volume.storageRackName,
+      storageColumn: volume.storageColumn,
+      storageRow: volume.storageRow,
+      storageAddress: volume.storageAddress,
+      storageOccupiedAt: volume.storageOccupiedAt || new Date().toISOString(),
+      storageOperatorId: volume.storageOperatorId || currentUser?.id,
+      positionMode: volume.positionMode || 'auto'
     }));
+
     const missingVolume = normalizedVolumes.find(volume => !volume.description);
     if (missingVolume) {
       addToast('Informe a descrição de todos os volumes.', 'error');
+      return;
+    }
+    const missingPosition = normalizedVolumes.find(volume => !volume.storageAddress);
+    if (missingPosition) {
+      addToast('Todos os volumes precisam ter uma posição definida.', 'error');
       return;
     }
     const duplicatedAddress = normalizedVolumes.find((volume, index) => (
@@ -2530,12 +2704,13 @@ export default function App() {
     const occupiedVolume = normalizedVolumes.find(volume => volume.storageAddress && cloakroom
       .filter(item => item.status === 'guardado')
       .flatMap(getCloakroomItemVolumes)
-      .some(savedVolume => savedVolume.storageAddress === volume.storageAddress));
+      .some(savedVolume => savedVolume.storageRackId === volume.storageRackId && savedVolume.storageAddress === volume.storageAddress));
     if (occupiedVolume) {
       addToast(`A posição ${occupiedVolume.storageAddress} já está ocupada. Escolha uma posição livre.`, 'error');
       return;
     }
 
+    setIsCloakroomSaving(true);
     try {
       const firstVolume = normalizedVolumes[0];
       const storagePayload = firstVolume ?{
@@ -2556,26 +2731,24 @@ export default function App() {
           participantId: cloakroomSelectedParticipant.id,
           participantName: cloakroomSelectedParticipant.name,
           itemDescription,
-        volumeCount: cloakroomVolumeCount,
-        volumes: normalizedVolumes,
-        ...storagePayload
+          volumeCount: cloakroomVolumeCount,
+          volumes: normalizedVolumes,
+          ...storagePayload
         })
       });
       const savedWithPosition = { ...saved, ...storagePayload, volumes: (saved as CloakroomItem).volumes || normalizedVolumes } as CloakroomItem;
 
       setCloakroom(prev => [savedWithPosition, ...prev]);
       setCloakroomSuccess(savedWithPosition);
-      setCloakroomSearch('');
-      setCloakroomSelectedParticipant(null);
-      setCloakroomVolumeCount(1);
-      setCloakroomDescription('');
-      setCloakroomVolumeDrafts([{ id: 'vol_1', description: '' }]);
-      setActiveCloakroomVolumeIndex(0);
+      resetCloakroomStoreFlow();
       printCloakroomLabels(savedWithPosition);
       addToast(`Pertences registrados. Ticket #${savedWithPosition.tagNumber}`, 'success');
       loadDataForEvent(selectedEventId);
     } catch (err: any) {
       addToast(err.message || 'Erro ao registrar pertences.', 'error');
+      loadDataForEvent(selectedEventId);
+    } finally {
+      setIsCloakroomSaving(false);
     }
   };
 
@@ -5907,12 +6080,42 @@ export default function App() {
                 )}
 
                 {cloakroomTab === 'store' && (
-                  <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-5 items-start">
-                    <div className="space-y-5">
-                    <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                      <h3 className="text-lg font-black text-slate-950">Participante</h3>
-                      <div className="relative mt-4">
-                        <Search size={22} className="absolute left-4 top-4 text-slate-400" />
+                  <div className="mx-auto max-w-[1780px] pb-36">
+                    <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_520px] xl:items-start">
+                      <div className="space-y-4 rounded-2xl border-2 border-blue-300 bg-blue-50 p-4 shadow-sm ring-1 ring-blue-100">
+                    <div className="flex items-center justify-between rounded-xl bg-blue-600 px-4 py-3 text-white shadow-xs">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-wider text-blue-100">Operação da esquerda</p>
+                        <h2 className="text-base font-black">Guardar Volume</h2>
+                      </div>
+                      <span className="rounded-lg bg-white/15 px-3 py-1 text-xs font-black">Entrada</span>
+                    </div>
+
+                    <section className="rounded-lg border border-blue-100 bg-white p-4 shadow-xs">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-blue-600">Guardar Volume</p>
+                          <h3 className="text-xl font-black text-slate-950">Atendimento da chapelaria</h3>
+                          <p className="mt-1 text-sm font-semibold text-slate-500">Localize o participante, descreva os volumes e confirme as posições atribuídas.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-black text-slate-800">
+                            Próximo ticket: <span className="font-mono text-slate-950">{nextCloakroomTicket}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openCloakroomPositionPanel('view')}
+                            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+                          >
+                            Ver mapa
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs">
+                      <div className="relative">
+                        <Search size={18} className="absolute left-3 top-3.5 text-slate-400" />
                         <input
                           ref={cloakroomSearchInputRef}
                           autoFocus
@@ -5921,25 +6124,37 @@ export default function App() {
                             setCloakroomSearch(event.target.value);
                             setCloakroomSelectedParticipant(null);
                             setCloakroomSuccess(null);
+                            setShowCloakroomStoredItemsInline(false);
                           }}
                           placeholder="Buscar participante por nome, CPF ou QR Code"
-                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl text-lg font-bold text-slate-950 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 pl-10 pr-14 text-base font-bold text-slate-950 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                         />
+                        <button
+                          type="button"
+                          onClick={() => cloakroomSearchInputRef.current?.focus()}
+                          className="absolute right-2 top-2 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-blue-50 hover:text-blue-700"
+                          aria-label="Ler QR Code ou focar busca"
+                          title="Ler QR Code"
+                        >
+                          <QrCode size={16} />
+                        </button>
                       </div>
 
                       {!cloakroomSelectedParticipant && cloakroomParticipantResults.length > 0 && (
-                        <div className="mt-3 border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                        <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 shadow-xs">
                           {cloakroomParticipantResults.map(participant => (
                             <button
                               key={participant.id}
+                              type="button"
                               onClick={() => {
                                 setCloakroomSelectedParticipant(participant);
                                 setCloakroomSearch(participant.name);
+                                setShowCloakroomStoredItemsInline(false);
                               }}
-                              className="w-full text-left p-4 hover:bg-blue-50 border-b last:border-b-0 border-slate-100 transition cursor-pointer"
+                              className="w-full border-b border-slate-100 p-3 text-left transition last:border-b-0 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             >
-                              <div className="font-black text-slate-950 text-base">{participant.name}</div>
-                              <div className="text-xs text-slate-500 mt-1">
+                              <div className="font-black text-slate-950">{participant.name}</div>
+                              <div className="mt-1 text-xs text-slate-500">
                                 {participant.category}{participant.company ?` • ${participant.company}` : ''} • {participant.ticketCode}
                               </div>
                             </button>
@@ -5948,38 +6163,87 @@ export default function App() {
                       )}
 
                       {cloakroomSelectedParticipant ?(
-                        <div className="mt-4 rounded-xl border-2 border-blue-200 bg-blue-50 p-5 shadow-xs">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-xs font-black uppercase tracking-wider text-blue-700">Selecionado</div>
-                              <div className="font-black text-slate-950 text-xl mt-1 leading-tight">{cloakroomSelectedParticipant.name}</div>
+                        <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-blue-700">Participante selecionado</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <b className="max-w-full truncate text-base text-slate-950">{cloakroomSelectedParticipant.name}</b>
+                                <span className="text-xs font-semibold text-slate-600">CPF: <span className="font-mono text-slate-800">{cloakroomSelectedParticipant.cpf || '-'}</span></span>
+                                <span className="text-xs font-semibold text-slate-600">Credencial: <span className="font-mono text-slate-800">{cloakroomSelectedParticipant.ticketCode || '-'}</span></span>
+                                <span className={`text-xs font-black ${selectedParticipantStoredItems.length ?'text-amber-700' : 'text-emerald-700'}`}>
+                                  {selectedParticipantStoredItems.length ?`${selectedParticipantStoredItems.length} item(ns) guardado(s)` : 'Sem itens guardados'}
+                                </span>
+                              </div>
                             </div>
-                            <CheckCircle2 size={24} className="text-blue-600 shrink-0" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCloakroomSelectedParticipant(null);
+                                setCloakroomSearch('');
+                                setShowCloakroomStoredItemsInline(false);
+                                cloakroomSearchInputRef.current?.focus();
+                              }}
+                              className="inline-flex items-center justify-center gap-1 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100"
+                            >
+                              <X size={14} />
+                              Trocar participante
+                            </button>
                           </div>
+                          {selectedParticipantStoredItems.length > 0 && (
+                            <div className="mt-2 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+                              <span className="font-bold">Este participante já possui itens na chapelaria.</span>
+                              <button type="button" onClick={() => setShowCloakroomStoredItemsInline(value => !value)} className="font-black underline underline-offset-2">
+                                {showCloakroomStoredItemsInline ?'Ocultar itens' : 'Ver itens atuais'}
+                              </button>
+                            </div>
+                          )}
+                          {showCloakroomStoredItemsInline && selectedParticipantStoredItems.length > 0 && (
+                            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                              {selectedParticipantStoredItems.map(item => (
+                                <div key={item.id} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <b className="font-mono text-amber-800">Ticket #{item.tagNumber}</b>
+                                    <span className="font-black text-amber-700">{item.volumeCount || getCloakroomItemVolumes(item).length || 1} volume(s)</span>
+                                  </div>
+                                  <p className="mt-1 truncate font-semibold text-slate-700">{item.itemDescription || 'Sem descrição'}</p>
+                                  <p className="mt-1 font-mono text-slate-500">Posições: {getCloakroomItemVolumes(item).map(volume => volume.storageAddress).filter(Boolean).join(', ') || '-'}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ) : null}
-                    </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-500">
+                          Selecione um participante para iniciar o armazenamento.
+                        </p>
+                      )}
+                    </section>
 
-                    <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs space-y-5">
-                      <div>
-                        <h3 className="text-lg font-black text-slate-950">Volumes</h3>
-                        <div className="mt-4 flex items-center justify-center gap-4 rounded-xl bg-slate-50 border border-slate-200 p-4">
+                    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Volumes</p>
+                          <h3 className="text-lg font-black text-slate-950">Descreva e confirme a posição de cada volume</h3>
+                        </div>
+                        <div className="inline-flex items-center self-start rounded-lg border border-slate-200 bg-slate-50 p-1">
                           <button
                             type="button"
-                            onClick={() => setCloakroomVolumeCount(value => Math.max(1, value - 1))}
-                            className="w-14 h-14 rounded-xl bg-white border border-slate-200 text-3xl font-black text-slate-800 hover:border-blue-300 hover:bg-blue-50 transition cursor-pointer"
+                            onClick={() => changeCloakroomVolumeCount(cloakroomVolumeCount - 1)}
+                            disabled={cloakroomVolumeCount <= 1}
+                            className="h-10 w-10 rounded-md border border-slate-200 bg-white text-xl font-black text-slate-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
                             aria-label="Diminuir volumes"
                           >
                             -
                           </button>
-                          <div className="min-w-24 text-center">
-                            <div className="text-5xl font-black text-slate-950 leading-none">{cloakroomVolumeCount}</div>
-                            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-1">volume{cloakroomVolumeCount > 1 ?'s' : ''}</div>
-                          </div>
+                          <span className="min-w-28 px-3 text-center text-sm font-black text-slate-900">
+                            {cloakroomVolumeCount} volume{cloakroomVolumeCount > 1 ?'s' : ''}
+                          </span>
                           <button
                             type="button"
-                            onClick={() => setCloakroomVolumeCount(value => Math.min(5, value + 1))}
-                            className="w-14 h-14 rounded-xl bg-blue-600 text-white text-3xl font-black hover:bg-blue-500 transition cursor-pointer"
+                            onClick={() => changeCloakroomVolumeCount(cloakroomVolumeCount + 1)}
+                            disabled={cloakroomVolumeCount >= CLOAKROOM_MAX_VOLUMES}
+                            className="h-10 w-10 rounded-md bg-blue-600 text-xl font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
                             aria-label="Aumentar volumes"
                           >
                             +
@@ -5987,128 +6251,365 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div>
-                        <h3 className="text-lg font-black text-slate-950">Descrição e posição por volume</h3>
-                        <p className="mt-1 text-xs font-semibold text-slate-500">
-                          O sistema escolhe automaticamente a próxima posição livre para cada volume.
-                        </p>
-                        <div className="mt-3 space-y-3">
-                          {cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).map((volume, index) => {
-                            const isActive = activeCloakroomVolumeIndex === index;
-                            return (
-                              <div
-                                key={volume.id || index}
-                                className={`rounded-xl border-2 p-4 transition ${isActive ?'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}
-                              >
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveCloakroomVolumeIndex(index)}
-                                    className="text-left"
-                                  >
-                                    <span className="block text-xs font-black uppercase tracking-wider text-slate-500">Volume {index + 1} de {cloakroomVolumeCount}</span>
-                                    <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isActive ?'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                      {isActive ?'Posição ativa' : 'Posição automática'}
-                                    </span>
-                                  </button>
-                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm font-black text-slate-800">
-                                    {formatCloakroomVolumeAddress(volume)}
-                                  </span>
-                                </div>
-                                <label className="mt-3 block text-xs font-black uppercase tracking-wider text-slate-500">
-                                  Descrição
+                      <div className="mt-4 space-y-3">
+                        {visibleCloakroomVolumes.map((volume, index) => {
+                          const isActive = activeCloakroomVolumeIndex === index;
+                          const isManual = volume.positionMode === 'manual';
+                          const isDuplicate = Boolean(volume.storageAddress) && visibleCloakroomVolumes.findIndex(item => item.storageAddress === volume.storageAddress) !== index;
+                          return (
+                            <div
+                              id={`cloakroom-volume-${index}`}
+                              key={volume.id || index}
+                              className={`rounded-lg border p-3 transition ${isActive ?'border-blue-300 bg-blue-50/60' : 'border-slate-200 bg-white'} ${isDuplicate ?'ring-2 ring-rose-200' : ''}`}
+                            >
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveCloakroomVolumeIndex(index)}
+                                  className="w-full shrink-0 rounded-md text-left focus:outline-none focus:ring-2 focus:ring-blue-500 lg:w-28"
+                                >
+                                  <span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Volume</span>
+                                  <span className="text-lg font-black text-slate-950">{index + 1}</span>
+                                </button>
+                                <label className="min-w-0 flex-1">
+                                  <span className="sr-only">Descrição do volume {index + 1}</span>
                                   <input
                                     value={volume.description || ''}
+                                    disabled={!cloakroomSelectedParticipant}
                                     onFocus={() => setActiveCloakroomVolumeIndex(index)}
                                     onChange={event => updateCloakroomVolumeDraft(index, { description: event.target.value })}
                                     placeholder={`Descrição do volume ${index + 1}`}
-                                    className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                                   />
                                 </label>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
+                                  <div className={`min-w-28 rounded-lg border px-3 py-2 ${isDuplicate ?'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>
+                                    <span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Posição</span>
+                                    <b className="block font-mono text-lg leading-tight">{volume.storageAddress || '-'}</b>
+                                    <span className="block truncate text-[11px] font-bold">{volume.storageRackName || activeCloakroomRackName}</span>
+                                  </div>
+                                  <span className={`inline-flex h-9 items-center justify-center rounded-full px-3 text-xs font-black ${isManual ?'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                    {isManual ?'Manual' : 'Automática'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    ref={element => { cloakroomPositionButtonRefs.current[index] = element; }}
+                                    onClick={() => openCloakroomPositionPanel('edit', index)}
+                                    disabled={!cloakroomSelectedParticipant}
+                                    className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm font-black text-slate-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                                  >
+                                    Alterar posição
+                                  </button>
+                                  {(volume.description || '').trim() && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateCloakroomVolumeDraft(index, { description: '' })}
+                                      className="rounded-lg border border-slate-200 bg-white p-3 text-slate-500 hover:bg-slate-100"
+                                      aria-label={`Limpar descrição do volume ${index + 1}`}
+                                      title="Limpar descrição"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            );
-                          })}
-                        </div>
+                            </div>
+                          );
+                        })}
                       </div>
+                    </section>
+
+                    <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-xs">
+                      <div className="text-sm font-bold text-slate-700">
+                        <span className="text-slate-950">{cloakroomSelectedParticipant?.name || 'Nenhum participante'}</span>
+                        <span className="mx-2 text-slate-300">•</span>
+                        <span>{cloakroomVolumeCount} volume{cloakroomVolumeCount > 1 ?'s' : ''}</span>
+                        <span className="mx-2 text-slate-300">•</span>
+                        <span className="font-mono">{visibleCloakroomVolumes.map(volume => volume.storageAddress).filter(Boolean).join(', ') || 'sem posição'}</span>
+                        <span className="mx-2 text-slate-300">•</span>
+                        <span>{cloakroomVolumeCount + 1} etiquetas</span>
+                      </div>
+                    </section>
+
+                    {cloakroomSuccess && (
+                      <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 shadow-xs">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 font-black text-emerald-800">
+                              <CheckCircle2 size={20} />
+                              <span>Pertences guardados com sucesso</span>
+                            </div>
+                            <p className="mt-1 text-sm font-bold text-slate-700">
+                              {cloakroomSuccess.participantName} • Ticket #{cloakroomSuccess.tagNumber} • {cloakroomSuccess.volumeCount || getCloakroomItemVolumes(cloakroomSuccess).length} volume(s) • Posições {getCloakroomItemVolumes(cloakroomSuccess).map(volume => volume.storageAddress).filter(Boolean).join(', ') || '-'} • Etiquetas enviadas para impressão
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <button type="button" onClick={() => printCloakroomLabels(cloakroomSuccess)} className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100">
+                              Reimprimir
+                            </button>
+                            <button type="button" onClick={() => { setCloakroomSuccess(null); resetCloakroomStoreFlow(); cloakroomSearchInputRef.current?.focus(); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-500">
+                              Novo atendimento
+                            </button>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                      </div>
+
+                      <aside className="space-y-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm ring-1 ring-amber-100 xl:sticky xl:top-4">
+                        <div className="flex items-center justify-between rounded-xl bg-amber-600 px-4 py-3 text-white shadow-xs">
+                          <div>
+                            <p className="text-[11px] font-black uppercase tracking-wider text-amber-100">Operação da direita</p>
+                            <h2 className="text-base font-black">Devolução</h2>
+                          </div>
+                          <span className="rounded-lg bg-white/15 px-3 py-1 text-xs font-black">Saída</span>
+                        </div>
+
+                        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-wider text-amber-600">Devolução</p>
+                              <h3 className="text-lg font-black text-slate-950">Entrega rápida</h3>
+                            </div>
+                            <span className="rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-black text-amber-800">
+                              {cloakroom.filter(item => item.status === 'guardado').length} em guarda
+                            </span>
+                          </div>
+
+                          <div className="relative mt-4">
+                            <Search size={17} className="absolute left-3 top-3.5 text-slate-400" />
+                            <input
+                              value={cloakroomReturnSearch}
+                              onChange={event => {
+                                setCloakroomReturnSearch(event.target.value);
+                                setCloakroomReturnItem(null);
+                                setCloakroomReturnSuccess(null);
+                              }}
+                              placeholder="Buscar etiqueta, nome, CPF ou QR"
+                              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm font-bold text-slate-900 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                            />
+                          </div>
+
+                          {cloakroomReturnResults.length > 0 && !cloakroomReturnItem && (
+                            <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-slate-100">
+                              {cloakroomReturnResults.map(item => {
+                                const itemVolumes = getCloakroomItemVolumes(item);
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setCloakroomReturnItem(item);
+                                      setCloakroomReturnSearch(String(item.tagNumber));
+                                    }}
+                                    className="w-full border-b border-slate-100 p-3 text-left transition last:border-b-0 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-mono text-sm font-black text-amber-700">#{item.tagNumber}</span>
+                                      <span className="text-xs font-bold text-slate-500">{itemVolumes.length} volume(s)</span>
+                                    </div>
+                                    <p className="mt-1 truncate text-sm font-black text-slate-900">{item.participantName}</p>
+                                    <p className="mt-1 truncate font-mono text-xs text-slate-500">
+                                      {itemVolumes.map(volume => volume.storageAddress).filter(Boolean).join(', ') || '-'}
+                                    </p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </section>
+
+                        {cloakroomReturnItem ?(
+                          <section className="rounded-lg border border-amber-200 bg-white p-4 shadow-xs">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-black uppercase tracking-wider text-amber-600">Item localizado</p>
+                                <h3 className="mt-1 font-mono text-2xl font-black text-slate-950">#{cloakroomReturnItem.tagNumber}</h3>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCloakroomReturnItem(null);
+                                  setCloakroomReturnSearch('');
+                                }}
+                                className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                                aria-label="Limpar devolução"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+
+                            <div className="mt-3 space-y-2 text-sm text-slate-700">
+                              <p><b>Participante:</b> {cloakroomReturnItem.participantName}</p>
+                              <p><b>Entrada:</b> {new Date(cloakroomReturnItem.registeredAt).toLocaleString('pt-BR')}</p>
+                              <div className="space-y-2">
+                                {getCloakroomItemVolumes(cloakroomReturnItem).map((volume, index) => (
+                                  <div key={volume.id || volume.tag || index} className="rounded-lg border border-amber-100 bg-amber-50/70 p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <b className="font-mono text-amber-800">{volume.tag}</b>
+                                      <span className="text-xs font-black text-slate-500">Volume {index + 1}</span>
+                                    </div>
+                                    <p className="mt-1 font-semibold text-slate-800">{volume.description || '-'}</p>
+                                    <p className="mt-1 font-mono text-xs text-emerald-700">{formatCloakroomVolumeAddress(volume)}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleWithdrawCloakroomItem(cloakroomReturnItem.id, cloakroomReturnItem.tagNumber, true)}
+                              className="mt-4 w-full rounded-lg bg-amber-600 px-4 py-4 text-sm font-black text-white transition hover:bg-amber-500"
+                            >
+                              Entregar pertences
+                            </button>
+                          </section>
+                        ) : (
+                          <section className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-400 shadow-xs">
+                            <FolderLock className="mx-auto mb-3" size={28} />
+                            <p className="font-semibold">Busque uma etiqueta para entrega.</p>
+                          </section>
+                        )}
+
+                        {cloakroomReturnSuccess && (
+                          <section className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4 font-black text-emerald-800">
+                            <CheckCircle2 size={20} />
+                            <span>Entrega concluída: #{cloakroomReturnSuccess.tagNumber}</span>
+                          </section>
+                        )}
+                      </aside>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="bg-slate-950 text-white rounded-lg p-5 shadow-xs">
-                        <p className="text-xs font-black uppercase tracking-wider text-blue-200">Resumo da impressão</p>
-                        <div className="mt-4 rounded-xl bg-white/8 border border-white/10 p-4">
-                          <div className="flex items-center justify-between py-2 text-lg"><span>Volume(s)</span><b>{cloakroomVolumeCount}</b></div>
-                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiqueta principal</span><b>1</b></div>
-                          <div className="flex items-center justify-between py-2 text-lg"><span>Etiquetas de volume</span><b>{cloakroomVolumeCount}</b></div>
-                          <div className="mt-2 pt-4 border-t border-white/20 flex items-center justify-between text-2xl font-black">
-                            <span>Total de etiquetas</span>
-                            <b>{cloakroomVolumeCount + 1}</b>
-                          </div>
+                    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)] backdrop-blur">
+                      <div className="mx-auto flex max-w-[1780px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            onClick={handleOperationalCloakroomSave}
+                            disabled={!canSaveCloakroomStore}
+                            className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                          >
+                            {isCloakroomSaving ?'Guardando...' : 'Guardar pertences e imprimir'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resetCloakroomStoreFlow}
+                            className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                          >
+                            Cancelar
+                          </button>
                         </div>
-
-                        <div className="mt-4 rounded-xl bg-blue-500/15 border border-blue-300/20 p-4">
-                          <span className="block text-xs font-black uppercase tracking-wider text-blue-100">Próximo Ticket</span>
-                          <b className="block text-4xl font-black font-mono text-white mt-1">{nextCloakroomTicket}</b>
+                        <div className="min-w-0 text-sm font-black text-slate-900 lg:text-right">
+                          <span>{cloakroomSelectedParticipant ?'1 participante' : 'Nenhum participante'}</span>
+                          <span className="text-slate-400"> • </span>
+                          <span>{cloakroomVolumeCount} volume{cloakroomVolumeCount > 1 ?'s' : ''}</span>
+                          <span className="text-slate-400"> • </span>
+                          <span className="font-mono">{visibleCloakroomVolumes.map(volume => volume.storageAddress).filter(Boolean).join(', ') || 'sem posição'}</span>
+                          <span className="text-slate-400"> • </span>
+                          <span>{cloakroomVolumeCount + 1} etiquetas</span>
                         </div>
-
-                        <div className="mt-4 rounded-xl bg-emerald-500/15 border border-emerald-300/20 p-4">
-                          <span className="block text-xs font-black uppercase tracking-wider text-emerald-100">Volume ativo</span>
-                          <b className="block text-2xl font-black font-mono text-white mt-1">
-                            Volume {activeCloakroomVolumeIndex + 1}: {formatCloakroomVolumeAddress(cloakroomVolumeDrafts[activeCloakroomVolumeIndex])}
-                          </b>
-                        </div>
-
-                        <button
-                          onClick={handleOperationalCloakroomSave}
-                          disabled={!cloakroomSelectedParticipant || nextCloakroomPositions.length < cloakroomVolumeCount || cloakroomVolumeDrafts.slice(0, cloakroomVolumeCount).some(volume => !(volume.description || '').trim())}
-                          className="mt-5 w-full px-4 py-5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-500 text-white text-base font-black transition cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          GUARDAR PERTENCES
-                        </button>
                       </div>
-
-                      {cloakroomSuccess && (
-                        <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-5 shadow-xs">
-                          <div className="flex items-center gap-2 text-emerald-800 font-black text-lg">
-                            <CheckCircle2 size={24} />
-                            <span>REGISTRO CONCLUÍDO</span>
-                          </div>
-                          <div className="mt-4 text-sm text-slate-700">
-                            <span className="block text-xs font-black uppercase tracking-wider text-slate-500">Ticket</span>
-                            <b className="block font-mono text-3xl text-slate-950 mt-1">{cloakroomSuccess.tagNumber}</b>
-                            <p className="mt-4 font-bold text-slate-800">Volumes</p>
-                            <div className="mt-2 space-y-2">
-                              {getCloakroomItemVolumes(cloakroomSuccess).map((volume, index) => (
-                                <div key={volume.id || volume.tag || index} className="rounded-lg border border-emerald-200 bg-white p-3">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <span className="font-mono text-sm font-black text-emerald-800">{volume.tag}</span>
-                                    <span className="text-xs font-black text-slate-500">Volume {index + 1} de {cloakroomSuccess.volumeCount || 1}</span>
-                                  </div>
-                                  <p className="mt-1 font-bold text-slate-800">{volume.description || '-'}</p>
-                                  <p className="mt-1 font-mono text-xs text-slate-500">Posição: {formatCloakroomVolumeAddress(volume)}</p>
-                                </div>
-                              ))}
-                            </div>
-                            <p className="mt-4 text-emerald-700 font-black">Impressão realizada com sucesso</p>
-                          </div>
-                        </div>
+                      {hasDuplicatedCloakroomDraftAddress && (
+                        <p className="mx-auto mt-2 max-w-[1780px] text-xs font-bold text-rose-700">Há volumes usando a mesma posição. Altere uma das posições antes de continuar.</p>
                       )}
                     </div>
-                    </div>
 
-                    <CloakroomMap
-                      rackName={activeCloakroomRackName}
-                      rackId={activeCloakroomRack.id}
-                      columns={cloakroomMapColumns}
-                      rows={cloakroomMapRows}
-                      items={cloakroom}
-                      selectedAddress={cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
-                      suggestedAddress={suggestedCloakroomAddress}
-                      readOnly
-                      onSelectPosition={(position) => {
-                        setCloakroomSelectedPosition(position);
-                        updateCloakroomVolumeDraft(activeCloakroomVolumeIndex, buildVolumePositionPayload(position));
-                      }}
-                    />
+                    {isCloakroomPositionPanelOpen && (
+                      <div className="fixed inset-0 z-40 bg-slate-950/45">
+                        <div role="dialog" aria-modal="true" aria-label="Selecionar posição da chapelaria" className="ml-auto flex h-full w-full flex-col bg-white shadow-2xl md:w-[86vw] lg:w-[58vw] xl:w-[52vw]">
+                          <div className="border-b border-slate-200 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-black uppercase tracking-wider text-blue-600">Selecionar posição</p>
+                                <h3 className="text-xl font-black text-slate-950">
+                                  {cloakroomPositionPanelMode === 'edit' ?`Volume ${activeCloakroomVolumeIndex + 1}` : 'Mapa da chapelaria'}
+                                </h3>
+                                <p className="mt-1 text-sm font-semibold text-slate-500">
+                                  {cloakroomPositionPanelMode === 'edit'
+                                    ?`${activeCloakroomDraft?.description || 'Sem descrição'} • posição atual: ${activeCloakroomDraft?.storageAddress || '-'}`
+                                    : 'Consulte posições livres, ocupadas e reservadas.'}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={closeCloakroomPositionPanel}
+                                className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                                aria-label="Fechar mapa"
+                              >
+                                <X size={18} />
+                              </button>
+                            </div>
+                            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="relative flex-1">
+                                <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                                <input
+                                  value={cloakroomPositionSearch}
+                                  onChange={event => setCloakroomPositionSearch(event.target.value.toUpperCase())}
+                                  onKeyDown={event => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      handleCloakroomPositionSearch();
+                                    }
+                                  }}
+                                  placeholder="Buscar posição"
+                                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                                />
+                              </div>
+                              <span className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-800">
+                                Próxima livre: <span className="font-mono">{suggestedCloakroomAddress || '-'}</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="min-h-0 flex-1 overflow-auto p-4">
+                            <CloakroomMap
+                              rackName={activeCloakroomRackName}
+                              rackId={activeCloakroomRack.id}
+                              columns={cloakroomMapColumns}
+                              rows={cloakroomMapRows}
+                              items={cloakroom}
+                              selectedAddress={pendingCloakroomPosition?.address || activeCloakroomDraft?.storageAddress || cloakroomSelectedPosition?.address || suggestedCloakroomAddress}
+                              suggestedAddress={suggestedCloakroomAddress}
+                              onSelectPosition={selectCloakroomPanelPosition}
+                              compact
+                              panelOnly
+                              activeVolumeLabel={cloakroomPositionPanelMode === 'edit' ?`Volume ${activeCloakroomVolumeIndex + 1}` : undefined}
+                              reservedAddresses={visibleCloakroomVolumes.map((volume, index) => index === activeCloakroomVolumeIndex ?'' : volume.storageAddress || '').filter(Boolean)}
+                            />
+                          </div>
+
+                          <div className="border-t border-slate-200 p-4">
+                            <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
+                              Posição selecionada: <span className="font-mono text-slate-950">{pendingCloakroomPosition?.address || activeCloakroomDraft?.storageAddress || '-'}</span>
+                              <span className="mx-2 text-slate-300">|</span>
+                              Estante: <span className="text-slate-950">{pendingCloakroomPosition?.rackName || activeCloakroomDraft?.storageRackName || activeCloakroomRackName}</span>
+                              <span className="mx-2 text-slate-300">|</span>
+                              Status: <span className="text-emerald-700">{pendingCloakroomPosition || activeCloakroomDraft?.storageAddress ?'Livre' : '-'}</span>
+                            </div>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                              <button
+                                type="button"
+                                onClick={closeCloakroomPositionPanel}
+                                className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                              >
+                                Cancelar
+                              </button>
+                              {cloakroomPositionPanelMode === 'edit' && (
+                                <button
+                                  type="button"
+                                  onClick={applyCloakroomPanelPosition}
+                                  disabled={!pendingCloakroomPosition}
+                                  className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                                >
+                                  Usar posição {pendingCloakroomPosition?.address || ''}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

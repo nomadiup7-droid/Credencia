@@ -182,6 +182,7 @@ export interface CloakroomVolume {
   storageOccupiedAt?: string;
   storageReleasedAt?: string;
   storageOperatorId?: string;
+  positionMode?: 'auto' | 'manual';
 }
 
 export interface CloakroomItem {

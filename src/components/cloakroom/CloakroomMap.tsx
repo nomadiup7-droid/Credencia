@@ -20,6 +20,12 @@ interface CloakroomMapProps {
   suggestedAddress: string;
   onSelectPosition: (position: CloakroomStoragePosition) => void;
   readOnly?: boolean;
+  compact?: boolean;
+  activeVolumeLabel?: string;
+  reservedAddresses?: string[];
+  onCollapse?: () => void;
+  onOpenFullMap?: () => void;
+  panelOnly?: boolean;
 }
 
 const buildAddress = (column: string, row: string) => `${column}${row}`;
@@ -33,7 +39,13 @@ export default function CloakroomMap({
   selectedAddress,
   suggestedAddress,
   onSelectPosition,
-  readOnly = false
+  readOnly = false,
+  compact = false,
+  activeVolumeLabel,
+  reservedAddresses = [],
+  onCollapse,
+  onOpenFullMap,
+  panelOnly = false
 }: CloakroomMapProps) {
   const occupiedEntries = items
     .filter(item => item.status === 'guardado')
@@ -55,6 +67,7 @@ export default function CloakroomMap({
     });
 
   const occupiedByAddress = new Map(occupiedEntries.map(entry => [entry.address, entry]));
+  const reservedAddressSet = new Set(reservedAddresses);
   const selectedItem = occupiedByAddress.get(selectedAddress);
   const selectedColumn = selectedAddress.match(/^[A-Z]+/)?.[0] || '-';
   const selectedRow = selectedAddress.match(/\d+$/)?.[0] || '-';
@@ -77,20 +90,25 @@ export default function CloakroomMap({
   };
 
   return (
-    <div className="grid grid-cols-1 2xl:grid-cols-[1fr_300px] gap-4">
-      <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className={compact ?'grid grid-cols-1 gap-3' : 'grid grid-cols-1 2xl:grid-cols-[1fr_300px] gap-4'}>
+      <div className={panelOnly ?'bg-white' : 'bg-white border border-slate-200 rounded-lg p-4 shadow-xs'}>
+        {!panelOnly && <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Mapa da Chapelaria</p>
             <h3 className="text-lg font-black text-slate-950 mt-1">Estante {rackName}</h3>
+            {activeVolumeLabel && <p className="mt-1 text-xs font-bold text-slate-500">Selecionando posição para {activeVolumeLabel}</p>}
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenFullMap && <button type="button" onClick={onOpenFullMap} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Mapa completo</button>}
+            {onCollapse && <button type="button" onClick={onCollapse} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Recolher</button>}
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
             <span className="block text-[10px] font-black uppercase tracking-wider">Próxima posição livre</span>
             <b className="font-mono text-lg">{suggestedAddress || '-'}</b>
           </div>
-        </div>
+          </div>
+        </div>}
 
-        <div className="mt-4 overflow-auto pb-1">
+        <div className={panelOnly ?'max-h-[58vh] overflow-auto pb-1 pr-1' : compact ?'mt-4 max-h-[470px] overflow-auto pb-1 pr-1' : 'mt-4 overflow-auto pb-1'}>
           <div
             className="grid gap-1 min-w-max"
             style={{ gridTemplateColumns: `42px repeat(${columns.length}, minmax(42px, 1fr))` }}
@@ -111,24 +129,27 @@ export default function CloakroomMap({
                   const item = occupiedByAddress.get(address);
                   const isSelected = selectedAddress === address;
                   const isSuggested = suggestedAddress === address;
+                  const isReserved = reservedAddressSet.has(address);
                   const statusClass = item
                     ?'bg-rose-50 border-rose-300 text-rose-700'
-                    : isSelected
-                      ?'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-100'
-                      : isSuggested
-                        ?'bg-emerald-50 border-emerald-400 text-emerald-800'
-                        : 'bg-white border-emerald-200 text-slate-700 hover:border-emerald-500 hover:bg-emerald-50';
+                    : isReserved
+                      ?'bg-amber-50 border-amber-300 text-amber-800'
+                      : isSelected
+                        ?'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-100'
+                        : isSuggested
+                          ?'bg-emerald-50 border-emerald-400 text-emerald-800'
+                          : 'bg-white border-emerald-200 text-slate-700 hover:border-emerald-500 hover:bg-emerald-50';
 
                   return (
                     <button
                       key={address}
                       type="button"
                       onClick={() => {
-                        if (readOnly) return;
+                        if (readOnly || item || isReserved) return;
                         selectAddress(column, row);
                       }}
-                      className={`h-10 min-w-10 rounded-lg border text-[11px] font-black transition ${readOnly ?'cursor-default' : 'cursor-pointer'} ${statusClass}`}
-                      title={item ?`${address} ocupado por ${item.item.participantName}` : `${address} livre`}
+                      className={`h-10 min-w-10 rounded-lg border text-[11px] font-black transition ${readOnly || item || isReserved ?'cursor-default' : 'cursor-pointer'} ${statusClass}`}
+                      title={item ?`${address} ocupado por ${item.item.participantName}` : isReserved ?`${address} reservado neste atendimento` : `${address} livre`}
                     >
                       {address}
                     </button>
@@ -148,7 +169,7 @@ export default function CloakroomMap({
         </div>
       </div>
 
-      <aside className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs space-y-4">
+      {!compact && <aside className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs space-y-4">
         <div>
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Posição selecionada</p>
           <div className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-slate-950 text-white p-4">
@@ -163,7 +184,7 @@ export default function CloakroomMap({
         <div className={`rounded-xl border p-3 ${isSelectedOccupied ?'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
           <div className="flex items-center gap-2 font-black">
             {isSelectedOccupied ?<Info size={18} /> : <CheckCircle2 size={18} />}
-            <span>Status: {isSelectedOccupied ?'Ocupado' : 'Livre'}</span>
+            <span>Status: {isSelectedOccupied ?'Ocupado' : reservedAddressSet.has(selectedAddress) ?'Reservado neste atendimento' : 'Livre'}</span>
           </div>
           {selectedItem && (
             <p className="mt-2 text-xs font-semibold">
@@ -176,7 +197,7 @@ export default function CloakroomMap({
         {!readOnly ?(
           <button
             type="button"
-            disabled={isSelectedOccupied || !selectedAddress}
+            disabled={isSelectedOccupied || reservedAddressSet.has(selectedAddress) || !selectedAddress}
             onClick={() => {
               if (!selectedAddress) return;
               const column = selectedColumn === '-' ?columns[0] : selectedColumn;
@@ -203,7 +224,7 @@ export default function CloakroomMap({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
+        {!compact && <div className="rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex items-center gap-2">
             <Clock size={16} className="text-slate-400" />
             <p className="text-xs font-black uppercase tracking-wider text-slate-500">Últimos itens armazenados</p>
@@ -222,8 +243,8 @@ export default function CloakroomMap({
               </div>
             ))}
           </div>
-        </div>
-      </aside>
+        </div>}
+      </aside>}
     </div>
   );
 }
