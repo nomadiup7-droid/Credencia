@@ -1,5 +1,6 @@
--- Production schema alignment for Credencia / Supabase
--- Idempotent corrective migration. Does not drop tables and does not seed demo users.
+-- Reapply production schema alignment for Credencia / Supabase
+-- Incremental idempotent safety migration after the previous migration was recorded remotely.
+-- Does not drop tables, does not delete data, and does not seed demo users.
 
 create extension if not exists pgcrypto with schema extensions;
 
@@ -362,6 +363,23 @@ from public.cloakroom c
 cross join lateral jsonb_array_elements(case when jsonb_typeof(c.volumes) = 'array' and jsonb_array_length(c.volumes) > 0 then c.volumes else '[]'::jsonb end) as v(value)
 where c.status = 'guardado'
   and coalesce(nullif(v.value->>'storageAddress', ''), c.storage_address) is not null
+  and not exists (
+    select 1
+    from public.cloakroom_position_claims existing_claim
+    where existing_claim.event_id = c.event_id
+      and existing_claim.cloakroom_id = c.id
+      and existing_claim.volume_id = coalesce(v.value->>'id', 'vol_1')
+      and existing_claim.storage_rack_id = coalesce(v.value->>'storageRackId', c.storage_rack_id, 'principal')
+      and existing_claim.storage_address = coalesce(nullif(v.value->>'storageAddress', ''), c.storage_address)
+  )
+  and not exists (
+    select 1
+    from public.cloakroom_position_claims active_claim
+    where active_claim.event_id = c.event_id
+      and active_claim.storage_rack_id = coalesce(v.value->>'storageRackId', c.storage_rack_id, 'principal')
+      and active_claim.storage_address = coalesce(nullif(v.value->>'storageAddress', ''), c.storage_address)
+      and active_claim.released_at is null
+  )
 on conflict do nothing;
 
 create unique index if not exists idx_event_users_event_user on public.event_users(event_id, user_id);
