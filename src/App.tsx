@@ -28,6 +28,7 @@ import {
   Edit,
   RefreshCw,
   Printer,
+  Eye,
   ChevronRight,
   Sliders,
   Settings,
@@ -73,6 +74,7 @@ import { BusinessIntelligenceDashboard, BIReportDefinition } from './components/
 import { downloadCsv, ReportExportRow } from './services/reportExportService';
 import CloakroomMap, { CloakroomStoragePosition } from './components/cloakroom/CloakroomMap';
 import ReportExportMenu from './components/reports/ReportExportMenu';
+import PublicCredentialPage from './components/PublicCredentialPage';
 import { generateReportPdf } from './services/reportPdfService';
 import type { ReportPdfKind, ReportPdfPayload, ReportPdfTableRow } from './types/report.types';
 
@@ -103,6 +105,7 @@ const DEFAULT_CLOAKROOM_MAP_CONFIG: CloakroomMapConfig = {
 const CLOAKROOM_MAX_VOLUMES = 5;
 
 export default function App() {
+  const publicCredentialMatch = window.location.pathname.match(/^\/convite\/([^/?#]+)/);
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [showFernandoWelcome, setShowFernandoWelcome] = useState(false);
@@ -3049,6 +3052,10 @@ export default function App() {
       const rawCpf = getMappedValue(row, 'cpf');
       const rawCategory = getMappedValue(row, 'category');
       const rawCompany = getMappedValue(row, 'company');
+      const rawPhone = getMappedValue(row, 'phone');
+      const rawPosition = getMappedValue(row, 'position');
+      const rawNotes = getMappedValue(row, 'notes');
+      const rawExternalId = getMappedValue(row, 'externalId');
       const rawTicketCode = getMappedValue(row, 'ticketCode');
       const rawProfile = getMappedValue(row, 'profile');
       const rawAreas = getMappedValue(row, 'areas');
@@ -3059,6 +3066,10 @@ export default function App() {
       const cleanCpf = originalCpf.replace(/\D/g, '');
       const category = rawCategory !== undefined ?String(rawCategory).trim() : 'Participante';
       const company = rawCompany !== undefined ?String(rawCompany).trim() : '';
+      const phone = rawPhone !== undefined ?String(rawPhone).trim() : '';
+      const position = rawPosition !== undefined ?String(rawPosition).trim() : '';
+      const notes = rawNotes !== undefined ?String(rawNotes).trim() : '';
+      const externalId = rawExternalId !== undefined ?String(rawExternalId).trim() : '';
       const ticketCode = rawTicketCode !== undefined ?String(rawTicketCode).trim() : '';
       const profile = rawProfile !== undefined ?String(rawProfile).trim() : '';
       const areasText = rawAreas !== undefined ?String(rawAreas).trim() : '';
@@ -3127,6 +3138,10 @@ export default function App() {
         cpf: cleanCpf || originalCpf,
         category,
         company,
+        phone,
+        position,
+        notes,
+        externalId,
         ticketCode,
         profile,
         areasText,
@@ -3221,6 +3236,10 @@ export default function App() {
         item['cpf'] = row.cpf;
         item['categoria'] = row.category;
         item['empresa'] = row.company;
+        item['telefone'] = row.phone;
+        item['cargo'] = row.position;
+        item['observacoes'] = row.notes;
+        item['externalId'] = row.externalId;
         if (row.ticketCode) {
           item['ticketCode'] = row.ticketCode;
         }
@@ -3278,6 +3297,39 @@ export default function App() {
   };
 
 
+  const exportParticipantLinks = async () => {
+    if (!selectedEventId) return;
+    try {
+      const response = await fetch(`/api/events/${selectedEventId}/participants/export-links`, {
+        headers: getActiveHeaders()
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro ao exportar links');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `credencia-links-${selectedEventId}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      addToast('Lista com links individuais exportada.', 'success');
+      loadDataForEvent(selectedEventId);
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao exportar links individuais.', 'error');
+    }
+  };
+
+  const copyParticipantLink = async (participant: Participant) => {
+    const token = participant.qrToken || participant.ticketCode;
+    const link = `${window.location.origin}/convite/${encodeURIComponent(token)}`;
+    await navigator.clipboard.writeText(link);
+    addToast('Link individual copiado.', 'success');
+  };
+
   // --- REPORTS EXPORT GENERATORS ---
   const hasReportSelection = () => REPORT_OPTION_KEYS.some(key => reportConfig[key]);
   const getReportSelectedSectionCount = (config = reportConfig) => REPORT_CONFIG_GROUPS.filter(group => group.keys.some(item => config[item.key])).length;
@@ -3324,7 +3376,10 @@ export default function App() {
         'Códigos dos Certificados': participantCertificates.map(certificate => certificate.certificateCode).join(', '),
         'Horas em Certificados': participantCertificates.reduce((sum, certificate) => sum + (Number(certificate.totalHours) || 0), 0),
         'Operador Respons?vel': getReportCheckinOperator(p),
-        'Código do Convite': p.ticketCode
+        'Código do Convite': p.ticketCode,
+        'Status do Link QR': p.credentialFirstViewedAt ?'Visualizado' : 'Nao visualizado',
+        'Primeira Visualizacao do Link': p.credentialFirstViewedAt ?new Date(p.credentialFirstViewedAt).toLocaleString('pt-BR') : '-',
+        'Aberturas do Link': p.credentialViewCount || 0
       };
     });
 
@@ -3351,6 +3406,9 @@ export default function App() {
         filtered['Acessos por Sala'] = findColumn(['acessos por sala']);
         filtered['Acessos Negados'] = findColumn(['negados']);
       }
+      if (reportConfig.participantCredentialLinkStatus) filtered['Status do Link QR'] = row['Status do Link QR'] || '';
+      if (reportConfig.participantCredentialFirstView) filtered['Primeira Visualizacao do Link'] = row['Primeira Visualizacao do Link'] || '';
+      if (reportConfig.participantCredentialViewCount) filtered['Aberturas do Link'] = row['Aberturas do Link'] || 0;
       return filtered;
     });
 
@@ -3368,6 +3426,17 @@ export default function App() {
       return;
     }
     window.print();
+  };
+
+  const printCredentialLinksReport = () => {
+    setReportConfig(prev => ({
+      ...prev,
+      summaryCredentialLinksViewed: true,
+      participantCredentialLinkStatus: true,
+      participantCredentialFirstView: true,
+      participantCredentialViewCount: true
+    }));
+    window.setTimeout(() => window.print(), 100);
   };
 
   // Filtered Participants computed list
@@ -3396,6 +3465,29 @@ export default function App() {
 
     return { total, checkedIn, pending, attendanceRate };
   }, [reportParticipants]);
+
+  const reportCredentialViews = useMemo(() => {
+    return reportParticipants
+      .map(participant => ({
+        participant,
+        viewed: Boolean(participant.credentialFirstViewedAt),
+        firstViewedAt: participant.credentialFirstViewedAt || '',
+        lastViewedAt: participant.credentialLastViewedAt || participant.credentialFirstViewedAt || '',
+        viewCount: participant.credentialViewCount || 0
+      }))
+      .sort((a, b) => {
+        if (a.viewed !== b.viewed) return a.viewed ?-1 : 1;
+        const bTime = b.lastViewedAt ?new Date(b.lastViewedAt).getTime() : 0;
+        const aTime = a.lastViewedAt ?new Date(a.lastViewedAt).getTime() : 0;
+        return bTime - aTime;
+      });
+  }, [reportParticipants]);
+
+  const reportCredentialViewSummary = useMemo(() => ({
+    viewed: reportCredentialViews.filter(item => item.viewed).length,
+    notViewed: reportCredentialViews.filter(item => !item.viewed).length,
+    totalOpenings: reportCredentialViews.reduce((sum, item) => sum + item.viewCount, 0)
+  }), [reportCredentialViews]);
 
   const reportCheckinsByHour = useMemo(() => {
     const buckets = reportParticipants
@@ -3636,6 +3728,7 @@ export default function App() {
     { id: 'confirmed', title: 'Participantes confirmados', value: reportSummary.checkedIn, detail: `${reportSummary.attendanceRate}% de presença`, icon: UserCheck, tone: 'green' as const },
     { id: 'checkins', title: 'Check-ins realizados', value: reportSummary.checkedIn, detail: `${reportSummary.pending} pendentes`, icon: CheckCircle2, tone: 'graphite' as const },
     { id: 'pending', title: 'Check-ins pendentes', value: reportSummary.pending, detail: 'Ainda ausentes', icon: Clock, tone: 'amber' as const },
+    { id: 'credential-links', title: 'Links visualizados', value: reportCredentialViewSummary.viewed, detail: `${reportCredentialViewSummary.totalOpenings} abertura(s)`, icon: Eye, tone: 'green' as const },
     { id: 'events-active', title: 'Eventos ativos', value: reportEventStatusSummary.active, detail: 'Na organização', icon: Calendar, tone: 'blue' as const },
     { id: 'events-closed', title: 'Eventos encerrados', value: reportEventStatusSummary.closed, detail: 'Datas anteriores', icon: History, tone: 'graphite' as const },
     { id: 'avg-checkin', title: 'Tempo médio check-in', value: reportAverageCheckinMinutes === null ?'-' : `${reportAverageCheckinMinutes} min`, detail: 'Baseado em criação x check-in', icon: BarChart3, tone: 'green' as const },
@@ -3644,6 +3737,7 @@ export default function App() {
     { id: 'operators', title: 'Credenc. por operador', value: reportOperatorSummary.reduce((sum, item) => sum + item.value, 0), detail: `${reportOperatorSummary.length} operador(es)`, icon: Users, tone: 'blue' as const }
   ]), [
     reportSummary,
+    reportCredentialViewSummary,
     reportEventStatusSummary,
     reportAverageCheckinMinutes,
     reportAverageStayMinutes,
@@ -3880,6 +3974,10 @@ export default function App() {
     return <PublicRegistrationPage />;
   }
 
+  if (publicCredentialMatch) {
+    return <PublicCredentialPage token={decodeURIComponent(publicCredentialMatch[1])} />;
+  }
+
   if (!token || !currentUser) {
     return (
       <LoginPage
@@ -4000,6 +4098,12 @@ export default function App() {
           value: replaceCertificatePlaceholders(element.placeholder, certificateParticipant, certificateEvent, activeCertificate.certificate, certificateActivity)
         }))
     : [];
+  const currentOfficialCheckinCount = participants.filter(isOfficialParticipantCheckin).length;
+  const dashboardCheckedInCount = Math.max(stats?.totalCheckedIn ?? 0, currentOfficialCheckinCount);
+  const dashboardWaitingCount = Math.max((stats?.totalRegistered ?? participants.length) - dashboardCheckedInCount, 0);
+  const credentialViewedCount = participants.filter(participant => Boolean(participant.credentialFirstViewedAt)).length;
+  const credentialTotalViewCount = participants.reduce((total, participant) => total + (participant.credentialViewCount || 0), 0);
+
   const activityParticipantSuggestions = (() => {
     const query = normalizeParticipantSearch(activityAttendanceSearch);
     if (query.length < 3) return [];
@@ -4548,7 +4652,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                   <StatsCard
                     title="Inscritos"
                     value={stats?.totalRegistered ?? participants.length}
@@ -4560,12 +4664,21 @@ export default function App() {
                   />
                   <StatsCard
                     title="Check-ins"
-                    value={stats?.totalCheckedIn ?? participants.filter(isOfficialParticipantCheckin).length}
+                    value={dashboardCheckedInCount}
                     iconName="UserCheck"
-                    description={`${stats?.totalWaiting ?? participants.filter(p => !isOfficialParticipantCheckin(p)).length} pendentes`}
+                    description={`${dashboardWaitingCount} pendentes`}
                     trend={{ text: 'Operação', type: 'success' }}
                     colorTheme="blue"
                     onClick={() => setActiveTab('checkin')}
+                  />
+                  <StatsCard
+                    title="Links visualizados"
+                    value={credentialViewedCount}
+                    iconName="Eye"
+                    description={`${credentialTotalViewCount} abertura(s)`}
+                    trend={{ text: 'QR Code', type: 'info' }}
+                    colorTheme="emerald"
+                    onClick={() => setActiveTab('participantes')}
                   />
                   <StatsCard
                     title="Salas"
@@ -4938,6 +5051,15 @@ export default function App() {
                       <span className="hidden sm:inline">Modelo Excel</span>
                     </button>
 
+                    <button
+                      onClick={exportParticipantLinks}
+                      className="flex items-center gap-1.5 px-3.5 py-2 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-xl text-sm transition cursor-pointer font-semibold"
+                      title="Exportar XLSX com links individuais"
+                    >
+                      <Download size={15} />
+                      <span>Exportar lista com links individuais</span>
+                    </button>
+
                     {canCreateParticipants && (
                       <label className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl text-sm font-semibold transition cursor-pointer">
                         <Upload size={15} />
@@ -5020,6 +5142,7 @@ export default function App() {
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Identidade / CPF</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Empresa</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Categoria</th>
+                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Link individual</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Status Presença</th>
                           <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center no-print">Ações e Credencial</th>
                         </tr>
@@ -5075,6 +5198,24 @@ export default function App() {
                                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${CATEGORY_TAGS[p.category].bg}`}>
                                   {p.category}
                                 </span>
+                              </td>
+
+                              <td className="p-4">
+                                <div className="flex flex-col gap-1 text-xs">
+                                  <div className={`font-bold ${p.credentialFirstViewedAt ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                    {p.credentialFirstViewedAt ? 'Visualizado' : 'Nao visualizado'}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">
+                                    {p.credentialViewCount || 0} abertura(s)
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyParticipantLink(p)}
+                                    className="text-blue-700 hover:text-blue-900 font-bold text-left"
+                                  >
+                                    Copiar link
+                                  </button>
+                                </div>
                               </td>
 
                               <td className="p-4 align-middle text-center">
@@ -7250,6 +7391,13 @@ export default function App() {
                       <CheckCircle2 size={15} />
                       <span>Baixar presentes</span>
                     </button>
+                    <button
+                      onClick={printCredentialLinksReport}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-950 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      <Eye size={15} />
+                      <span>Imprimir links visualizados</span>
+                    </button>
                     <ReportExportMenu
                       onGeneratePdf={handleGenerateReportPdf}
                       onPrintCurrent={triggerPrintableReport}
@@ -7282,12 +7430,13 @@ export default function App() {
                   pdfLoadingLabel={reportPdfLoadingLabel}
                 />
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                   {[
                     { title: 'Total de participantes', value: reportSummary.total, icon: Users, color: 'bg-blue-50 text-blue-700 border-blue-100' },
                     { title: 'Check-ins realizados', value: reportSummary.checkedIn, icon: UserCheck, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
                     { title: 'Participantes pendentes', value: reportSummary.pending, icon: Clock, color: 'bg-amber-50 text-amber-700 border-amber-100' },
-                    { title: 'Percentual de presença', value: `${reportSummary.attendanceRate}%`, icon: BarChart3, color: 'bg-violet-50 text-violet-700 border-violet-100' }
+                    { title: 'Percentual de presença', value: `${reportSummary.attendanceRate}%`, icon: BarChart3, color: 'bg-violet-50 text-violet-700 border-violet-100' },
+                    { title: 'Links visualizados', value: reportCredentialViewSummary.viewed, icon: Eye, color: 'bg-cyan-50 text-cyan-700 border-cyan-100' }
                   ].map(card => {
                     const Icon = card.icon;
                     return (
@@ -8256,8 +8405,8 @@ export default function App() {
           )}
         </div>
 
-        {(reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate) && (
-          <div className="relative z-10 grid grid-cols-4 gap-3 mb-6">
+        {(reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate || reportConfig.summaryCredentialLinksViewed) && (
+          <div className="relative z-10 grid grid-cols-5 gap-3 mb-6">
             {reportConfig.summaryTotal && (
               <div className="border border-zinc-300 rounded p-3">
                 <p className="text-[10px] uppercase font-bold text-zinc-500">Total de participantes</p>
@@ -8280,6 +8429,13 @@ export default function App() {
               <div className="border border-zinc-300 rounded p-3">
                 <p className="text-[10px] uppercase font-bold text-zinc-500">Percentual de presença</p>
                 <p className="text-xl font-black">{reportSummary.attendanceRate}%</p>
+              </div>
+            )}
+            {reportConfig.summaryCredentialLinksViewed && (
+              <div className="border border-zinc-300 rounded p-3">
+                <p className="text-[10px] uppercase font-bold text-zinc-500">Links visualizados</p>
+                <p className="text-xl font-black">{reportCredentialViewSummary.viewed}</p>
+                <p className="text-[10px] text-zinc-500">{reportCredentialViewSummary.totalOpenings} abertura(s)</p>
               </div>
             )}
           </div>
@@ -8368,6 +8524,36 @@ export default function App() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {(reportConfig.participantCredentialLinkStatus || reportConfig.participantCredentialFirstView || reportConfig.participantCredentialViewCount) && (
+          <div className="relative z-10 mb-6">
+            <h2 className="text-sm font-black uppercase border-b border-black pb-2 mb-3">Links visualizados com QR Code</h2>
+            <table className="w-full text-left text-xs text-slate-950">
+              <thead>
+                <tr className="border-b border-black">
+                  <th className="py-2">Participante</th>
+                  <th className="py-2">CPF</th>
+                  {reportConfig.participantCredentialLinkStatus && <th className="py-2">Status do link</th>}
+                  {reportConfig.participantCredentialFirstView && <th className="py-2">Primeira visualização</th>}
+                  {reportConfig.participantCredentialViewCount && <th className="py-2 text-right">Aberturas</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {reportCredentialViews.length === 0 ?(
+                  <tr><td colSpan={5} className="py-3 text-center text-zinc-500">Nenhum participante nos filtros atuais.</td></tr>
+                ) : reportCredentialViews.map(item => (
+                  <tr key={item.participant.id} className="border-b border-zinc-200">
+                    <td className="py-2 font-semibold">{item.participant.name}</td>
+                    <td className="py-2 font-mono">{item.participant.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
+                    {reportConfig.participantCredentialLinkStatus && <td className="py-2">{item.viewed ?'Visualizado' : 'Nao visualizado'}</td>}
+                    {reportConfig.participantCredentialFirstView && <td className="py-2 font-mono">{item.firstViewedAt ?new Date(item.firstViewedAt).toLocaleString('pt-BR') : '-'}</td>}
+                    {reportConfig.participantCredentialViewCount && <td className="py-2 text-right font-bold">{item.viewCount}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -9407,6 +9593,10 @@ export default function App() {
                               cpf: row.cpf || <span className="text-slate-400 italic">Vazio</span>,
                               email: row.email || <span className="text-slate-400 italic">Vazio</span>,
                               company: row.company || <span className="text-slate-400 italic">Vazio</span>,
+                              phone: row.phone || <span className="text-slate-400 italic">Vazio</span>,
+                              position: row.position || <span className="text-slate-400 italic">Vazio</span>,
+                              notes: row.notes || <span className="text-slate-400 italic">Vazio</span>,
+                              externalId: row.externalId || <span className="text-slate-400 italic">Vazio</span>,
                               category: row.category || <span className="text-slate-400 italic">Vazio</span>,
                               ticketCode: row.ticketCode || <span className="text-slate-400 italic">Gerar novo</span>,
                               areas: row.resolvedAreaNames?.length ?row.resolvedAreaNames.join(', ') : (row.areasText || <span className="text-slate-400 italic">Padrão</span>),
@@ -9527,5 +9717,3 @@ export default function App() {
     </div>
   );
 }
-
-

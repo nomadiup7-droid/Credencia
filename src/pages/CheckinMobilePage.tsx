@@ -215,30 +215,89 @@ export default function CheckinMobilePage({
     if (scanLockRef.current) return;
     scanLockRef.current = true;
 
-    const clean = normalizeSearch(decodedText);
-    const participant = participants.find(item =>
-      item.eventId === selectedEventId &&
-      [item.id, item.ticketCode, item.cpf].map(normalizeSearch).filter(Boolean).some(value => value === clean || value.includes(clean) || clean.includes(value))
-    );
-
-    if (!participant) {
+    if (!selectedEventId) {
       setFeedback({
         type: 'error',
         title: 'PARTICIPANTE NAO ENCONTRADO',
-        message: 'Nenhum participante encontrado para o QR Code lido.'
+        message: 'Selecione um evento antes de escanear.'
       });
-      addToast('Participante nao encontrado.', 'error');
+      scanLockRef.current = false;
+      return;
+    }
+
+    await stopScanner();
+
+    try {
+      const result = await apiCall('/api/checkin', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: decodedText.trim(),
+          eventId: selectedEventId
+        })
+      });
+
+      const resultParticipant = result.participant || result.user;
+      if (!resultParticipant) {
+        throw new Error(result.message || 'Participante nao encontrado.');
+      }
+
+      const localParticipant = participants.find(item => item.id === resultParticipant.id) || resultParticipant;
+
+      if (result.alreadyCheckedIn) {
+        const checkedParticipant = {
+          ...localParticipant,
+          checkedIn: true,
+          checkedInAt: result.checkInAt || resultParticipant.checkedInAt
+        };
+        setFeedback({
+          type: 'warning',
+          title: 'PARTICIPANTE JA CREDENCIADO',
+          message: result.message || `${checkedParticipant.name} ja estava credenciado.`,
+          participant: checkedParticipant
+        });
+        updateParticipantAsCheckedIn(checkedParticipant, checkedParticipant.checkedInAt || new Date().toISOString());
+        scheduleReset({ focusInput: false });
+        return;
+      }
+
+      const checkedInAt = result.checkIn?.checkInAt || result.participant?.checkedInAt || new Date().toISOString();
+      const updatedParticipant = {
+        ...localParticipant,
+        ...resultParticipant,
+        checkedIn: true,
+        checkedInAt,
+        printed: shouldPrintAfterCheckin ? true : localParticipant.printed
+      };
+      updateParticipantAsCheckedIn(updatedParticipant, checkedInAt, shouldPrintAfterCheckin);
+
+      if (shouldPrintAfterCheckin) {
+        await apiCall(`/api/participants/${updatedParticipant.id}/reprint`, { method: 'POST' });
+        onPrintBadge({ ...updatedParticipant, printed: true });
+      }
+
+      setFeedback({
+        type: 'success',
+        title: 'CHECK-IN REALIZADO',
+        message: updatedParticipant.name,
+        participant: updatedParticipant
+      });
+      addToast(`Check-in realizado: ${updatedParticipant.name}`, 'success');
+      scheduleReset({ focusInput: false });
+    } catch (error: any) {
+      setFeedback({
+        type: 'error',
+        title: 'PARTICIPANTE NAO ENCONTRADO',
+        message: error.message || 'Nenhum participante encontrado para o QR Code lido.'
+      });
+      addToast(error.message || 'Participante nao encontrado.', 'error');
       scheduleReset({ focusInput: false });
       window.setTimeout(() => {
         scanLockRef.current = false;
       }, 1800);
       return;
-    }
-
-    await performCheckin(participant, { focusInputAfter: false });
-    window.setTimeout(() => {
+    } finally {
       scanLockRef.current = false;
-    }, 1800);
+    }
   };
 
   const stopScanner = async () => {

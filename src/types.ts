@@ -160,8 +160,24 @@ export interface Participant {
   checkinOrigin?: RecordOrigin;
   checkinIsTest?: boolean;
   checkinTestStatus?: TestRecordStatus;
-  ticketCode: string; // Used for QR code
+  ticketCode: string; // Legacy ticket code / fallback QR value
+  qrToken?: string;
+  qrTokenStatus?: 'ATIVO' | 'REVOGADO';
+  qrTokenVersion?: number;
+  qrTokenCreatedAt?: string;
+  qrTokenRegeneratedAt?: string;
+  qrTokenRevokedAt?: string;
+  credentialStatus?: 'ATIVA' | 'BLOQUEADA' | 'CANCELADA';
+  credentialFirstViewedAt?: string;
+  credentialLastViewedAt?: string;
+  credentialViewCount?: number;
+  credentialLastViewSessionId?: string;
+  externalId?: string;
   company?: string; // Company / Organization
+  phone?: string;
+  position?: string;
+  notes?: string;
+  customFields?: Record<string, unknown>;
   createdAt: string;
   printed?: boolean;
   allowedAreas?: string[];
@@ -294,7 +310,13 @@ export type ActionLogAction =
   | 'CLOAKROOM_CREATE'
   | 'CLOAKROOM_RETURN'
   | 'ACTIVITY_ATTENDANCE_REGISTERED'
-  | 'CERTIFICATE_ISSUED';
+  | 'CERTIFICATE_ISSUED'
+  | 'IMPORT_PARTICIPANTS'
+  | 'EXPORT_PARTICIPANT_QR'
+  | 'EXPORT_PARTICIPANT_LINKS'
+  | 'VIEW_PARTICIPANT_CREDENTIAL'
+  | 'REGENERATE_PARTICIPANT_QR'
+  | 'BLOCK_PARTICIPANT_CREDENTIAL';
 
 export interface ActionLog {
   id: string;
@@ -308,6 +330,7 @@ export interface ActionLog {
   isTest?: boolean;
   origin?: RecordOrigin;
   testStatus?: TestRecordStatus;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Activity {
@@ -435,7 +458,7 @@ export interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
-export type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'category' | 'ticketCode' | 'areas' | 'profile' | 'ignore';
+export type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'phone' | 'position' | 'notes' | 'externalId' | 'category' | 'ticketCode' | 'areas' | 'profile' | 'ignore';
 
 export interface ImportTemplate {
   id: string;
@@ -537,6 +560,7 @@ export type ReportOptionKey =
   | 'summaryCheckedIn'
   | 'summaryPending'
   | 'summaryAttendanceRate'
+  | 'summaryCredentialLinksViewed'
   | 'eventName'
   | 'eventDate'
   | 'eventCategory'
@@ -554,7 +578,10 @@ export type ReportOptionKey =
   | 'participantCategory'
   | 'participantCheckinStatus'
   | 'participantCheckinTime'
-  | 'participantAreaAccess';
+  | 'participantAreaAccess'
+  | 'participantCredentialLinkStatus'
+  | 'participantCredentialFirstView'
+  | 'participantCredentialViewCount';
 
 export type ReportConfig = Record<ReportOptionKey, boolean>;
 
@@ -579,4 +606,3 @@ export type ActiveTab =
   | 'etiquetas'
   | 'usuarios'
   | 'campos';
-

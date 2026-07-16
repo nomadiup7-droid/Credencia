@@ -22,6 +22,19 @@ const getEventRecordMeta = (event?: { eventMode?: string }) => {
 
 const isEventClosed = (event?: { eventMode?: string }) => getEventState(event) === 'ENCERRADO';
 
+const extractCredentialToken = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/convite\/([^/?#]+)/i);
+  if (match) return decodeURIComponent(match[1]);
+  try {
+    const parsed = new URL(raw);
+    const token = parsed.pathname.match(/\/convite\/([^/?#]+)/i)?.[1];
+    if (token) return decodeURIComponent(token);
+  } catch {}
+  return raw;
+};
+
 const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; action: ActionLogAction; isTest?: boolean; origin?: 'TESTE' | 'OFICIAL'; testStatus?: 'ATIVO' | 'CANCELADO_TESTE' }) => {
   try {
     if (!log.eventId || !log.userId) return;
@@ -85,7 +98,11 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
 
   try {
     // Check if participant/user exists
-    let participant = await db.getParticipantById(userId);
+    const tokenCandidate = extractCredentialToken(userId);
+    let participant = await db.getParticipantByQrToken(tokenCandidate);
+    if (!participant) {
+      participant = await db.getParticipantById(userId);
+    }
     if (!participant) {
       participant = await db.getParticipantByTicketCode(userId);
     }
@@ -97,6 +114,22 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
       res.status(404).json({ 
         success: false, 
         message: 'Usuário não encontrado' 
+      });
+      return;
+    }
+
+    if ((participant.credentialStatus || 'ATIVA') === 'BLOQUEADA') {
+      res.status(403).json({
+        success: false,
+        message: 'Credencial bloqueada'
+      });
+      return;
+    }
+
+    if ((participant.credentialStatus || 'ATIVA') === 'CANCELADA') {
+      res.status(403).json({
+        success: false,
+        message: 'Credencial cancelada'
       });
       return;
     }
@@ -162,16 +195,17 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
       return;
     }
 
-    // Perform check in
+    // Perform check in and update the participant record used by dashboards/reports.
     const recordMeta = getEventRecordMeta(event);
-    const checkIn = await db.createCheckIn(participant.id, eventId, recordMeta);
-    await db.updateParticipant(participant.id, {
+    const updatedParticipant = await db.performCheckIn(participant.id, true, {
       checkedInByUserId: reqUser?.id,
       checkedInByName: reqUser?.name || reqUser?.email || 'Operador',
       checkinOrigin: recordMeta.origin,
       checkinIsTest: recordMeta.isTest,
       checkinTestStatus: recordMeta.testStatus
     });
+    const checkIn = await db.getCheckIn(participant.id, eventId);
+    const checkedParticipant = updatedParticipant || participant;
     
     // Log the check-in action automatically
     await writeLegacyLog({
@@ -208,7 +242,14 @@ router.post('/', authenticateToken, async (req: express.Request, res: express.Re
         name: event?.name || 'Evento'
       },
       checkIn,
-      participant: { ...participant, checkedIn: true, checkedInAt: checkIn.checkInAt, checkinOrigin: recordMeta.origin, checkinIsTest: recordMeta.isTest, checkinTestStatus: recordMeta.testStatus }
+      participant: {
+        ...checkedParticipant,
+        checkedIn: true,
+        checkedInAt: checkIn?.checkInAt || checkedParticipant.checkedInAt || new Date().toISOString(),
+        checkinOrigin: recordMeta.origin,
+        checkinIsTest: recordMeta.isTest,
+        checkinTestStatus: recordMeta.testStatus
+      }
     });
   } catch (error: any) {
     console.error('Error handling checkin POST:', error);

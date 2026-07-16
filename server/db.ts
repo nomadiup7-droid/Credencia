@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { randomBytes } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
 export class DatabaseConflictError extends Error {
@@ -60,6 +61,52 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SECRET_KEY) {
 function toConflictPositions(error: any) {
   const detail = String(error?.details || error?.detail || '').trim();
   return detail ? detail.split(',').map(value => value.trim()).filter(Boolean) : [];
+}
+
+function generateSecureQrToken() {
+  return 'qr_' + randomBytes(24).toString('base64url');
+}
+
+function withParticipantQrDefaults<T extends Partial<Participant>>(participant: T): T {
+  const now = new Date().toISOString();
+  return {
+    ...participant,
+    qrToken: participant.qrToken || generateSecureQrToken(),
+    qrTokenStatus: participant.qrTokenStatus || 'ATIVO',
+    qrTokenVersion: participant.qrTokenVersion || 1,
+    qrTokenCreatedAt: participant.qrTokenCreatedAt || now,
+    credentialStatus: participant.credentialStatus || 'ATIVA',
+    credentialViewCount: participant.credentialViewCount || 0
+  };
+}
+
+function normalizeParticipantText(value?: string) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function participantIdentityKeys(participant: Partial<Participant>) {
+  const keys: string[] = [];
+  const cleanCpf = String(participant.cpf || '').replace(/\D/g, '');
+  const email = normalizeParticipantText(participant.email);
+  const ticketCode = normalizeParticipantText(participant.ticketCode);
+  const qrToken = normalizeParticipantText(participant.qrToken);
+  const externalId = normalizeParticipantText(participant.externalId);
+  const name = normalizeParticipantText(participant.name);
+  const company = normalizeParticipantText(participant.company);
+
+  if (cleanCpf) keys.push(`cpf:${cleanCpf}`);
+  if (email) keys.push(`email:${email}`);
+  if (ticketCode) keys.push(`ticket:${ticketCode}`);
+  if (qrToken) keys.push(`qr:${qrToken}`);
+  if (externalId) keys.push(`external:${externalId}`);
+  if (name && company) keys.push(`name_company:${name}|${company}`);
+  else if (name) keys.push(`name:${name}`);
+  return keys;
 }
 
 function normalizeSupabaseError(error: any) {
@@ -1177,6 +1224,28 @@ class Database {
     return this.data.participants.find(p => p.ticketCode?.trim().toLowerCase() === cleanCode);
   }
 
+  async getParticipantByQrToken(token: string): Promise<Participant | undefined> {
+    if (!token) return undefined;
+    const cleanToken = token.trim();
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase
+        .from('participants')
+        .select('*')
+        .eq('qr_token', cleanToken)
+        .eq('qr_token_status', 'ATIVO')
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    const lower = cleanToken.toLowerCase();
+    return this.data.participants.find(p =>
+      p.qrToken?.trim().toLowerCase() === lower && (p.qrTokenStatus || 'ATIVO') === 'ATIVO'
+    );
+  }
+
   async getParticipantByCpfAndEvent(cpf: string, eventId: string): Promise<Participant | undefined> {
     if (!cpf) return undefined;
     const cleanCpf = cpf.replace(/\D/g, '');
@@ -1193,77 +1262,77 @@ class Database {
   }
 
   async createParticipant(p: Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'checkedInAt' | 'ticketCode'> & { ticketCode?: string; checkedIn?: boolean; checkedInAt?: string }): Promise<Participant> {
-    if (this.useSupabase) {
-      const defaultCode = 'TKT-' + p.eventId.toUpperCase() + '-' + p.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
-      const allowedAreaIds = Array.isArray(p.allowedAreaIds)
-        ? p.allowedAreaIds
-        : (Array.isArray(p.allowedAreas) ? p.allowedAreas : []);
-      const newParticipant = {
-        ...p,
-        id: 'p_' + Math.random().toString(36).substring(2, 9),
-        checkedIn: p.checkedIn || false,
-        checkedInAt: p.checkedInAt || (p.checkedIn ? new Date().toISOString() : null),
-        ticketCode: p.ticketCode || defaultCode,
-        company: p.company || '',
-        allowedAreaIds,
-        allowedAreas: Array.isArray(p.allowedAreas) ? p.allowedAreas : allowedAreaIds,
-        createdAt: new Date().toISOString()
-      };
-      const { data, error } = await this.supabase.from('participants').insert(toSnake(newParticipant)).select().single();
-      if (error) throw error;
-      return toCamel(data);
-    }
     const defaultCode = 'TKT-' + p.eventId.toUpperCase() + '-' + p.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
     const allowedAreaIds = Array.isArray(p.allowedAreaIds)
       ? p.allowedAreaIds
       : (Array.isArray(p.allowedAreas) ? p.allowedAreas : []);
-    const newParticipant: Participant = {
+    const baseParticipant = withParticipantQrDefaults({
       ...p,
       id: 'p_' + Math.random().toString(36).substring(2, 9),
       checkedIn: p.checkedIn || false,
-      checkedInAt: p.checkedInAt || (p.checkedIn ? new Date().toISOString() : undefined),
+      checkedInAt: p.checkedInAt || (p.checkedIn ? new Date().toISOString() : (this.useSupabase ? null : undefined)),
       ticketCode: p.ticketCode || defaultCode,
       company: p.company || '',
+      phone: p.phone || '',
+      position: p.position || '',
+      notes: p.notes || '',
+      externalId: p.externalId || '',
+      customFields: p.customFields || {},
       allowedAreaIds,
       allowedAreas: Array.isArray(p.allowedAreas) ? p.allowedAreas : allowedAreaIds,
       createdAt: new Date().toISOString()
-    };
-    this.data.participants.push(newParticipant);
+    }) as Participant;
+
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('participants').insert(toSnake(baseParticipant)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
+
+    this.data.participants.push(baseParticipant);
     this.saveLocal();
-    return newParticipant;
+    return baseParticipant;
+  }
+
+  async analyzeParticipantsBatch(batch: Array<Partial<Participant> & { eventId: string }>): Promise<{ itemsToCreate: any[]; duplicates: any[]; invalid: any[] }> {
+    if (batch.length === 0) return { itemsToCreate: [], duplicates: [], invalid: [] };
+    const eventId = batch[0].eventId;
+    const existingParticipants = await this.getParticipants(eventId);
+    const existingKeySet = new Set<string>();
+    existingParticipants.forEach(participant => {
+      participantIdentityKeys(participant).forEach(key => existingKeySet.add(key));
+    });
+
+    const batchKeySet = new Set<string>();
+    const itemsToCreate: any[] = [];
+    const duplicates: any[] = [];
+    const invalid: any[] = [];
+
+    batch.forEach((item, index) => {
+      if (!String(item.name || '').trim()) {
+        invalid.push({ index, reason: 'Nome obrigatorio' });
+        return;
+      }
+      const keys = participantIdentityKeys(item);
+      const existingKey = keys.find(key => existingKeySet.has(key));
+      const batchKey = keys.find(key => batchKeySet.has(key));
+      if (existingKey || batchKey) {
+        duplicates.push({ index, name: item.name, reason: existingKey ? 'Ja cadastrado no evento' : 'Duplicado dentro do arquivo', key: existingKey || batchKey });
+        return;
+      }
+      itemsToCreate.push(item);
+      keys.forEach(key => {
+        existingKeySet.add(key);
+        batchKeySet.add(key);
+      });
+    });
+
+    return { itemsToCreate, duplicates, invalid };
   }
 
   async createParticipantsBatch(batch: Array<Omit<Participant, 'id' | 'createdAt' | 'checkedIn' | 'checkedInAt' | 'ticketCode'>>): Promise<Participant[]> {
     if (batch.length === 0) return [];
-    const eventId = batch[0].eventId;
-
-    const normalizeText = (value?: string) =>
-      String(value || '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/\s+/g, ' ');
-
-    const participantKeys = (participant: Partial<Participant>) => {
-      const keys: string[] = [];
-      const cleanCpf = String(participant.cpf || '').replace(/\D/g, '');
-      const email = normalizeText(participant.email);
-      const ticketCode = normalizeText(participant.ticketCode);
-      const name = normalizeText(participant.name);
-
-      if (cleanCpf) keys.push(`cpf:${cleanCpf}`);
-      if (email) keys.push(`email:${email}`);
-      if (ticketCode) keys.push(`ticket:${ticketCode}`);
-      if (name) keys.push(`name:${name}`);
-      return keys;
-    };
-
-    const existingParticipants = await this.getParticipants(eventId);
-    const existingKeySet = new Set<string>();
-    existingParticipants.forEach(participant => {
-      participantKeys(participant).forEach(key => existingKeySet.add(key));
-    });
+    const { itemsToCreate } = await this.analyzeParticipantsBatch(batch as any);
 
     const buildParticipant = (item: any) => {
       const defaultCode = 'TKT-' + item.eventId.toUpperCase() + '-' + item.category.substring(0, 3).toUpperCase() + '-' + Math.floor(10000 + Math.random() * 90000);
@@ -1271,31 +1340,25 @@ class Database {
         ? item.allowedAreaIds
         : (Array.isArray(item.allowedAreas) ? item.allowedAreas : []);
 
-      return {
+      return withParticipantQrDefaults({
         ...item,
         id: 'p_' + Math.random().toString(36).substring(2, 9),
         checkedIn: false,
         checkedInAt: this.useSupabase ? null : undefined,
         ticketCode: item.ticketCode || defaultCode,
         company: item.company || '',
+        phone: item.phone || '',
+        position: item.position || '',
+        notes: item.notes || '',
+        externalId: item.externalId || '',
+        customFields: item.customFields || {},
         allowedAreaIds,
         allowedAreas: allowedAreaIds,
         createdAt: new Date().toISOString()
-      };
+      });
     };
 
-    const newItems = [];
-    for (const item of batch) {
-      const keys = participantKeys(item as Partial<Participant>);
-      const isDuplicate = keys.some(key => existingKeySet.has(key));
-      if (isDuplicate) {
-        continue;
-      }
-
-      const newParticipant = buildParticipant(item);
-      newItems.push(newParticipant);
-      participantKeys(newParticipant as Partial<Participant>).forEach(key => existingKeySet.add(key));
-    }
+    const newItems = itemsToCreate.map(buildParticipant);
 
     if (this.useSupabase) {
       if (newItems.length > 0) {
@@ -1315,6 +1378,31 @@ class Database {
       this.saveLocal();
     }
     return created;
+  }
+
+  async ensureParticipantQrTokens(eventId: string): Promise<Participant[]> {
+    const participants = await this.getParticipants(eventId);
+    const missing = participants.filter(p => !p.qrToken || (p.qrTokenStatus && p.qrTokenStatus !== 'ATIVO'));
+    if (missing.length === 0) return participants;
+
+    const updated: Participant[] = [];
+    for (const participant of missing) {
+      const withQr = await this.updateParticipant(participant.id, withParticipantQrDefaults({ qrTokenStatus: 'ATIVO' }) as Partial<Participant>);
+      if (withQr) updated.push(withQr);
+    }
+    return this.getParticipants(eventId);
+  }
+
+  async regenerateParticipantQrToken(id: string): Promise<Participant | undefined> {
+    const current = await this.getParticipantById(id);
+    if (!current) return undefined;
+    return this.updateParticipant(id, {
+      qrToken: generateSecureQrToken(),
+      qrTokenStatus: 'ATIVO',
+      qrTokenVersion: (current.qrTokenVersion || 1) + 1,
+      qrTokenRegeneratedAt: new Date().toISOString(),
+      qrTokenRevokedAt: new Date().toISOString()
+    });
   }
 
   async updateParticipant(id: string, updates: Partial<Omit<Participant, 'id' | 'createdAt'>>): Promise<Participant | undefined> {

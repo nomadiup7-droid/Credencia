@@ -5,6 +5,10 @@ export const IMPORT_TARGET_OPTIONS: Array<{ value: ImportTargetField; label: str
   { value: 'cpf', label: 'CPF' },
   { value: 'email', label: 'Email' },
   { value: 'company', label: 'Empresa' },
+  { value: 'phone', label: 'Telefone' },
+  { value: 'position', label: 'Cargo' },
+  { value: 'notes', label: 'Observacoes' },
+  { value: 'externalId', label: 'ID externo / matricula' },
   { value: 'category', label: 'Categoria' },
   { value: 'ticketCode', label: 'Codigo QR / Codigo do ingresso' },
   { value: 'areas', label: 'Area de acesso' },
@@ -12,5 +16,5 @@ export const IMPORT_TARGET_OPTIONS: Array<{ value: ImportTargetField; label: str
   { value: 'ignore', label: 'Ignorar coluna' }
 ];
 
-export const DEFAULT_IMPORT_FIELD_ORDER: ImportTargetField[] = ['name', 'cpf', 'email', 'company', 'category', 'ticketCode', 'areas', 'profile'];
+export const DEFAULT_IMPORT_FIELD_ORDER: ImportTargetField[] = ['name', 'cpf', 'email', 'company', 'phone', 'position', 'notes', 'externalId', 'category', 'ticketCode', 'areas', 'profile'];
 export const IMPORT_TEMPLATES_STORAGE_KEY = 'credencia_import_templates';

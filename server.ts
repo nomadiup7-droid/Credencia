@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { randomBytes } from 'crypto';
+import ExcelJS from 'exceljs';
 import { createServer as createViteServer } from 'vite';
 import { db, DatabaseConflictError } from './server/db';
 import { UserRole, EventUserRole, EventUser, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus } from './src/types';
@@ -43,6 +44,35 @@ const SYSTEM_PERMISSIONS = [
 ] as const;
 
 const ALL_SYSTEM_PERMISSIONS = [...SYSTEM_PERMISSIONS];
+
+const getPublicBaseUrl = (req: express.Request) => {
+  const configured = process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL;
+  if (configured) return configured.replace(/\/$/, '');
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
+  const host = req.get('host') || `localhost:${PORT}`;
+  return `${proto}://${host}`;
+};
+
+const getCredentialLink = (req: express.Request, token?: string) =>
+  token ? `${getPublicBaseUrl(req)}/convite/${encodeURIComponent(token)}` : '';
+
+const extractCredentialToken = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/convite\/([^/?#]+)/i);
+  if (match) return decodeURIComponent(match[1]);
+  try {
+    const parsed = new URL(raw);
+    const token = parsed.pathname.match(/\/convite\/([^/?#]+)/i)?.[1];
+    if (token) return decodeURIComponent(token);
+  } catch {}
+  return raw;
+};
+
+const isLikelyAutomatedViewer = (req: express.Request) => {
+  const ua = String(req.headers['user-agent'] || '').toLowerCase();
+  return /bot|crawler|spider|preview|headless|facebookexternalhit|whatsapp|telegram|slackbot/.test(ua);
+};
 
 const uniquePermissions = (permissions?: string[]) =>
   [...new Set((permissions || []).filter(permission => ALL_SYSTEM_PERMISSIONS.includes(permission as any)))];
@@ -461,6 +491,85 @@ app.use('/api/v1', apiV1);
 
 app.get('/api/docs/openapi.json', (_req, res) => {
   res.json(openApiDocument);
+});
+
+app.get('/api/public/credentials/:token', async (req, res) => {
+  try {
+    const token = extractCredentialToken(req.params.token);
+    const participant = await db.getParticipantByQrToken(token);
+    if (!participant) {
+      res.status(404).json({ error: 'Credencial nao encontrada ou expirada' });
+      return;
+    }
+    if ((participant.credentialStatus || 'ATIVA') === 'BLOQUEADA') {
+      res.status(403).json({ error: 'Credencial bloqueada' });
+      return;
+    }
+    if ((participant.credentialStatus || 'ATIVA') === 'CANCELADA') {
+      res.status(403).json({ error: 'Credencial cancelada' });
+      return;
+    }
+
+    const event = await db.getEventById(participant.eventId);
+    if (!event) {
+      res.status(404).json({ error: 'Evento nao encontrado' });
+      return;
+    }
+
+    const sessionId = String(req.headers['x-credential-view-session'] || '').trim();
+    const shouldCount = !isLikelyAutomatedViewer(req) && (!sessionId || sessionId !== participant.credentialLastViewSessionId);
+    let currentParticipant = participant;
+    if (shouldCount) {
+      const now = new Date().toISOString();
+      const updated = await db.updateParticipant(participant.id, {
+        credentialFirstViewedAt: participant.credentialFirstViewedAt || now,
+        credentialLastViewedAt: now,
+        credentialViewCount: (participant.credentialViewCount || 0) + 1,
+        credentialLastViewSessionId: sessionId || `view_${randomBytes(8).toString('hex')}`
+      } as any);
+      currentParticipant = updated || participant;
+      await writeActionLog({
+        eventId: participant.eventId,
+        userId: 'public',
+        participantId: participant.id,
+        action: 'VIEW_PARTICIPANT_CREDENTIAL' as ActionLogAction,
+        metadata: { automated: false }
+      } as any);
+    }
+
+    res.json({
+      event: {
+        id: event.id,
+        name: event.name,
+        date: event.date,
+        location: event.location,
+        startTime: (event as any).startTime || '',
+        endTime: (event as any).endTime || '',
+        logoUrl: (event as any).logoUrl || ''
+      },
+      participant: {
+        name: currentParticipant.badgeName || currentParticipant.name,
+        company: currentParticipant.company || '',
+        position: currentParticipant.position || '',
+        category: currentParticipant.category,
+        ticketCode: currentParticipant.ticketCode,
+        checkedIn: currentParticipant.checkedIn,
+        checkedInAt: currentParticipant.checkedInAt,
+        credentialStatus: currentParticipant.credentialStatus || 'ATIVA',
+        credentialFirstViewedAt: currentParticipant.credentialFirstViewedAt,
+        credentialLastViewedAt: currentParticipant.credentialLastViewedAt,
+        credentialViewCount: currentParticipant.credentialViewCount || 0
+      },
+      credential: {
+        token: currentParticipant.qrToken,
+        link: getCredentialLink(req, currentParticipant.qrToken),
+        qrPayload: getCredentialLink(req, currentParticipant.qrToken)
+      }
+    });
+  } catch (error: any) {
+    console.error('Erro ao carregar credencial publica:', error);
+    res.status(500).json({ error: 'Erro ao carregar credencial' });
+  }
 });
 
 app.get('/api/docs', (_req, res) => {
@@ -1871,6 +1980,10 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
     const email = String(findValue(['email', 'e-mail', 'mail', 'endereço de e-mail', 'correio']) || '').trim();
     const cpf = String(findValue(['cpf', 'c.p.f.', 'documento', 'identidade', 'cpf/cnpj']) || '').replace(/\D/g, '');
     const company = String(findValue(['empresa', 'company', 'corporação', 'corporacao', 'org', 'organização', 'organizacao', 'trabalho']) || '').trim();
+    const phone = String(findValue(['telefone', 'phone', 'celular', 'whatsapp', 'mobile']) || '').trim();
+    const position = String(findValue(['cargo', 'position', 'funcao', 'função', 'profissao', 'profissão']) || '').trim();
+    const notes = String(findValue(['observacoes', 'observações', 'notes', 'obs']) || '').trim();
+    const externalId = String(findValue(['externalId', 'external_id', 'id externo', 'matricula', 'matrícula', 'codigo participante']) || '').trim();
     
     const ticketCode = String(findValue(['ticketCode', 'ticket_code', 'codigo qr', 'qr code', 'codigo do ingresso', 'ingresso', 'ticket', 'codigo']) || '').trim();
 
@@ -1939,13 +2052,31 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
       cpf,
       category,
       company,
+      phone,
+      position,
+      notes,
+      externalId,
+      credentialStatus: 'ATIVA',
       ...(ticketCode ?{ ticketCode } : {}),
       allowedAreaIds: allowedAreas,
       allowedAreas
     };
   }).filter(p => p.name);
 
-  const created = await db.createParticipantsBatch(itemsToCreate);
+  const analysis = await db.analyzeParticipantsBatch(itemsToCreate as any);
+  const created = await db.createParticipantsBatch(analysis.itemsToCreate as any);
+  await writeActionLog({
+    eventId,
+    userId: user.id,
+    action: 'IMPORT_PARTICIPANTS' as ActionLogAction,
+    metadata: {
+      processed: participants.length,
+      imported: created.length,
+      skipped: participants.length - created.length,
+      duplicates: analysis.duplicates.length,
+      invalid: analysis.invalid.length
+    }
+  } as any);
   await Promise.all(created.map(participant => writeActionLog({
     eventId,
     userId: user.id,
@@ -1956,8 +2087,140 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
     totalProcessed: participants.length,
     totalImported: created.length,
     skipped: participants.length - created.length,
-    imported: created
+    duplicates: analysis.duplicates,
+    invalid: analysis.invalid,
+    imported: created.map(participant => ({
+      ...participant,
+      individualLink: getCredentialLink(req, participant.qrToken)
+    }))
   });
+});
+
+app.get('/api/events/:eventId/participants/export-links', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const eventId = req.params.eventId;
+    const event = await db.getEventById(eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento nao encontrado ou acesso restrito' });
+      return;
+    }
+    if (!(await hasEventPermission(user, eventId, 'participants.export'))) {
+      res.status(403).json({ error: 'Usuario sem permissao para exportar participantes' });
+      return;
+    }
+
+    const participants = await db.ensureParticipantQrTokens(eventId);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Credencia';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet('Links individuais');
+    sheet.columns = [
+      { header: 'Nome', key: 'name', width: 32 },
+      { header: 'Email', key: 'email', width: 32 },
+      { header: 'Telefone', key: 'phone', width: 18 },
+      { header: 'Empresa', key: 'company', width: 26 },
+      { header: 'Cargo', key: 'position', width: 24 },
+      { header: 'Categoria', key: 'category', width: 18 },
+      { header: 'Codigo do participante', key: 'ticketCode', width: 24 },
+      { header: 'Link individual', key: 'link', width: 58 },
+      { header: 'Status da visualizacao', key: 'viewStatus', width: 22 },
+      { header: 'Primeira visualizacao', key: 'firstViewedAt', width: 24 },
+      { header: 'Ultima visualizacao', key: 'lastViewedAt', width: 24 },
+      { header: 'Quantidade de visualizacoes', key: 'viewCount', width: 24 },
+      { header: 'Status do check-in', key: 'checkinStatus', width: 20 },
+      { header: 'Data e hora do check-in', key: 'checkedInAt', width: 24 }
+    ];
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+    sheet.autoFilter = { from: 'A1', to: 'N1' };
+
+    participants.forEach(participant => {
+      const link = getCredentialLink(req, participant.qrToken);
+      const row = sheet.addRow({
+        name: participant.name,
+        email: participant.email || '',
+        phone: participant.phone || '',
+        company: participant.company || '',
+        position: participant.position || '',
+        category: participant.category,
+        ticketCode: participant.ticketCode,
+        link,
+        viewStatus: participant.credentialFirstViewedAt ? 'Visualizado' : 'Nao visualizado',
+        firstViewedAt: participant.credentialFirstViewedAt || '',
+        lastViewedAt: participant.credentialLastViewedAt || '',
+        viewCount: participant.credentialViewCount || 0,
+        checkinStatus: participant.checkedIn ? 'Check-in realizado' : 'Pendente',
+        checkedInAt: participant.checkedInAt || ''
+      });
+      row.getCell('link').value = { text: link, hyperlink: link };
+      row.getCell('link').font = { color: { argb: 'FF2563EB' }, underline: true };
+    });
+
+    await writeActionLog({
+      eventId,
+      userId: user.id,
+      action: 'EXPORT_PARTICIPANT_LINKS' as ActionLogAction,
+      metadata: { total: participants.length, format: 'xlsx' }
+    } as any);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="credencia-links-${eventId}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error: any) {
+    console.error('Erro ao exportar links:', error);
+    res.status(500).json({ error: 'Erro ao exportar links individuais' });
+  }
+});
+
+app.post('/api/participants/:id/credential/regenerate', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const current = await db.getParticipantById(req.params.id);
+  if (!current) {
+    res.status(404).json({ error: 'Participante nao encontrado' });
+    return;
+  }
+  const event = await db.getEventById(current.eventId);
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(403).json({ error: 'Acesso negado' });
+    return;
+  }
+  const updated = await db.regenerateParticipantQrToken(current.id);
+  if (updated) {
+    await writeActionLog({
+      eventId: current.eventId,
+      userId: user.id,
+      participantId: current.id,
+      action: 'REGENERATE_PARTICIPANT_QR' as ActionLogAction,
+      metadata: { previousVersion: current.qrTokenVersion || 1, reason: req.body?.reason || '' }
+    } as any);
+  }
+  res.json({ participant: updated, individualLink: getCredentialLink(req, updated?.qrToken) });
+});
+
+app.patch('/api/participants/:id/credential/status', authenticateToken, requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  const current = await db.getParticipantById(req.params.id);
+  if (!current) {
+    res.status(404).json({ error: 'Participante nao encontrado' });
+    return;
+  }
+  const event = await db.getEventById(current.eventId);
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(403).json({ error: 'Acesso negado' });
+    return;
+  }
+  const status = ['ATIVA', 'BLOQUEADA', 'CANCELADA'].includes(req.body?.status) ? req.body.status : 'ATIVA';
+  const updated = await db.updateParticipant(current.id, { credentialStatus: status } as any);
+  await writeActionLog({
+    eventId: current.eventId,
+    userId: user.id,
+    participantId: current.id,
+    action: status === 'BLOQUEADA' ? 'BLOCK_PARTICIPANT_CREDENTIAL' as ActionLogAction : 'EDIT_PARTICIPANT',
+    metadata: { status }
+  } as any);
+  res.json(updated);
 });
 
 app.put('/api/participants/:id', authenticateToken, requireAdmin, async (req, res) => {
@@ -2123,7 +2386,19 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
     return;
   }
 
-  let p = await db.getParticipantByTicketCode(code);
+  const tokenCandidate = extractCredentialToken(code);
+  let p = await db.getParticipantByQrToken(tokenCandidate);
+  if (p && (p.credentialStatus || 'ATIVA') === 'BLOQUEADA') {
+    res.json({ error: 'Credencial bloqueada', participant: p });
+    return;
+  }
+  if (p && (p.credentialStatus || 'ATIVA') === 'CANCELADA') {
+    res.json({ error: 'Credencial cancelada', participant: p });
+    return;
+  }
+  if (!p) {
+    p = await db.getParticipantByTicketCode(code);
+  }
   
   // Try searching by CPF if code looks like a CPF or was not found
   if (!p) {

@@ -13,6 +13,7 @@ export const DEFAULT_REPORT_CONFIG: ReportConfig = {
   summaryCheckedIn: true,
   summaryPending: true,
   summaryAttendanceRate: true,
+  summaryCredentialLinksViewed: true,
   eventName: true,
   eventDate: true,
   eventCategory: true,
@@ -30,7 +31,10 @@ export const DEFAULT_REPORT_CONFIG: ReportConfig = {
   participantCategory: true,
   participantCheckinStatus: true,
   participantCheckinTime: true,
-  participantAreaAccess: true
+  participantAreaAccess: true,
+  participantCredentialLinkStatus: true,
+  participantCredentialFirstView: true,
+  participantCredentialViewCount: true
 };
 
 export const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; description: string; keys: Array<{ key: ReportOptionKey; label: string }> }> = [
@@ -42,31 +46,32 @@ export const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; descriptio
       { key: 'summaryTotal', label: 'Total de participantes' },
       { key: 'summaryCheckedIn', label: 'Check-ins realizados' },
       { key: 'summaryPending', label: 'Participantes pendentes' },
-      { key: 'summaryAttendanceRate', label: 'Percentual de presença' }
+      { key: 'summaryAttendanceRate', label: 'Percentual de presenca' },
+      { key: 'summaryCredentialLinksViewed', label: 'Links de QR Code visualizados' }
     ]
   },
   {
     id: 'event',
     title: 'Dados do evento',
-    description: 'Cabeçalho e contexto do relatório.',
+    description: 'Cabecalho e contexto do relatorio.',
     keys: [
       { key: 'eventName', label: 'Nome do evento' },
       { key: 'eventDate', label: 'Data do evento' },
       { key: 'eventCategory', label: 'Categoria' },
       { key: 'eventStatusFilter', label: 'Status filtrado' },
-      { key: 'issuedAt', label: 'Data e hora de emissão do relatório' }
+      { key: 'issuedAt', label: 'Data e hora de emissao do relatorio' }
     ]
   },
   {
     id: 'charts',
-    title: 'Gráficos e estatísticas',
-    description: 'Blocos visuais de análise operacional.',
+    title: 'Graficos e estatisticas',
+    description: 'Blocos visuais de analise operacional.',
     keys: [
-      { key: 'checkinsByHour', label: 'Check-ins por horário' },
+      { key: 'checkinsByHour', label: 'Check-ins por horario' },
       { key: 'participantsByCategory', label: 'Participantes por categoria' },
       { key: 'presenceBreakdown', label: 'Presentes x ausentes' },
       { key: 'areaAccess', label: 'Acessos por sala' },
-      { key: 'areaAccessDecisions', label: 'Liberações e negações de acesso' }
+      { key: 'areaAccessDecisions', label: 'Liberacoes e negacoes de acesso' }
     ]
   },
   {
@@ -80,8 +85,18 @@ export const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; descriptio
       { key: 'participantPhone', label: 'Telefone' },
       { key: 'participantCategory', label: 'Categoria' },
       { key: 'participantCheckinStatus', label: 'Status do check-in' },
-      { key: 'participantCheckinTime', label: 'Horário do check-in' },
+      { key: 'participantCheckinTime', label: 'Horario do check-in' },
       { key: 'participantAreaAccess', label: 'Sala/acesso liberado ou negado' }
+    ]
+  },
+  {
+    id: 'credential-links',
+    title: 'Links visualizados',
+    description: 'Dados de abertura dos links individuais com QR Code.',
+    keys: [
+      { key: 'participantCredentialLinkStatus', label: 'Status do link' },
+      { key: 'participantCredentialFirstView', label: 'Primeira visualizacao' },
+      { key: 'participantCredentialViewCount', label: 'Quantidade de aberturas' }
     ]
   }
 ];
