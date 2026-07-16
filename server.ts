@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import https from 'https';
 import { randomBytes } from 'crypto';
 import ExcelJS from 'exceljs';
 import { createServer as createViteServer } from 'vite';
@@ -12,6 +14,7 @@ import { openApiDocument } from './server/openapi';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const HTTPS_PORT = Number(process.env.HTTPS_PORT || 3443);
 
 // Enable standard body parsers
 app.use(express.json({ limit: '10mb' }));
@@ -3689,6 +3692,25 @@ async function startServer() {
     console.log(` Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`======================================================\n`);
   });
+
+  const httpsPfxPath = process.env.HTTPS_PFX_PATH;
+  if (httpsPfxPath) {
+    try {
+      const pfx = fs.readFileSync(path.resolve(httpsPfxPath));
+      https.createServer({
+        pfx,
+        passphrase: process.env.HTTPS_PFX_PASSPHRASE || ''
+      }, app).listen(HTTPS_PORT, '0.0.0.0', () => {
+        console.log(`\n======================================================`);
+        console.log(` CREDENCIA HTTPS endpoint enabled!`);
+        console.log(` Endpoint: https://localhost:${HTTPS_PORT}`);
+        console.log(` Mobile: use https://SEU-IP:${HTTPS_PORT}`);
+        console.log(`======================================================\n`);
+      });
+    } catch (error: any) {
+      console.warn(`HTTPS local nao iniciado: ${error.message || error}`);
+    }
+  }
 }
 
 startServer().catch(err => {

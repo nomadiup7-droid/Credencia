@@ -29,6 +29,12 @@ const normalizeSearch = (value?: string) => (value || '')
 
 const getPrintPreferenceKey = (eventId?: string) => `credencia_mobile_checkin_print_${eventId || 'global'}`;
 
+const isLocalhost = () => ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+
+const getInsecureCameraMessage = () => (
+  'A camera do celular exige HTTPS. Em rede local, abrir por http://IP:3000 pode ser bloqueado pelo navegador. Use HTTPS, um tunel seguro ou acesse em localhost no proprio aparelho.'
+);
+
 export default function CheckinMobilePage({
   selectedEvent,
   selectedEventId,
@@ -53,6 +59,15 @@ export default function CheckinMobilePage({
   const resetTimerRef = useRef<number | null>(null);
   const scanLockRef = useRef(false);
   const scannerElementId = 'checkin-mobile-camera-reader';
+
+  const waitForScannerElement = async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const element = document.getElementById(scannerElementId);
+      if (element) return element;
+      await new Promise(resolve => window.setTimeout(resolve, 50));
+    }
+    return null;
+  };
 
   useEffect(() => {
     if (!scannerOpen) inputRef.current?.focus();
@@ -214,6 +229,11 @@ export default function CheckinMobilePage({
   const handleScanResult = async (decodedText: string) => {
     if (scanLockRef.current) return;
     scanLockRef.current = true;
+    const releaseScanLock = (delay = 1800) => {
+      window.setTimeout(() => {
+        scanLockRef.current = false;
+      }, delay);
+    };
 
     if (!selectedEventId) {
       setFeedback({
@@ -221,11 +241,9 @@ export default function CheckinMobilePage({
         title: 'PARTICIPANTE NAO ENCONTRADO',
         message: 'Selecione um evento antes de escanear.'
       });
-      scanLockRef.current = false;
+      releaseScanLock();
       return;
     }
-
-    await stopScanner();
 
     try {
       const result = await apiCall('/api/checkin', {
@@ -291,12 +309,9 @@ export default function CheckinMobilePage({
       });
       addToast(error.message || 'Participante nao encontrado.', 'error');
       scheduleReset({ focusInput: false });
-      window.setTimeout(() => {
-        scanLockRef.current = false;
-      }, 1800);
       return;
     } finally {
-      scanLockRef.current = false;
+      releaseScanLock();
     }
   };
 
@@ -317,33 +332,59 @@ export default function CheckinMobilePage({
 
   const startScanner = async () => {
     setScannerError('');
-    setScannerOpen(true);
+
+    if (!window.isSecureContext && !isLocalhost()) {
+      const message = getInsecureCameraMessage();
+      setScannerError(message);
+      addToast('Navegador bloqueou a camera fora de HTTPS.', 'error');
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const message = 'Este navegador nao liberou acesso a camera. Verifique permissao, HTTPS e compatibilidade do navegador.';
+      setScannerError(message);
+      addToast('Camera indisponivel neste navegador.', 'error');
+      return;
+    }
+
     try {
       await stopScanner();
       setScannerOpen(true);
-      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+      const scannerElement = await waitForScannerElement();
+      if (!scannerElement) {
+        throw new Error('Leitor da camera nao foi renderizado. Atualize a pagina e tente novamente.');
+      }
       const scanner = new Html5Qrcode(scannerElementId);
       scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 12,
-          qrbox: (width, height) => {
-            const size = Math.floor(Math.min(width, height) * 0.72);
-            return { width: size, height: size };
-          }
-        },
-        decodedText => {
-          void handleScanResult(decodedText);
-        },
-        () => {}
-      );
+      const scannerConfig = {
+        fps: 12,
+        qrbox: (width: number, height: number) => {
+          const size = Math.floor(Math.min(width, height) * 0.72);
+          return { width: size, height: size };
+        }
+      };
+      const onScanSuccess = (decodedText: string) => {
+        void handleScanResult(decodedText);
+      };
+
+      try {
+        await scanner.start({ facingMode: 'environment' }, scannerConfig, onScanSuccess, () => {});
+      } catch (environmentError) {
+        const cameras = await Html5Qrcode.getCameras();
+        const fallbackCamera = cameras.find(camera => /back|rear|environment|traseira/i.test(camera.label)) || cameras[0];
+        if (!fallbackCamera) throw environmentError;
+        await scanner.start(fallbackCamera.id, scannerConfig, onScanSuccess, () => {});
+      }
     } catch (error: any) {
       setScannerOpen(false);
       const message = error?.message || 'Nao foi possivel abrir a camera.';
-      setScannerError(message.includes('Permission') || message.includes('NotAllowed')
-        ? 'Permissao negada. Autorize a camera no navegador.'
-        : message);
+      setScannerError(
+        message.includes('Permission') || message.includes('NotAllowed')
+          ? 'Permissao negada. Autorize a camera no navegador do celular.'
+          : message.includes('Only secure origins') || message.includes('secure context')
+            ? getInsecureCameraMessage()
+            : message
+      );
       addToast('Nao foi possivel ativar a camera.', 'error');
     }
   };
