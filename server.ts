@@ -1266,65 +1266,10 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   });
 });
 
-// --- PUBLIC SIGNUP ENDPOINT ---
-app.post('/api/auth/signup', async (req, res) => {
-  const { name, email, password, role, orgName } = req.body;
-  if (!name || !email || !password) {
-    res.status(400).json({ error: 'Nome, E-mail e Senha são obrigatórios' });
-    return;
-  }
-
-  const existing = await db.getUserByEmail(email);
-  if (existing) {
-    res.status(400).json({ error: 'Já existe um usuário cadastrado com este e-mail' });
-    return;
-  }
-
-  // Dynamic organization onboarding for SaaS
-  let targetOrgId = 'org1';
-  let finalOrgName = 'Organização Alfa';
-  if (orgName && String(orgName).trim() !== '') {
-    const newOrg = await db.createOrganization({ name: String(orgName).trim() });
-    targetOrgId = newOrg.id;
-    finalOrgName = newOrg.name;
-  } else {
-    const org = await db.getOrganizationById('org1');
-    if (org) {
-      finalOrgName = org.name;
-    }
-  }
-
-  let assignedRole: UserRole = 'CHECKIN';
-  if (role) {
-    const roleUpper = String(role).toUpperCase();
-    if (['ADMIN', 'SUPERVISOR', 'CHECKIN', 'CHECKIN_CADASTRO', 'ATENDENTE'].includes(roleUpper)) {
-      assignedRole = roleUpper as UserRole;
-    } else if (roleUpper === 'OPERATOR') {
-      assignedRole = 'CHECKIN_CADASTRO';
-    } else if (roleUpper === 'ADMINISTRADOR') {
-      assignedRole = 'ADMIN';
-    }
-  }
-  const newUser = await db.createUser({
-    name,
-    email,
-    passwordHash: await hashPassword(password),
-    role: assignedRole,
-    organizationId: targetOrgId
-  });
-
-  const token = signAuthToken(newUser);
-  res.status(201).json({
-    token,
-    user: {
-      id: newUser.id,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      organizationId: targetOrgId,
-      organizationName: finalOrgName
-    }
-  });
+// Public account creation is intentionally disabled. New users are created
+// by authenticated administrators in the user-management area.
+app.post('/api/auth/signup', (_req, res) => {
+  res.status(403).json({ error: 'Criação pública de acesso desativada.' });
 });
 
 // --- USER MANAGEMENT ENDPOINTS ---
@@ -1427,6 +1372,10 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   }
   if ((user.organizationId || 'org1') !== (requester.organizationId || 'org1')) {
     res.status(404).json({ error: 'Usuário não encontrado' });
+    return;
+  }
+  if (password && String(password).length < 8) {
+    res.status(400).json({ error: 'A nova senha deve ter pelo menos 8 caracteres.' });
     return;
   }
 

@@ -1,4 +1,4 @@
-import { User, UserRole } from '../types';
+import { User } from '../types';
 import { apiRequest } from './api';
 
 interface AuthResponse {
@@ -30,13 +30,6 @@ export const authService = {
     });
     persistAuth(data);
     return data;
-  },
-
-  async signUp(userData: { name: string; email: string; password?: string; role?: UserRole; orgName?: string }): Promise<{ user: User; token?: string }> {
-    return apiRequest<{ user: User; token?: string }>('/api/auth/signup', {
-      method: 'POST',
-      body: JSON.stringify(userData)
-    });
   },
 
   async getCurrentUser(): Promise<User> {

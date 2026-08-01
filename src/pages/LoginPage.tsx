@@ -1,8 +1,8 @@
 import React from 'react';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react';
 import credenciaLogoIcon from '../assets/credencia-logo-icon.png';
 import credenciaLoginGlass from '../assets/credencia-login-glass.jpeg';
-import type { Toast, UserRole } from '../types';
+import type { Toast } from '../types';
 
 interface LoginPageProps {
   loginMethod: 'pin' | 'email';
@@ -10,20 +10,12 @@ interface LoginPageProps {
   pinInput: string;
   setPinInput: React.Dispatch<React.SetStateAction<string>>;
   authLoading: boolean;
-  isRegisterMode: boolean;
-  setIsRegisterMode: React.Dispatch<React.SetStateAction<boolean>>;
   emailInput: string;
   setEmailInput: React.Dispatch<React.SetStateAction<string>>;
   passwordInput: string;
   setPasswordInput: React.Dispatch<React.SetStateAction<string>>;
-  registerNameInput: string;
-  setRegisterNameInput: React.Dispatch<React.SetStateAction<string>>;
-  registerOrgInput: string;
-  setRegisterOrgInput: React.Dispatch<React.SetStateAction<string>>;
-  registerRoleInput: UserRole;
-  setRegisterRoleInput: React.Dispatch<React.SetStateAction<UserRole>>;
   handleLogin: (event: React.FormEvent) => void;
-  handleSignup: (event: React.FormEvent) => void;
+  handleRecoverLogin: (pin: string, newPassword: string) => Promise<{ email: string; name: string }>;
   toasts: Toast[];
 }
 
@@ -33,22 +25,147 @@ export default function LoginPage({
   pinInput,
   setPinInput,
   authLoading,
-  isRegisterMode,
-  setIsRegisterMode,
   emailInput,
   setEmailInput,
   passwordInput,
   setPasswordInput,
-  registerNameInput,
-  setRegisterNameInput,
-  registerOrgInput,
-  setRegisterOrgInput,
-  registerRoleInput,
-  setRegisterRoleInput,
   handleLogin,
-  handleSignup,
+  handleRecoverLogin,
   toasts
 }: LoginPageProps) {
+  const [isRecoveryMode, setIsRecoveryMode] = React.useState(false);
+  const [recoveryPin, setRecoveryPin] = React.useState('');
+  const [newPassword, setNewPassword] = React.useState('');
+  const [confirmPassword, setConfirmPassword] = React.useState('');
+  const [showRecoveryPassword, setShowRecoveryPassword] = React.useState(false);
+  const [recoveryError, setRecoveryError] = React.useState('');
+
+  const resetRecoveryForm = () => {
+    setRecoveryPin('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setRecoveryError('');
+    setShowRecoveryPassword(false);
+  };
+
+  const closeRecovery = () => {
+    resetRecoveryForm();
+    setIsRecoveryMode(false);
+  };
+
+  const submitRecovery = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setRecoveryError('');
+
+    if (!/^\d{4,6}$/.test(recoveryPin)) {
+      setRecoveryError('Informe o PIN de 4 a 6 números cadastrado no seu acesso.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setRecoveryError('A nova senha deve ter pelo menos 8 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setRecoveryError('As senhas não coincidem. Digite novamente.');
+      return;
+    }
+
+    try {
+      await handleRecoverLogin(recoveryPin, newPassword);
+      closeRecovery();
+    } catch {
+      setRecoveryError('Não foi possível validar o PIN. Confira e tente novamente.');
+    }
+  };
+
+  const recoveryForm = (
+    <form onSubmit={submitRecovery} className="space-y-4" noValidate>
+      <div>
+        <label htmlFor="recovery-pin" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+          PIN de acesso
+        </label>
+        <input
+          id="recovery-pin"
+          type="password"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={recoveryPin}
+          onChange={event => setRecoveryPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="4 a 6 números"
+          disabled={authLoading}
+          className="min-h-12 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium tracking-[0.3em] text-slate-900 placeholder:tracking-normal placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="recovery-password" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+          Nova senha
+        </label>
+        <div className="relative">
+          <input
+            id="recovery-password"
+            type={showRecoveryPassword ? 'text' : 'password'}
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={event => setNewPassword(event.target.value)}
+            placeholder="Mínimo de 8 caracteres"
+            disabled={authLoading}
+            className="min-h-12 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 pr-12 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <button
+            type="button"
+            onClick={() => setShowRecoveryPassword(value => !value)}
+            className="absolute inset-y-0 right-0 flex min-w-12 items-center justify-center rounded-r-xl text-slate-500 transition hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            aria-label={showRecoveryPassword ? 'Ocultar nova senha' : 'Mostrar nova senha'}
+          >
+            {showRecoveryPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="recovery-password-confirm" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+          Confirmar nova senha
+        </label>
+        <input
+          id="recovery-password-confirm"
+          type={showRecoveryPassword ? 'text' : 'password'}
+          autoComplete="new-password"
+          value={confirmPassword}
+          onChange={event => setConfirmPassword(event.target.value)}
+          placeholder="Repita a nova senha"
+          disabled={authLoading}
+          className="min-h-12 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      </div>
+
+      {recoveryError && (
+        <p role="alert" aria-live="polite" className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm font-medium text-rose-800">
+          {recoveryError}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={authLoading}
+        className="cx-button-primary flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        {authLoading ? <RefreshCw className="animate-spin" size={16} /> : <KeyRound size={16} />}
+        <span>{authLoading ? 'Recuperando...' : 'Redefinir senha'}</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={closeRecovery}
+        disabled={authLoading}
+        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <ArrowLeft size={16} />
+        Voltar para login
+      </button>
+    </form>
+  );
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#030604] text-white flex items-center justify-center p-4 sm:p-6">
       <img
@@ -109,14 +226,16 @@ export default function LoginPage({
               </div>
             </div>
             <h2 className="text-xl font-bold text-slate-950 font-display">
-              {isRegisterMode ? 'Criar acesso' : 'Entrar no sistema'}
+              {isRecoveryMode ? 'Recuperar login' : 'Entrar no sistema'}
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              {isRegisterMode ? 'Cadastre um operador para usar o sistema.' : 'Use seu e-mail e senha para acessar a operação.'}
+              {isRecoveryMode
+                ? 'Valide seu PIN para consultar o e-mail cadastrado e criar uma nova senha.'
+                : 'Use seu e-mail e senha para acessar a operação.'}
             </p>
           </div>
 
-          {loginMethod === 'pin' && !isRegisterMode ? (
+          {isRecoveryMode ? recoveryForm : loginMethod === 'pin' ? (
             <div className="space-y-5">
               <div className="flex justify-center gap-2 select-none">
                 {[0, 1, 2, 3, 4, 5].map((idx) => {
@@ -191,37 +310,7 @@ export default function LoginPage({
               </button>
             </div>
           ) : (
-            <form onSubmit={isRegisterMode ? handleSignup : handleLogin} className="space-y-4">
-              {isRegisterMode && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                      Nome completo
-                    </label>
-                    <input
-                      type="text"
-                      value={registerNameInput}
-                      onChange={e => setRegisterNameInput(e.target.value)}
-                      placeholder="Nome do operador"
-                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                      Organização ou empresa
-                    </label>
-                    <input
-                      type="text"
-                      value={registerOrgInput}
-                      onChange={e => setRegisterOrgInput(e.target.value)}
-                      placeholder="Nome da organizacao"
-                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
-                    />
-                  </div>
-                </>
-              )}
-
+            <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                   E-mail
@@ -248,22 +337,6 @@ export default function LoginPage({
                 />
               </div>
 
-              {isRegisterMode && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Nível de acesso
-                  </label>
-                  <select
-                    value={registerRoleInput}
-                    onChange={e => setRegisterRoleInput(e.target.value as UserRole)}
-                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 outline-none backdrop-blur-sm focus:border-emerald-400 cursor-pointer"
-                  >
-                    <option value="admin">Administrador</option>
-                    <option value="operator">Operador</option>
-                  </select>
-                </div>
-              )}
-
               <button
                 type="submit"
                 disabled={authLoading}
@@ -276,7 +349,7 @@ export default function LoginPage({
                   </>
                 ) : (
                   <>
-                    <span>{isRegisterMode ? 'Criar acesso' : 'Entrar'}</span>
+                    <span>Entrar</span>
                     <ArrowRight size={14} />
                   </>
                 )}
@@ -284,7 +357,7 @@ export default function LoginPage({
             </form>
           )}
 
-          {!isRegisterMode && loginMethod === 'email' && (
+          {!isRecoveryMode && loginMethod === 'email' && (
             <button
               type="button"
               onClick={() => { setLoginMethod('pin'); setPinInput(''); }}
@@ -294,20 +367,23 @@ export default function LoginPage({
             </button>
           )}
 
+          {!isRecoveryMode && (
           <div className="mt-5 text-center">
             <button
               type="button"
               onClick={() => {
-                setIsRegisterMode(!isRegisterMode);
+                resetRecoveryForm();
+                setIsRecoveryMode(true);
                 setLoginMethod('email');
-                setEmailInput('');
                 setPasswordInput('');
               }}
-              className="text-sm text-emerald-700 hover:text-slate-950 font-semibold focus:outline-none transition cursor-pointer select-none"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer select-none"
             >
-              {isRegisterMode ? 'Voltar para login' : 'Criar acesso administrativo'}
+              <KeyRound size={16} />
+              Recuperar login
             </button>
           </div>
+          )}
         </div>
       </div>
 

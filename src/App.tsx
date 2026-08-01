@@ -137,12 +137,7 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // New Login/Sign Up and Profile Editing States
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
-  const [registerNameInput, setRegisterNameInput] = useState('');
-  const [registerOrgInput, setRegisterOrgInput] = useState('');
-  const [registerRoleInput, setRegisterRoleInput] = useState<UserRole>('admin');
-  
+  // Profile editing state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', email: '', password: '' });
 
@@ -694,37 +689,39 @@ export default function App() {
     addToast('Sessão encerrada com sucesso', 'info');
   };
 
-  // Signup/Registration Handler
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!registerNameInput || !emailInput || !passwordInput) {
-      addToast('Por favor, preencha todos os campos do cadastro.', 'error');
-      return;
-    }
-
+  const handleRecoverLogin = async (pin: string, newPassword: string) => {
     setAuthLoading(true);
     try {
-      const data = await apiCall('/api/auth/signup', {
+      const loginResponse = await fetch('/api/auth/login-pin', {
         method: 'POST',
-        body: JSON.stringify({
-          name: registerNameInput,
-          email: emailInput,
-          password: passwordInput,
-          role: registerRoleInput,
-          orgName: registerOrgInput
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
       });
+      const loginData = await loginResponse.json().catch(() => ({}));
+      if (!loginResponse.ok || !loginData?.token || !loginData?.user) {
+        throw new Error(loginData?.error || 'PIN não reconhecido. Confira e tente novamente.');
+      }
 
-      localStorage.setItem('credencia_token', data.token);
-      localStorage.setItem('credencia_user', JSON.stringify(data.user));
-      setToken(data.token);
-      setCurrentUser(data.user);
-      addToast(`Conta criada! Bem-vindo, ${data.user.name}!`, 'success');
-      setIsRegisterMode(false);
-      setRegisterNameInput('');
-      setRegisterOrgInput('');
-    } catch (err) {
-      // apiCall displays toast automatically
+      const updateResponse = await fetch(`/api/users/${loginData.user.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${loginData.token}`
+        },
+        body: JSON.stringify({ password: newPassword })
+      });
+      const updateData = await updateResponse.json().catch(() => ({}));
+      if (!updateResponse.ok) {
+        throw new Error(updateData?.error || 'Não foi possível redefinir a senha.');
+      }
+
+      setEmailInput(loginData.user.email);
+      setPasswordInput('');
+      addToast(`Login recuperado. Seu e-mail é ${loginData.user.email}`, 'success');
+      return { email: loginData.user.email as string, name: loginData.user.name as string };
+    } catch (error: any) {
+      addToast(error?.message || 'Não foi possível recuperar o login.', 'error');
+      throw error;
     } finally {
       setAuthLoading(false);
     }
@@ -3986,20 +3983,12 @@ export default function App() {
         pinInput={pinInput}
         setPinInput={setPinInput}
         authLoading={authLoading}
-        isRegisterMode={isRegisterMode}
-        setIsRegisterMode={setIsRegisterMode}
         emailInput={emailInput}
         setEmailInput={setEmailInput}
         passwordInput={passwordInput}
         setPasswordInput={setPasswordInput}
-        registerNameInput={registerNameInput}
-        setRegisterNameInput={setRegisterNameInput}
-        registerOrgInput={registerOrgInput}
-        setRegisterOrgInput={setRegisterOrgInput}
-        registerRoleInput={registerRoleInput}
-        setRegisterRoleInput={setRegisterRoleInput}
         handleLogin={handleLogin}
-        handleSignup={handleSignup}
+        handleRecoverLogin={handleRecoverLogin}
         toasts={toasts}
       />
     );
