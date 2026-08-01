@@ -2403,6 +2403,10 @@ app.post('/api/events/:eventId/checkin/scan', authenticateToken, async (req, res
     p = await db.getParticipantByTicketCode(code);
   }
   
+  if (!p) {
+    p = await db.getParticipantById(code);
+  }
+
   // Try searching by CPF if code looks like a CPF or was not found
   if (!p) {
     const cleanCode = code.replace(/\D/g, '');

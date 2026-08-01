@@ -221,12 +221,14 @@ export default function CheckInModular({
       const digitsQuery = q.replace(/\D/g, '');
 
       const found = participants.filter((p) => {
+        const pId = p.id ? p.id.toLowerCase() : '';
         const pCpf = p.cpf ? p.cpf.replace(/\D/g, '') : '';
         const pTicket = p.ticketCode ? p.ticketCode.toLowerCase() : '';
         const pName = p.name ? p.name.toLowerCase() : '';
         const pEmail = p.email ? p.email.toLowerCase() : '';
 
         return (
+          pId.includes(normQuery) ||
           pName.includes(normQuery) ||
           pEmail.includes(normQuery) ||
           (pCpf && pCpf.includes(digitsQuery)) ||
@@ -384,12 +386,14 @@ export default function CheckInModular({
 
       // Filter local list for matching participants (by exact ticketCode, normalized CPF, or name matching)
       const matches = participants.filter(p => {
+        const pIdClean = p.id ? p.id.toLowerCase().trim() : '';
         const pCpfClean = p.cpf.replace(/\D/g, '');
         const pTicketClean = p.ticketCode.toLowerCase().trim();
         const pNameLower = p.name.toLowerCase();
         const pEmailLower = p.email.toLowerCase();
 
         return (
+          pIdClean === rawNormalizedQuery ||
           pTicketClean === rawNormalizedQuery ||
           (pCpfClean && pCpfClean === normalizedQuery) ||
           pNameLower.includes(rawNormalizedQuery) ||
@@ -405,8 +409,12 @@ export default function CheckInModular({
 
       // If multiple matches exist, we must show a quick choice rather than error.
       if (matches.length > 1) {
-        // Let's look for exact match on CPF or ticketCode
-        const exactMatch = matches.find(p => p.ticketCode.toLowerCase() === rawNormalizedQuery || p.cpf.replace(/\D/g, '') === normalizedQuery);
+        // Let's look for exact match on CPF, ID or ticketCode
+        const exactMatch = matches.find(p =>
+          (p.id && p.id.toLowerCase().trim() === rawNormalizedQuery) ||
+          p.ticketCode.toLowerCase() === rawNormalizedQuery ||
+          p.cpf.replace(/\D/g, '') === normalizedQuery
+        );
         if (exactMatch) {
           await processCheckInForParticipant(exactMatch);
         } else {

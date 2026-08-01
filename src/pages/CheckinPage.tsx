@@ -259,6 +259,7 @@ export default function CheckinPage({
     if (query.length < 3) return [];
 
     const getSearchScore = (participant: Participant) => {
+      const id = normalizeQuery(participant.id || '');
       const name = normalizeQuery(participant.name);
       const badgeName = normalizeQuery(participant.badgeName || '');
       const firstName = normalizeQuery(participant.name.split(/\s+/)[0] || '');
@@ -267,12 +268,14 @@ export default function CheckinPage({
       const cpf = normalizeQuery(participant.cpf || '');
       const email = normalizeQuery(participant.email || '');
 
+      if (id === query) return 0;
       if (ticketCode === query) return 0;
       if (cpf === query) return 1;
       if (firstName.startsWith(query)) return 2;
       if (badgeFirstName.startsWith(query)) return 3;
       if (name.startsWith(query)) return 4;
       if (badgeName.startsWith(query)) return 5;
+      if (id.includes(query)) return 6;
       if (ticketCode.includes(query)) return 6;
       if (cpf.includes(query)) return 7;
       if (email.startsWith(query)) return 8;
