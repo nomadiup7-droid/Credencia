@@ -2,10 +2,25 @@
 
 ## Provedor atual
 
-O backend escolhe o provedor em `server/db.ts`:
+O backend escolhe o provedor em `server/db.ts` exclusivamente por `DATABASE_PROVIDER`.
 
-- Supabase/PostgreSQL: usado quando `SUPABASE_URL` e `SUPABASE_SECRET_KEY` estao configurados. `SUPABASE_SERVICE_ROLE_KEY` continua aceito temporariamente como compatibilidade legada.
-- `db.json`: fallback local apenas em desenvolvimento quando as variaveis do Supabase nao estao configuradas. Em producao, o servidor falha ao iniciar sem Supabase.
+- `DATABASE_PROVIDER=supabase`: usa Supabase/PostgreSQL. Exige `SUPABASE_URL` e `SUPABASE_SECRET_KEY`. `SUPABASE_SERVICE_ROLE_KEY` continua aceito apenas como compatibilidade legada.
+- `DATABASE_PROVIDER=local-json`: usa `db.json` somente em desenvolvimento local explicito.
+
+O padrao e `supabase`. Em producao, `local-json` e bloqueado. Se Supabase estiver selecionado e a URL/chave estiver ausente, ou se a validacao de conexao falhar, o servidor para a inicializacao e nao faz fallback para `db.json`.
+
+O endpoint de saude retorna somente informacao nao sensivel do provedor, por exemplo:
+
+```json
+{
+  "provider": {
+    "provider": "supabase",
+    "persistent": true
+  }
+}
+```
+
+Nenhuma URL, chave ou segredo deve ser retornado em health checks ou logs.
 
 `DATABASE_URL` fica documentada no `.env.example` para uso futuro ou ferramentas externas. O backend atual usa o cliente Supabase.
 
@@ -35,12 +50,22 @@ Os dados abaixo devem persistir no provedor configurado:
 
 O `localStorage` deve ficar restrito a token/sessao e preferencias simples de interface, como evento atual, aba ativa, tema e configuracoes visuais locais.
 
-Existe codigo offline/fila local criado em fases anteriores. Ele nao foi expandido nesta fase, porque a Fase 3 nao implementa modo offline, fila offline ou sincronizacao.
+Existe codigo offline/fila local criado em fases anteriores. Ele nao foi expandido nesta fase, porque esta etapa nao implementa modo offline, fila offline ou sincronizacao.
 
 ## Isolamento por organizacao
 
 Rotas sensiveis devem filtrar os dados por `organizationId` do usuario autenticado. Consultas que dependem de evento devem validar se o evento pertence a mesma organizacao antes de retornar, criar, atualizar ou excluir dados.
 
+## Signup de usuarios do sistema
+
+O endpoint publico `/api/auth/signup` fica desativado por padrao com `ALLOW_PUBLIC_SIGNUP=false`.
+
+- O primeiro administrador deve ser criado por `npm run admin:create`.
+- Operadores devem ser criados por administrador autenticado.
+- Mesmo quando `ALLOW_PUBLIC_SIGNUP=true`, o endpoint nao aceita `ADMIN`, `SUPERVISOR` ou permissoes administrativas enviadas pelo navegador.
+- O signup publico usa role segura fixa, normaliza e-mail, exige senha forte e impede duplicidade.
+
+A inscricao publica de participantes do evento nao e afetada por essa regra.
 
 ## Preparacao segura para Supabase
 

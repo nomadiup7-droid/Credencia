@@ -8,7 +8,7 @@ Sistema de credenciamento para eventos com operadores, participantes, check-in, 
 - npm
 - Variaveis de ambiente configuradas a partir de `.env.example`
 
-## Instalação
+## Instalacao
 
 ```powershell
 npm install
@@ -26,13 +26,19 @@ O sistema abre em:
 http://localhost:3000
 ```
 
+Para testar camera no celular em rede local, use o modo HTTPS local:
+
+```powershell
+npm run dev:https
+```
+
 ## Build
 
 ```powershell
 npm run build
 ```
 
-## Produção local
+## Producao local
 
 ```powershell
 npm run build
@@ -44,13 +50,18 @@ npm run start
 Copie `.env.example` para `.env` e configure:
 
 - `JWT_SECRET`: segredo usado para assinar tokens JWT.
-- `PORT`: porta do servidor, padrão `3000`.
+- `PORT`: porta do servidor, padrao `3000`.
+- `APP_URL`: URL publica/local da aplicacao.
+- `DATABASE_PROVIDER`: provedor explicito de banco. Use `supabase` para o banco real. Use `local-json` apenas em desenvolvimento local intencional.
 - `SUPABASE_URL`: URL do projeto Supabase.
-- `SUPABASE_SECRET_KEY`: chave secreta do Supabase usada apenas no backend.
+- `SUPABASE_SECRET_KEY`: chave secreta do Supabase usada apenas no backend. Este e o nome principal recomendado.
 - `SUPABASE_SERVICE_ROLE_KEY`: compatibilidade legada; prefira `SUPABASE_SECRET_KEY`.
+- `ALLOW_PUBLIC_SIGNUP`: deve ficar `false` por padrao. Administradores devem ser criados com `npm run admin:create`; operadores devem ser criados por um administrador autenticado.
 - `DATABASE_URL`: URL PostgreSQL opcional para ferramentas/adaptadores futuros.
 
-Sem Supabase configurado, o backend usa `db.json` somente em desenvolvimento. Em `NODE_ENV=production`, o servidor falha ao iniciar se o Supabase nao estiver configurado.
+Com `DATABASE_PROVIDER=supabase`, o backend exige `SUPABASE_URL` e `SUPABASE_SECRET_KEY` (ou `SUPABASE_SERVICE_ROLE_KEY` apenas como legado). Se a conexao ou o schema esperado falhar, o servidor para e nao cai para `db.json`.
+
+Com `DATABASE_PROVIDER=local-json`, o backend usa `db.json` somente em desenvolvimento local explicito. Em `NODE_ENV=production`, `local-json` e bloqueado.
 
 ## Estrutura principal
 
@@ -58,7 +69,7 @@ Sem Supabase configurado, o backend usa `db.json` somente em desenvolvimento. Em
 src/
   assets/        imagens e arquivos visuais
   components/    componentes reutilizaveis
-  constants/     permissoes, navegacao e configuracoes padrão
+  constants/     permissoes, navegacao e configuracoes padrao
   pages/         telas principais
   services/      comunicacao com API e servicos de dominio
   utils/         funcoes auxiliares
@@ -87,7 +98,7 @@ A API versionada para integracoes fica em `/api/v1`.
 
 Os endpoints antigos em `/api` continuam ativos para manter compatibilidade com o frontend atual.
 
-## Serviços
+## Servicos
 
 A comunicacao HTTP do frontend deve passar por `src/services/api.ts`.
 
@@ -111,13 +122,13 @@ npm run build
 
 - Nao commitar `.env` com segredos reais.
 - Nao commitar `node_modules`.
+- Nao commitar certificados locais nem arquivos em `.cert`.
 - Evitar novas chamadas diretas a `fetch` fora da camada de services.
 - Mudancas em permissao, banco ou autenticacao devem ser testadas com usuario ADMIN e usuario operador vinculado a evento.
 
-
 ## Supabase em producao
 
-1. Crie o projeto no Supabase e configure `SUPABASE_URL` e `SUPABASE_SECRET_KEY` no ambiente do backend.
+1. Crie o projeto no Supabase e configure `DATABASE_PROVIDER=supabase`, `SUPABASE_URL` e `SUPABASE_SECRET_KEY` no ambiente do backend.
 2. Aplique migrations versionadas, sem seed de demonstracao:
 
 ```powershell
@@ -133,5 +144,7 @@ Para criar o primeiro administrador, rode em um terminal com Supabase configurad
 ```powershell
 npm run admin:create
 ```
+
+O endpoint publico `/api/auth/signup` fica bloqueado por padrao (`ALLOW_PUBLIC_SIGNUP=false`). Mesmo quando habilitado temporariamente, ele nao aceita `ADMIN`, `SUPERVISOR` nem permissoes administrativas enviadas pelo navegador.
 
 Eventos antigos sem `organization_id` devem ser regularizados manualmente com a organizacao correta antes do uso real. Faca backup antes de qualquer migration remota.

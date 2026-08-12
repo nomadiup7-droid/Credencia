@@ -108,7 +108,6 @@ export default function App() {
   const publicCredentialMatch = window.location.pathname.match(/^\/convite\/([^/?#]+)/);
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [showFernandoWelcome, setShowFernandoWelcome] = useState(false);
 
   // Session / Auth States
   const [token, setToken] = useState<string | null>(() => readStoredToken());
@@ -375,17 +374,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('credencia_theme', isDarkTheme ?'dark' : 'light');
   }, [isDarkTheme]);
-
-  useEffect(() => {
-    if (!currentUser || !token || !isUserAdmin) return;
-    if (window.location.pathname !== '/') return;
-
-    const key = `credencia_admin_welcome_${currentUser.id}`;
-    if (sessionStorage.getItem(key) === 'seen') return;
-
-    setShowFernandoWelcome(true);
-    sessionStorage.setItem(key, 'seen');
-  }, [currentUser, token, isUserAdmin]);
 
   // Safe fetch helper
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
@@ -8332,36 +8320,6 @@ export default function App() {
         )}
 
       </main>
-
-      {showFernandoWelcome && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 backdrop-blur-sm p-4 no-print">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 sm:p-7 text-center animate-fade-in">
-            <div className="mx-auto w-12 h-12 rounded-full bg-[#12e000] text-slate-950 flex items-center justify-center mb-4">
-              <CheckCircle2 size={24} strokeWidth={3} />
-            </div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Bem-vindo</p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-950 font-display leading-tight">
-              Vamos la, Pastor Fernando!
-            </h2>
-            <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-              Pronto para criarmos o melhor e maior sistema para credenciamento de Brasilia?
-            </p>
-            <div className="mt-5 rounded-xl border border-slate-200 bg-[#f7f7f2] p-4">
-              <p className="text-sm font-semibold text-slate-800 leading-relaxed">
-                "Tudo quanto fizerdes, fazei-o de todo o coracao, como para o Senhor e nao para homens."
-              </p>
-              <p className="mt-2 text-xs font-bold text-slate-500">Colossenses 3:23</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowFernandoWelcome(false)}
-              className="mt-6 w-full sm:w-auto px-6 py-3 rounded-xl bg-[#12e000] hover:bg-[#0fc800] text-slate-950 text-sm font-bold transition cursor-pointer shadow-sm"
-            >
-              Vamos nessa!
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* --- PRINT SHADOW LOG: APENAS VISÍVEL DURANTE O PRINT REAL --- */}
       <div className="hidden print:block relative p-8 bg-white text-black min-h-screen overflow-hidden">

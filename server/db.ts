@@ -53,9 +53,16 @@ interface DBSchema {
 const DB_FILE_PATH = path.join(process.cwd(), 'db.json');
 const isProduction = process.env.NODE_ENV === 'production';
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const requestedDatabaseProvider = (process.env.DATABASE_PROVIDER || 'supabase').trim().toLowerCase();
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SECRET_KEY) {
   console.warn('SUPABASE_SERVICE_ROLE_KEY esta em compatibilidade legada. Prefira SUPABASE_SECRET_KEY no backend.');
+}
+
+if (!['supabase', 'local-json'].includes(requestedDatabaseProvider)) {
+  throw new DatabaseConfigurationError(
+    `DATABASE_PROVIDER invalido: "${requestedDatabaseProvider}". Use "supabase" ou "local-json".`
+  );
 }
 
 function toConflictPositions(error: any) {
@@ -436,11 +443,26 @@ class Database {
   private supabase: any;
 
   constructor() {
-    this.useSupabase = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+    this.useSupabase = requestedDatabaseProvider === 'supabase';
     if (this.useSupabase) {
-      console.log('Using Supabase Database:', process.env.SUPABASE_URL);
-      this.supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      if (!process.env.SUPABASE_URL || !supabaseSecretKey) {
+        throw new DatabaseConfigurationError(
+          'DATABASE_PROVIDER=supabase exige SUPABASE_URL e SUPABASE_SECRET_KEY. SUPABASE_SERVICE_ROLE_KEY ainda e aceito apenas como compatibilidade legada.'
+        );
+      }
+      console.log('Using Supabase Database provider');
+      this.supabase = createClient(process.env.SUPABASE_URL, supabaseSecretKey);
     } else {
+      if (isProduction) {
+        throw new DatabaseConfigurationError(
+          'DATABASE_PROVIDER=local-json nao e permitido em producao. Configure DATABASE_PROVIDER=supabase, SUPABASE_URL e SUPABASE_SECRET_KEY.'
+        );
+      }
+      if (process.env.DATABASE_PROVIDER !== 'local-json') {
+        throw new DatabaseConfigurationError(
+          'Banco local db.json so pode ser usado explicitamente com DATABASE_PROVIDER=local-json em desenvolvimento.'
+        );
+      }
       console.log('Using Local db.json Database');
       this.data = {
         organizations: DEFAULT_ORGANIZATIONS,
@@ -580,9 +602,21 @@ class Database {
   getProviderInfo() {
     return {
       provider: this.useSupabase ? 'supabase' : 'local-json',
-      persistent: true,
-      localFile: this.useSupabase ? undefined : DB_FILE_PATH
+      persistent: true
     };
+  }
+
+  async validateConnection(): Promise<void> {
+    if (!this.useSupabase) return;
+    const { error } = await this.supabase
+      .from('organizations')
+      .select('id', { head: true, count: 'exact' })
+      .limit(1);
+    if (error) {
+      throw new DatabaseConfigurationError(
+        `Falha ao conectar no Supabase ou validar schema esperado: ${error.message}`
+      );
+    }
   }
 
   // --- Organizations CRUD ---

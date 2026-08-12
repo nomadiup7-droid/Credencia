@@ -6,7 +6,7 @@ import { randomBytes } from 'crypto';
 import ExcelJS from 'exceljs';
 import { createServer as createViteServer } from 'vite';
 import { db, DatabaseConflictError } from './server/db';
-import { UserRole, EventUserRole, EventUser, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus } from './src/types';
+import { UserRole, EventUserRole, EventUser, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus, ParticipantField } from './src/types';
 import checkInRouter from './routes/checkin';
 import { authenticateToken, hashPassword, requireAdmin, signAuthToken, verifyPassword } from './server/auth';
 import { getPagination, logApiError, normalizeSearch, paginateArray, sendError, sendSuccess, sortRecords } from './server/apiResponse';
@@ -15,6 +15,17 @@ import { openApiDocument } from './server/openapi';
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const HTTPS_PORT = Number(process.env.HTTPS_PORT || 3443);
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error
+    ? reason.stack || reason.message
+    : JSON.stringify(reason);
+  console.error('Unhandled async error captured without stopping server:', message);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught server error captured:', error.stack || error.message);
+});
 
 // Enable standard body parsers
 app.use(express.json({ limit: '10mb' }));
@@ -106,6 +117,54 @@ const permissionsForRole = (role?: string): string[] => {
     return uniquePermissions(['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint']);
   }
   return [];
+};
+
+const isPublicSignupEnabled = () => String(process.env.ALLOW_PUBLIC_SIGNUP || 'false').toLowerCase() === 'true';
+
+const normalizeEmail = (email?: string) => String(email || '').trim().toLowerCase();
+
+const validateStrongPassword = (password?: string) => {
+  const value = String(password || '');
+  if (value.length < 10) return 'A senha deve ter pelo menos 10 caracteres.';
+  if (!/[a-z]/.test(value)) return 'A senha deve conter letra minuscula.';
+  if (!/[A-Z]/.test(value)) return 'A senha deve conter letra maiuscula.';
+  if (!/\d/.test(value)) return 'A senha deve conter numero.';
+  if (!/[^A-Za-z0-9]/.test(value)) return 'A senha deve conter caractere especial.';
+  return '';
+};
+
+const PARTICIPANT_SYSTEM_FIELD_KEYS: Record<string, string> = {
+  f_name: 'name',
+  f_email: 'email',
+  f_cpf: 'cpf',
+  f_category: 'category',
+  f_company: 'company',
+  f_phone: 'phone',
+  f_position: 'position',
+  f_badge_name: 'badgeName'
+};
+
+const normalizeParticipantPayloadCustomFields = <T extends Record<string, any>>(raw: T, fields: ParticipantField[]): T & { customFields: Record<string, any> } => {
+  const payload: Record<string, any> = { ...raw };
+  const customFields = raw.customFields && typeof raw.customFields === 'object' && !Array.isArray(raw.customFields)
+    ? { ...raw.customFields }
+    : {};
+
+  for (const field of fields) {
+    const targetKey = PARTICIPANT_SYSTEM_FIELD_KEYS[field.id];
+    if (targetKey) {
+      if (field.id in payload && !(targetKey in payload)) payload[targetKey] = payload[field.id];
+      delete payload[field.id];
+      continue;
+    }
+
+    if (field.id in payload) {
+      customFields[field.id] = payload[field.id];
+      delete payload[field.id];
+    }
+  }
+
+  return { ...payload, customFields } as T & { customFields: Record<string, any> };
 };
 
 const resolveEventPermissions = async (user: any, eventId?: string): Promise<string[]> => {
@@ -1837,8 +1896,7 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
 
   const recordMeta = getEventRecordMeta(event);
 
-  // Support spreading custom fields from req.body
-  const participantPayload = {
+  const participantPayload = normalizeParticipantPayloadCustomFields({
     ...req.body,
     eventId,
     name: name || '',
@@ -1856,7 +1914,7 @@ app.post('/api/events/:eventId/participants', authenticateToken, requireParticip
       checkinIsTest: recordMeta.isTest,
       checkinTestStatus: recordMeta.testStatus
     } : {})
-  };
+  }, fields);
 
   const newParticipant = await db.createParticipant(participantPayload);
 
@@ -1917,6 +1975,7 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
   // Pre-load current areas and access profiles for dynamic importation mapping
   const allAreas = await db.getAreas(eventId);
   const profiles = await db.getAccessProfiles(eventId);
+  const participantFields = await db.getParticipantFields();
 
   const itemsToCreate = participants.map((p: any) => {
     const keys = Object.keys(p);
@@ -1997,7 +2056,7 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
       allowedAreas = [];
     }
 
-    return {
+    return normalizeParticipantPayloadCustomFields({
       eventId,
       name,
       email,
@@ -2012,7 +2071,7 @@ app.post('/api/events/:eventId/participants/batch', authenticateToken, requirePa
       ...(ticketCode ?{ ticketCode } : {}),
       allowedAreaIds: allowedAreas,
       allowedAreas
-    };
+    }, participantFields);
   }).filter(p => p.name);
 
   const analysis = await db.analyzeParticipantsBatch(itemsToCreate as any);
@@ -3622,6 +3681,8 @@ app.post('/api/access-control/validate', authenticateToken, async (req, res) => 
 
 // --- VITE DEV AND RUNTIME INTEGRATION ---
 async function startServer() {
+  await db.validateConnection();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
