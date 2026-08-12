@@ -17,6 +17,7 @@ export interface AuthenticatedUser {
   role: UserRole;
   permissions: string[];
   organizationId: string;
+  mustChangeCredentials: boolean;
 }
 
 function getJwtSecret() {
@@ -38,7 +39,8 @@ export function sanitizeAuthenticatedUser(user: DBUser): AuthenticatedUser {
     email: user.email,
     role: user.role,
     permissions: user.permissions || [],
-    organizationId: user.organizationId || 'org1'
+    organizationId: user.organizationId || 'org1',
+    mustChangeCredentials: user.mustChangeCredentials === true
   };
 }
 
@@ -106,6 +108,14 @@ export const authenticateToken = async (req: express.Request, res: express.Respo
     const user = await db.getUserById(userId);
     if (!user) {
       res.status(403).json({ error: 'Acesso nao autorizado' });
+      return;
+    }
+
+    if (user.mustChangeCredentials && !req.path.endsWith('/auth/complete-first-access')) {
+      res.status(403).json({
+        error: 'Conclua o primeiro acesso antes de continuar.',
+        code: 'FIRST_ACCESS_REQUIRED'
+      });
       return;
     }
 

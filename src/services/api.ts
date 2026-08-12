@@ -13,6 +13,34 @@ export class ApiError extends Error {
   }
 }
 
+export const SESSION_EXPIRED_EVENT = 'credencia:session-expired';
+
+let expiredSessionActive = false;
+let expiredSessionToken: string | null = null;
+
+export function handleExpiredSession(response: Response, payload: ApiErrorPayload): boolean {
+  const token = localStorage.getItem('credencia_token');
+  if (expiredSessionActive && !token) return true;
+  if (token && token !== expiredSessionToken) expiredSessionActive = false;
+
+  const message = String(payload.error || payload.message || '');
+  const isExpired = (response.status === 401 || response.status === 403)
+    && /token.*(?:inv[aá]lido|expirado)|(?:inv[aá]lido|expirado).*token/i.test(message);
+
+  if (!token || !isExpired) return false;
+
+  expiredSessionActive = true;
+  expiredSessionToken = token;
+  localStorage.removeItem('credencia_token');
+  localStorage.removeItem('credencia_user');
+  localStorage.removeItem('currentEventId');
+  localStorage.removeItem('currentUserRole');
+  localStorage.removeItem('credencia_selected_event_id');
+  localStorage.removeItem('credencia_active_tab');
+  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+  return true;
+}
+
 export const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('credencia_token');
   return {
@@ -49,6 +77,7 @@ export async function apiRequest<T = unknown>(
 
   if (!response.ok) {
     const errorPayload = payload as ApiErrorPayload;
+    handleExpiredSession(response, errorPayload);
     throw new ApiError(
       errorPayload.error || errorPayload.message || `Erro na requisicao. Status: ${response.status}`,
       response.status

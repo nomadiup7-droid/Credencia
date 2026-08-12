@@ -18,6 +18,7 @@ export interface User {
   role: UserRole;
   createdAt: string;
   pin?: string;
+  mustChangeCredentials?: boolean;
   permissions?: string[];
   organizationId: string;
 }

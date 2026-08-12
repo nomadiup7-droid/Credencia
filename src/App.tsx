@@ -77,6 +77,7 @@ import ReportExportMenu from './components/reports/ReportExportMenu';
 import PublicCredentialPage from './components/PublicCredentialPage';
 import { generateReportPdf } from './services/reportPdfService';
 import type { ReportPdfKind, ReportPdfPayload, ReportPdfTableRow } from './types/report.types';
+import { handleExpiredSession, SESSION_EXPIRED_EVENT } from './services/api';
 
 interface CloakroomRackConfig {
   id: string;
@@ -112,6 +113,8 @@ export default function App() {
   // Session / Auth States
   const [token, setToken] = useState<string | null>(() => readStoredToken());
   const [currentUser, setCurrentUser] = useState<User | null>(() => readStoredUser());
+  const [firstAccessForm, setFirstAccessForm] = useState({ email: '', password: '', confirmPassword: '', pin: '' });
+  const [firstAccessLoading, setFirstAccessLoading] = useState(false);
   const [currentEventRole, setCurrentEventRole] = useState<string>('');
   const [currentEventPermissions, setCurrentEventPermissions] = useState<string[]>(() => normalizePermissions(readStoredUser()?.permissions || []));
 
@@ -122,7 +125,7 @@ export default function App() {
     : normalizePermissions(currentUser?.permissions?.length ?currentUser.permissions : legacyPermissionsForRole(currentEventRole || currentUser?.role));
   const hasSystemPermission = (permission: string) => effectivePermissions.includes(permission);
   const isUserAdmin = userRole === 'ADMIN' || currentUser?.role === 'admin' || eventRole === 'ADMIN';
-  const canCreateEvents = hasSystemPermission('events.create');
+  const canCreateEvents = isUserAdmin || hasSystemPermission('events.create');
   const canManageOperators = isUserAdmin || hasSystemPermission('operators.managePermissions');
   const canCreateParticipants = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('participants.create') || hasSystemPermission('checkin.createParticipant');
   const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('certificates.issue');
@@ -387,14 +390,18 @@ export default function App() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || errData.message || `HTTP error! status: ${res.status}`);
+        const error = new Error(errData.error || errData.message || `HTTP error! status: ${res.status}`);
+        if (handleExpiredSession(res, errData)) {
+          (error as Error & { sessionExpired?: boolean }).sessionExpired = true;
+        }
+        throw error;
       }
       if (res.status === 204) return null;
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) return null;
       return await res.json();
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw e;
+      if (e?.name === 'AbortError' || e?.sessionExpired) throw e;
       const isNetworkError = e instanceof TypeError || String(e?.message || '').toLowerCase().includes('failed to fetch');
       const message = isNetworkError
         ?'Nao foi possivel conectar ao servidor. Verifique se o sistema esta rodando.'
@@ -603,6 +610,7 @@ export default function App() {
       localStorage.removeItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY);
       setToken(data.token);
       setCurrentUser(data.user);
+      setCurrentEventPermissions(normalizePermissions(data.user?.permissions || legacyPermissionsForRole(data.user?.role)));
       setCurrentEventRole('');
       setSelectedEventId('');
       setActiveTab(String(data.user?.role || '').toUpperCase() === 'ADMIN' || data.user?.role === 'admin' ?'dashboard' : 'checkin');
@@ -631,6 +639,7 @@ export default function App() {
       localStorage.removeItem(LEGACY_SELECTED_EVENT_ID_STORAGE_KEY);
       setToken(data.token);
       setCurrentUser(data.user);
+      setCurrentEventPermissions(normalizePermissions(data.user?.permissions || legacyPermissionsForRole(data.user?.role)));
       setCurrentEventRole('');
       setSelectedEventId('');
       setActiveTab(String(data.user?.role || '').toUpperCase() === 'ADMIN' || data.user?.role === 'admin' ?'dashboard' : 'checkin');
@@ -669,6 +678,7 @@ export default function App() {
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
     setToken(null);
     setCurrentUser(null);
+    setCurrentEventPermissions([]);
     setCurrentEventRole('');
     setSelectedEventId('');
     setEvents([]);
@@ -714,6 +724,53 @@ export default function App() {
       setAuthLoading(false);
     }
   };
+
+  const handleCompleteFirstAccess = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (firstAccessForm.password !== firstAccessForm.confirmPassword) {
+      addToast('As senhas não conferem.', 'error');
+      return;
+    }
+    setFirstAccessLoading(true);
+    try {
+      const data = await apiCall('/api/auth/complete-first-access', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: firstAccessForm.email,
+          password: firstAccessForm.password,
+          pin: firstAccessForm.pin
+        })
+      });
+      localStorage.setItem('credencia_token', data.token);
+      localStorage.setItem('credencia_user', JSON.stringify(data.user));
+      setToken(data.token);
+      setCurrentUser(data.user);
+      setCurrentEventPermissions(normalizePermissions(data.user?.permissions || legacyPermissionsForRole(data.user?.role)));
+      setFirstAccessForm({ email: '', password: '', confirmPassword: '', pin: '' });
+      addToast('Acesso definitivo configurado com sucesso.', 'success');
+    } catch (error) {
+      // apiCall already displays the error.
+    } finally {
+      setFirstAccessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setToken(null);
+      setCurrentUser(null);
+      setCurrentEventPermissions([]);
+      setCurrentEventRole('');
+      setSelectedEventId('');
+      setEvents([]);
+      setParticipants([]);
+      setStats(null);
+      setToasts([{ id: 'session-expired', message: 'Sua sessão expirou. Entre novamente.', type: 'info' }]);
+    };
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  }, []);
 
   // Self-Profile Details update
   const handleUpdateProfile = async (e: React.FormEvent) => {
@@ -897,8 +954,8 @@ export default function App() {
   // Admin inserts or updates system users (operator/admin)
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userForm.name || !userForm.email || (!userForm.id && !userForm.password)) {
-      addToast('Nome, E-mail e Senha são campos obrigatórios para novos operadores.', 'error');
+    if (!userForm.name || (userForm.id && !userForm.email)) {
+      addToast('Informe o nome do usuário.', 'error');
       return;
     }
 
@@ -929,7 +986,15 @@ export default function App() {
         addToast(`Usuário "${saved.name}" atualizado com sucesso!`, 'success');
       } else {
         setUsersList(prev => [...prev, saved]);
-        addToast(`Usuário "${saved.name}" criado com login e senha prontos!`, 'success');
+        const credentials = saved.temporaryCredentials;
+        window.alert(
+          `Acesso temporário de ${saved.name}\n\n` +
+          `E-mail: ${credentials.email}\n` +
+          `Senha: ${credentials.password}\n` +
+          `PIN: ${credentials.pin}\n\n` +
+          'Guarde e entregue estes dados ao usuário. No primeiro acesso ele deverá cadastrar os dados definitivos.'
+        );
+        addToast(`Usuário "${saved.name}" criado com acesso temporário.`, 'success');
       }
 
       if (userForm.eventId) {
@@ -3979,6 +4044,40 @@ export default function App() {
         handleRecoverLogin={handleRecoverLogin}
         toasts={toasts}
       />
+    );
+  }
+
+  if (currentUser.mustChangeCredentials) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <form onSubmit={handleCompleteFirstAccess} className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl space-y-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Primeiro acesso</p>
+            <h1 className="mt-2 text-2xl font-bold text-slate-900">Crie seu acesso definitivo</h1>
+            <p className="mt-2 text-sm text-slate-500">Cadastre seu e-mail real, uma nova senha e seu PIN pessoal. Os dados temporários deixarão de funcionar.</p>
+          </div>
+          <label className="block text-sm font-semibold text-slate-700">
+            E-mail real
+            <input type="email" required autoComplete="email" value={firstAccessForm.email} onChange={e => setFirstAccessForm(prev => ({ ...prev, email: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Nova senha
+            <input type="password" required minLength={8} autoComplete="new-password" value={firstAccessForm.password} onChange={e => setFirstAccessForm(prev => ({ ...prev, password: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Confirme a senha
+            <input type="password" required minLength={8} autoComplete="new-password" value={firstAccessForm.confirmPassword} onChange={e => setFirstAccessForm(prev => ({ ...prev, confirmPassword: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Novo PIN, de 4 a 6 números
+            <input type="password" required inputMode="numeric" pattern="[0-9]{4,6}" autoComplete="new-password" value={firstAccessForm.pin} onChange={e => setFirstAccessForm(prev => ({ ...prev, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 tracking-widest" />
+          </label>
+          <button type="submit" disabled={firstAccessLoading} className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white disabled:opacity-60">
+            {firstAccessLoading ? 'Salvando...' : 'Salvar acesso definitivo'}
+          </button>
+          <button type="button" onClick={handleLogout} className="w-full text-sm font-semibold text-slate-500">Sair</button>
+        </form>
+      </div>
     );
   }
   const roleText = (() => {
@@ -9054,7 +9153,7 @@ export default function App() {
               {userForm.id ?'Editar Dados do Operador' : 'Adicionar Novo Operador'}
             </h3>
             <p className="text-slate-500 text-xs mb-4">
-              {userForm.id ?'Modifique os dados ou redefina a senha do operador.' : 'Cadastre um novo login e senha segura de acesso.'}
+              {userForm.id ?'Modifique os dados ou redefina a senha do operador.' : 'O sistema gerará e-mail, senha e PIN temporários para o primeiro acesso.'}
             </p>
 
             <form onSubmit={handleSaveUser} className="space-y-4">
@@ -9070,7 +9169,7 @@ export default function App() {
                 />
               </div>
 
-              <div>
+              {userForm.id && <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">E-mail de Acesso</label>
                 <input
                   type="email"
@@ -9080,9 +9179,9 @@ export default function App() {
                   placeholder="email@exemplo.com"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
-              </div>
+              </div>}
 
-              <div>
+              {userForm.id && <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
                   {userForm.id ?'Nova Senha (deixe em branco para manter)' : 'Senha de Login'}
                 </label>
@@ -9094,7 +9193,7 @@ export default function App() {
                   placeholder="••••••••"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
-              </div>
+              </div>}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Perfil Base</label>

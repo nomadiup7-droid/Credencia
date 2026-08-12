@@ -308,6 +308,7 @@ const sanitizeUserForApi = async (user: any) => {
     role: user.role,
     permissions: uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)),
     organizationId: user.organizationId || 'org1',
+    mustChangeCredentials: user.mustChangeCredentials === true,
     organizationName: org ?org.name : 'Organização'
   };
 };
@@ -1276,6 +1277,7 @@ app.post('/api/auth/login', async (req, res) => {
       role: user.role,
       permissions: uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)),
       organizationId: user.organizationId || 'org1',
+      mustChangeCredentials: user.mustChangeCredentials === true,
       organizationName: org ?org.name : 'Organização'
     }
   });
@@ -1308,6 +1310,7 @@ app.post('/api/auth/login-pin', async (req, res) => {
       role: user.role,
       permissions,
       organizationId: user.organizationId || 'org1',
+      mustChangeCredentials: user.mustChangeCredentials === true,
       organizationName: org ?org.name : 'Organização'
     }
   });
@@ -1355,18 +1358,19 @@ app.get('/api/users', authenticateToken, requireUserManagementPermission, async 
 
 // User manager manually creates a system user
 app.post('/api/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
-  const { name, email, password, role, permissions, eventId, eventRole, eventPermissions, eventActive } = req.body;
-  if (!name || !email || !password || !role) {
+  const { name, role, permissions, eventId, eventRole, eventPermissions, eventActive } = req.body;
+  if (!name || !role) {
     res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     return;
   }
 
-  const existing = await db.getUserByEmail(email);
-  if (existing) {
-    res.status(400).json({ error: 'Já existe um usuário cadastrado com este e-mail' });
-    return;
-  }
-
+  const temporaryId = randomBytes(6).toString('hex');
+  const temporaryEmail = `acesso-${temporaryId}@temporario.credencia`;
+  const temporaryPassword = `Crd!${randomBytes(9).toString('base64url')}`;
+  let temporaryPin = '';
+  do {
+    temporaryPin = String(Math.floor(100000 + Math.random() * 900000));
+  } while (await db.getUserByPin(temporaryPin));
   const user = (req as any).user;
   let createdEventLink: EventUser | undefined;
   if (eventId) {
@@ -1383,8 +1387,10 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
 
   const createdUser = await db.createUser({
     name,
-    email,
-    passwordHash: await hashPassword(password),
+    email: temporaryEmail,
+    passwordHash: await hashPassword(temporaryPassword),
+    pin: temporaryPin,
+    mustChangeCredentials: true,
     role: role as UserRole,
     permissions: uniquePermissions(Array.isArray(permissions) && permissions.length ?permissions : permissionsForRole(role)),
     organizationId: user.organizationId || 'org1'
@@ -1407,8 +1413,58 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
     role: createdUser.role,
     permissions: uniquePermissions(createdUser.permissions?.length ?createdUser.permissions : permissionsForRole(createdUser.role)),
     createdAt: createdUser.createdAt,
+    mustChangeCredentials: true,
+    temporaryCredentials: { email: temporaryEmail, password: temporaryPassword, pin: temporaryPin },
     eventLink: createdEventLink
   });
+});
+
+app.post('/api/auth/complete-first-access', authenticateToken, async (req, res) => {
+  const requester = (req as any).user;
+  const { email, password, pin } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedPin = String(pin || '').trim();
+
+  if (!requester.mustChangeCredentials) {
+    res.status(400).json({ error: 'Este acesso inicial já foi concluído.' });
+    return;
+  }
+  if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail válido.' });
+    return;
+  }
+  if (String(password || '').length < 8) {
+    res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
+    return;
+  }
+  if (!/^\d{4,6}$/.test(normalizedPin)) {
+    res.status(400).json({ error: 'O PIN deve ter de 4 a 6 números.' });
+    return;
+  }
+
+  const emailOwner = await db.getUserByEmail(normalizedEmail);
+  if (emailOwner && emailOwner.id !== requester.id) {
+    res.status(409).json({ error: 'Este e-mail já está em uso.' });
+    return;
+  }
+  const pinOwner = await db.getUserByPin(normalizedPin);
+  if (pinOwner && pinOwner.id !== requester.id) {
+    res.status(409).json({ error: 'Este PIN já está em uso.' });
+    return;
+  }
+
+  const updated = await db.updateUser(requester.id, {
+    email: normalizedEmail,
+    passwordHash: await hashPassword(password),
+    pin: normalizedPin,
+    mustChangeCredentials: false
+  });
+  if (!updated) {
+    res.status(404).json({ error: 'Usuário não encontrado.' });
+    return;
+  }
+
+  res.json({ token: signAuthToken(updated), user: await sanitizeUserForApi(updated) });
 });
 
 // Update user details (either the user updating themselves or Admin updating anyone)
