@@ -44,6 +44,7 @@ export default function PublicRegistrationPage() {
     .filter(field => field.visible !== false)
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const isRegistrationOpen = config?.status === 'ABERTA' && config?.enabled === true;
+  const credentialHref = result?.qrToken ? `/convite/${encodeURIComponent(result.qrToken)}` : '';
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -158,12 +159,12 @@ export default function PublicRegistrationPage() {
 
                 {result.qrToken && (
                   <div className="mx-auto mt-6 flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                    <UserQRCode value={result.qrToken} size={190} frameless />
+                    <UserQRCode value={credentialHref} size={190} frameless />
                     <p className="text-sm font-semibold leading-6 text-slate-600">
                       Apresente o QR Code abaixo no credenciamento. Você também pode acessar sua credencial pelo botão abaixo.
                     </p>
                     <a
-                      href={`/convite/${encodeURIComponent(result.qrToken)}`}
+                      href={credentialHref}
                       className="inline-flex w-full items-center justify-center rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-emerald-400"
                     >
                       Acessar minha credencial

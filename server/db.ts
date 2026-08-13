@@ -1176,6 +1176,27 @@ class Database {
     return (this.data.onlineRegistrations || []).find(row => row.id === id);
   }
 
+  async getApprovedOnlineRegistrationByQrToken(token: string): Promise<OnlineRegistration | undefined> {
+    const cleanToken = String(token || '').trim();
+    if (!cleanToken) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase
+        .from('online_registrations')
+        .select('*')
+        .eq('qr_token', cleanToken)
+        .eq('status', 'APROVADA')
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    return (this.data.onlineRegistrations || []).find(row =>
+      row.qrToken === cleanToken && row.status === 'APROVADA'
+    );
+  }
+
   async createOnlineRegistration(registration: Omit<OnlineRegistration, 'id' | 'registeredAt' | 'createdAt' | 'updatedAt'>): Promise<OnlineRegistration> {
     const now = new Date().toISOString();
     const newRegistration: OnlineRegistration = {

@@ -6,7 +6,7 @@ import { randomBytes } from 'crypto';
 import ExcelJS from 'exceljs';
 import { createServer as createViteServer } from 'vite';
 import { db, DatabaseConflictError } from './server/db';
-import { UserRole, EventUserRole, EventUser, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus, ParticipantField } from './src/types';
+import { UserRole, EventUserRole, EventUser, Participant, ParticipantCategory, ActionLogAction, CertificateTemplate, OnlineRegistration, OnlineRegistrationField, OnlineRegistrationStatus, ParticipantField } from './src/types';
 import checkInRouter from './routes/checkin';
 import { authenticateToken, hashPassword, requireAdmin, signAuthToken, verifyPassword } from './server/auth';
 import { getPagination, logApiError, normalizeSearch, paginateArray, sendError, sendSuccess, sortRecords } from './server/apiResponse';
@@ -560,7 +560,13 @@ app.get('/api/docs/openapi.json', (_req, res) => {
 app.get('/api/public/credentials/:token', async (req, res) => {
   try {
     const token = extractCredentialToken(req.params.token);
-    const participant = await db.getParticipantByQrToken(token);
+    let participant = await db.getParticipantByQrToken(token);
+    if (!participant && /^OR-/i.test(token)) {
+      const legacyRegistration = await db.getApprovedOnlineRegistrationByQrToken(token);
+      if (legacyRegistration?.participantId) {
+        participant = await db.getParticipantById(legacyRegistration.participantId);
+      }
+    }
     if (!participant) {
       res.status(404).json({ error: 'Credencial nao encontrada ou expirada' });
       return;
@@ -831,8 +837,6 @@ const normalizeSlug = (value: string) =>
 
 const normalizeDigits = (value?: string) => String(value || '').replace(/\D/g, '');
 const normalizeText = (value?: string) => String(value || '').trim();
-const generateQrToken = () => `OR-${randomBytes(18).toString('hex')}`;
-
 const DEFAULT_ONLINE_REGISTRATION_FIELDS: OnlineRegistrationField[] = [
   { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
   { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: true, visible: true, system: true, order: 2 },
@@ -900,29 +904,40 @@ const canModerateOnlineRegistrationsForEvent = async (user: any, eventId?: strin
 };
 
 const ensureOnlineRegistrationParticipant = async (registration: OnlineRegistration, approvedBy?: string) => {
+  let participant;
   if (registration.participantId) {
     const existingParticipant = await db.getParticipantById(registration.participantId);
-    if (existingParticipant) return { registration, participant: existingParticipant };
+    if (existingParticipant) {
+      participant = existingParticipant;
+    }
   }
 
-  const qrToken = registration.qrToken || generateQrToken();
-  const participant = await db.createParticipant({
-    eventId: registration.eventId,
-    name: registration.name,
-    badgeName: registration.name,
-    email: registration.email || '',
-    cpf: normalizeDigits(registration.cpf),
-    category: (registration.category || 'Participante') as ParticipantCategory,
-    company: registration.company || '',
-    ticketCode: qrToken,
-    checkedIn: false
-  });
+  if (!participant) {
+    participant = await db.createParticipant({
+      eventId: registration.eventId,
+      name: registration.name,
+      badgeName: registration.name,
+      email: registration.email || '',
+      cpf: normalizeDigits(registration.cpf),
+      category: (registration.category || 'Participante') as ParticipantCategory,
+      company: registration.company || '',
+      checkedIn: false
+    });
+  }
+
+  if (!participant.qrToken || (participant.qrTokenStatus && participant.qrTokenStatus !== 'ATIVO')) {
+    participant = await db.regenerateParticipantQrToken(participant.id) || participant;
+  }
+
+  if (!participant.qrToken) {
+    throw new Error('Participante aprovado sem token publico de credencial.');
+  }
 
   const updated = await db.updateOnlineRegistration(registration.id, {
     status: 'APROVADA',
     participantId: participant.id,
-    qrToken,
-    approvedAt: new Date().toISOString(),
+    qrToken: participant.qrToken,
+    approvedAt: registration.approvedAt || new Date().toISOString(),
     approvedBy
   });
 
@@ -933,23 +948,36 @@ const sendAndTrackRegistrationConfirmation = async (
   req: express.Request,
   registration: OnlineRegistration,
   event: any,
+  participant: Participant,
   force = false
 ) => {
-  if (!force && registration.confirmationEmailStatus === 'ENVIADO') {
-    return { registration, emailDelivery: { status: 'ENVIADO', skipped: true } };
+  if (!participant?.qrToken) {
+    throw new Error('Participante aprovado sem token publico de credencial.');
   }
 
-  const attempt = Math.max(0, Number(registration.confirmationEmailAttempts || 0)) + 1;
+  let syncedRegistration = registration;
+  if (registration.qrToken !== participant.qrToken || registration.participantId !== participant.id) {
+    syncedRegistration = await db.updateOnlineRegistration(registration.id, {
+      participantId: participant.id,
+      qrToken: participant.qrToken
+    }) || registration;
+  }
+
+  if (!force && syncedRegistration.confirmationEmailStatus === 'ENVIADO') {
+    return { registration: syncedRegistration, emailDelivery: { status: 'ENVIADO', skipped: true } };
+  }
+
+  const attempt = Math.max(0, Number(syncedRegistration.confirmationEmailAttempts || 0)) + 1;
   const lastAttemptAt = new Date().toISOString();
-  let trackingRegistration = await db.updateOnlineRegistration(registration.id, {
+  let trackingRegistration = await db.updateOnlineRegistration(syncedRegistration.id, {
     confirmationEmailStatus: 'ENVIANDO',
     confirmationEmailAttempts: attempt,
     confirmationEmailLastAttemptAt: lastAttemptAt,
     confirmationEmailError: undefined
-  }) || registration;
+  }) || syncedRegistration;
 
   try {
-    const qrToken = trackingRegistration.qrToken;
+    const qrToken = participant.qrToken;
     const sent = await sendRegistrationConfirmationEmail({
       registrationId: trackingRegistration.id,
       attempt,
@@ -969,8 +997,8 @@ const sendAndTrackRegistrationConfirmation = async (
     return { registration: trackingRegistration, emailDelivery: { status: 'ENVIADO', id: sent.id } };
   } catch (error) {
     const message = (error instanceof Error ? error.message : 'Falha desconhecida no envio.').slice(0, 1000);
-    console.error(`Error sending confirmation email for registration ${registration.id}:`, message);
-    trackingRegistration = await db.updateOnlineRegistration(registration.id, {
+    console.error(`Error sending confirmation email for registration ${syncedRegistration.id}:`, message);
+    trackingRegistration = await db.updateOnlineRegistration(syncedRegistration.id, {
       confirmationEmailStatus: 'FALHOU',
       confirmationEmailError: message
     }) || trackingRegistration;
@@ -1122,13 +1150,13 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
 
     if (isAutomatic) {
       const result = await ensureOnlineRegistrationParticipant(registration);
-      const confirmation = await sendAndTrackRegistrationConfirmation(req, result.registration, event);
+      const confirmation = await sendAndTrackRegistrationConfirmation(req, result.registration, event, result.participant);
       res.status(201).json({
         status: 'APROVADA',
         message: 'Inscrição confirmada com sucesso.',
         registration: confirmation.registration,
         participant: result.participant,
-        qrToken: result.registration.qrToken || result.participant.ticketCode,
+        qrToken: result.participant.qrToken,
         emailDelivery: confirmation.emailDelivery
       });
       return;
@@ -1265,10 +1293,11 @@ app.post('/api/online-registrations/:id/approve', authenticateToken, async (req,
     }
 
     const result = await ensureOnlineRegistrationParticipant(registration, user.id);
-    const confirmation = await sendAndTrackRegistrationConfirmation(req, result.registration, event);
+    const confirmation = await sendAndTrackRegistrationConfirmation(req, result.registration, event, result.participant);
     res.json({
       ...result,
       registration: confirmation.registration,
+      qrToken: result.participant.qrToken,
       emailDelivery: confirmation.emailDelivery
     });
   } catch (error) {
@@ -1326,7 +1355,7 @@ app.post('/api/online-registrations/:id/resend-confirmation', authenticateToken,
       res.status(403).json({ error: 'Acesso negado para reenviar confirmações' });
       return;
     }
-    if (registration.status !== 'APROVADA' || !registration.qrToken) {
+    if (registration.status !== 'APROVADA' || !registration.participantId) {
       res.status(400).json({ error: 'A confirmação só pode ser enviada para uma inscrição aprovada.' });
       return;
     }
@@ -1335,7 +1364,16 @@ app.post('/api/online-registrations/:id/resend-confirmation', authenticateToken,
       return;
     }
 
-    const confirmation = await sendAndTrackRegistrationConfirmation(req, registration, event, true);
+    let participant = await db.getParticipantById(registration.participantId);
+    if (!participant) {
+      res.status(404).json({ error: 'Participante vinculado nÃ£o encontrado.' });
+      return;
+    }
+    if (!participant.qrToken || (participant.qrTokenStatus && participant.qrTokenStatus !== 'ATIVO')) {
+      participant = await db.regenerateParticipantQrToken(participant.id) || participant;
+    }
+
+    const confirmation = await sendAndTrackRegistrationConfirmation(req, registration, event, participant, true);
     res.json(confirmation);
   } catch (error) {
     console.error('Error resending online registration confirmation:', error);
