@@ -36,6 +36,7 @@ import {
   X,
   ShieldCheck,
   MoreHorizontal,
+  Menu,
   Sun,
   Moon,
   ClipboardCheck,
@@ -109,6 +110,7 @@ export default function App() {
   const publicCredentialMatch = window.location.pathname.match(/^\/convite\/([^/?#]+)/);
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Session / Auth States
   const [token, setToken] = useState<string | null>(() => readStoredToken());
@@ -4229,13 +4231,34 @@ export default function App() {
         ))}
       </div>
 
-      <header className={`${shouldUseFullscreenCheckin || shouldUseStandaloneCloakroom ?'hidden' : 'cx-premium-header no-print shrink-0'}`}>
-        <div className="px-5 lg:px-8 py-4 flex flex-col gap-4">
+      <header className={`${shouldUseFullscreenCheckin || shouldUseStandaloneCloakroom ?'hidden' : 'cx-premium-header no-print shrink-0 lg:pl-72'}`}>
+        {isSidebarOpen && (
+          <button
+            type="button"
+            aria-label="Fechar menu"
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden"
+          />
+        )}
+
+        <div className="px-4 sm:px-5 lg:px-8 py-4 flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
               <button
-                onClick={() => isUserAdmin ?setActiveTab('dashboard') : setActiveTab('checkin')}
-                className="flex items-center gap-2 shrink-0 cursor-pointer"
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+                title="Abrir menu"
+              >
+                <Menu size={20} />
+              </button>
+
+              <button
+                onClick={() => {
+                  isUserAdmin ?setActiveTab('dashboard') : setActiveTab('checkin');
+                  setIsSidebarOpen(false);
+                }}
+                className="flex items-center gap-2 shrink-0 cursor-pointer lg:hidden"
                 title="Ir para o inicio"
               >
                 <div className="text-left">
@@ -4311,7 +4334,29 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="relative flex flex-wrap gap-1.5 pb-1">
+          <nav className={`fixed left-0 top-0 z-50 flex h-screen w-72 max-w-[86vw] flex-col gap-1.5 overflow-y-auto border-r border-slate-200/80 bg-white px-4 py-5 shadow-2xl shadow-slate-950/10 transition-transform duration-200 lg:translate-x-0 lg:shadow-none ${isSidebarOpen ?'translate-x-0' : '-translate-x-full'}`}>
+            <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <button
+                onClick={() => {
+                  isUserAdmin ?setActiveTab('dashboard') : setActiveTab('checkin');
+                  setIsSidebarOpen(false);
+                }}
+                className="flex min-w-0 items-center gap-2 cursor-pointer"
+                title="Ir para o inicio"
+              >
+                <img src={credenciaLogo} alt="CREDENCIA" className="h-9 w-auto object-contain" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(false)}
+                className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600"
+                title="Fechar menu"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
             {navItems.map(item => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -4321,8 +4366,9 @@ export default function App() {
                   onClick={() => {
                     setActiveTab(item.id as any);
                     setIsMoreMenuOpen(false);
+                    setIsSidebarOpen(false);
                   }}
-                  className={`cx-nav-item inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
+                  className={`cx-nav-item flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left transition cursor-pointer ${
                     isActive
                       ?'cx-nav-active'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
@@ -4338,7 +4384,7 @@ export default function App() {
               <div className="relative">
                 <button
                   onClick={() => setIsMoreMenuOpen(prev => !prev)}
-                  className={`cx-nav-item inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
+                  className={`cx-nav-item flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left transition cursor-pointer ${
                     isMoreActive || isMoreMenuOpen
                       ?'cx-nav-active'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
@@ -4359,6 +4405,7 @@ export default function App() {
                           onClick={() => {
                             setActiveTab(item.id as any);
                             setIsMoreMenuOpen(false);
+                            setIsSidebarOpen(false);
                           }}
                           className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold text-left transition cursor-pointer ${
                             isActive
@@ -4579,7 +4626,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto no-print">
+      <main className={`flex-1 overflow-y-auto no-print ${shouldUseFullscreenCheckin || shouldUseStandaloneCloakroom ?'' : 'lg:pl-72'}`}>
         {/* DETECT AN EMPTY EVENT STATE */}
         {loadingEvents ?(
           <div className="flex-grow flex flex-col items-center justify-center gap-3 bg-[#f7f7f2]">
