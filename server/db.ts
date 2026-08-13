@@ -1472,6 +1472,12 @@ class Database {
 
   async deleteParticipant(id: string): Promise<boolean> {
     if (this.useSupabase) {
+      const { error: registrationError } = await this.supabase
+        .from('online_registrations')
+        .delete()
+        .eq('participant_id', id);
+      if (registrationError) throw registrationError;
+
       const { error } = await this.supabase.from('participants').delete().eq('id', id);
       if (error) throw error;
       return true;
@@ -1479,6 +1485,7 @@ class Database {
     const index = this.data.participants.findIndex(p => p.id === id);
     if (index === -1) return false;
     this.data.participants.splice(index, 1);
+    this.data.onlineRegistrations = (this.data.onlineRegistrations || []).filter(registration => registration.participantId !== id);
     this.data.actionLogs = (this.data.actionLogs || []).filter(log => log.participantId !== id);
     this.data.activityAttendances = (this.data.activityAttendances || []).filter(att => att.participantId !== id);
     this.data.certificates = (this.data.certificates || []).filter(cert => cert.participantId !== id);

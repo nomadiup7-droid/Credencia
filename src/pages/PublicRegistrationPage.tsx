@@ -43,6 +43,7 @@ export default function PublicRegistrationPage() {
     .map(field => field.key === 'email' ? { ...field, type: 'email' as const, required: true, visible: true } : field)
     .filter(field => field.visible !== false)
     .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const isRegistrationOpen = config?.status === 'ABERTA' && config?.enabled === true;
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -134,9 +135,9 @@ export default function PublicRegistrationPage() {
         </div>
       </section>
 
-      <section className="max-w-5xl mx-auto px-5 py-8">
+      <section className="mx-auto flex max-w-5xl justify-center px-5 py-8">
         {result ? (
-          <div className="mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+          <div className="mx-auto flex w-full max-w-xl flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
             <div className={`mx-auto flex h-14 w-14 items-center justify-center rounded-2xl ${result.status === 'APROVADA' ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'}`}>
               <CheckCircle2 size={34} />
             </div>
@@ -179,14 +180,14 @@ export default function PublicRegistrationPage() {
               </>
             )}
           </div>
+        ) : !isRegistrationOpen ? (
+          <div className="mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm font-semibold text-amber-900">
+              As inscrições não estão abertas neste momento.
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7 space-y-5">
-            {config?.status !== 'ABERTA' || !config?.enabled ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-                As inscrições não estão abertas neste momento.
-              </div>
-            ) : null}
-
             {error && (
               <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900">
                 {error}
@@ -236,7 +237,7 @@ export default function PublicRegistrationPage() {
               <span>Autorizo o uso dos meus dados para fins de inscrição, credenciamento e comunicação sobre este evento.</span>
             </label>
 
-            <button disabled={submitting || config?.status !== 'ABERTA' || !config?.enabled} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-black text-slate-950 disabled:opacity-50 disabled:cursor-not-allowed">
+            <button disabled={submitting || !isRegistrationOpen} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-black text-slate-950 disabled:opacity-50 disabled:cursor-not-allowed">
               {submitting ? <Loader2 className="animate-spin" size={16} /> : <ShieldCheck size={16} />}
               <span>Enviar inscrição</span>
             </button>

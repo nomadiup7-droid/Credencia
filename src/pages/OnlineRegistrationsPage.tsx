@@ -100,17 +100,22 @@ export default function OnlineRegistrationsPage({
     });
   };
 
-  const loadRegistrations = async () => {
-    setLoading(true);
+  const loadRegistrations = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams();
       if (eventFilter) params.set('eventId', eventFilter);
       if (statusFilter !== 'TODOS') params.set('status', statusFilter);
       if (search.trim()) params.set('search', search.trim());
       const data = await apiCall(`/api/online-registrations?${params.toString()}`);
-      setRegistrations(Array.isArray(data) ? data : []);
+      const nextRegistrations = Array.isArray(data) ? data : [];
+      setRegistrations(nextRegistrations);
+      setDetails(current => {
+        if (!current) return current;
+        return nextRegistrations.find(item => item.id === current.id) || current;
+      });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -130,6 +135,26 @@ export default function OnlineRegistrationsPage({
     }, 300);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    if (!eventFilter) return;
+
+    const refreshSilently = () => {
+      if (document.visibilityState !== 'hidden') {
+        loadRegistrations(true);
+      }
+    };
+
+    const interval = window.setInterval(refreshSilently, 5000);
+    window.addEventListener('focus', refreshSilently);
+    document.addEventListener('visibilitychange', refreshSilently);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshSilently);
+      document.removeEventListener('visibilitychange', refreshSilently);
+    };
+  }, [eventFilter, statusFilter, search]);
 
   const summary = useMemo(() => ({
     total: registrations.length,

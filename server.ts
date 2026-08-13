@@ -1059,7 +1059,7 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       res.status(400).json({ error: 'Nome completo é obrigatório.' });
       return;
     }
-    if (!phone && visibleFields.some(field => field.key === 'phone' && field.visible !== false)) {
+    if (!phone && visibleFields.some(field => field.key === 'phone' && field.visible !== false && field.required === true)) {
       res.status(400).json({ error: 'Telefone/WhatsApp é obrigatório.' });
       return;
     }
