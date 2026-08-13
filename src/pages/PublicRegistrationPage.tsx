@@ -9,12 +9,25 @@ interface PublicConfig extends OnlineRegistrationConfig {
 
 const defaultOnlineFields = (): OnlineRegistrationField[] => [
   { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
-  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: false, visible: true, system: true, order: 2 },
+  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: true, visible: true, system: true, order: 2 },
   { id: 'orf_phone', key: 'phone', label: 'Telefone/WhatsApp', type: 'tel', required: true, visible: true, system: true, order: 3 },
   { id: 'orf_company', key: 'company', label: 'Empresa', type: 'text', required: false, visible: true, system: true, order: 4 },
   { id: 'orf_position', key: 'position', label: 'Cargo', type: 'text', required: false, visible: true, system: true, order: 5 },
   { id: 'orf_cpf', key: 'cpf', label: 'CPF', type: 'text', required: false, visible: true, system: true, order: 6 }
 ];
+
+type PublicRegistrationResult = {
+  status: string;
+  message: string;
+  qrToken?: string;
+  registration?: {
+    name?: string;
+    email?: string;
+  };
+  emailDelivery?: {
+    status?: string;
+  };
+};
 
 export default function PublicRegistrationPage() {
   const slug = decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1] || '');
@@ -22,11 +35,12 @@ export default function PublicRegistrationPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ status: string; message: string; qrToken?: string; name?: string } | null>(null);
+  const [result, setResult] = useState<PublicRegistrationResult | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
   const [lgpdAccepted, setLgpdAccepted] = useState(false);
 
   const fields = (config?.fields?.length ? config.fields : defaultOnlineFields())
+    .map(field => field.key === 'email' ? { ...field, type: 'email' as const, required: true, visible: true } : field)
     .filter(field => field.visible !== false)
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 
@@ -65,7 +79,13 @@ export default function PublicRegistrationPage() {
         status: data.status,
         message: data.message,
         qrToken: data.qrToken,
-        name: data.registration?.name || form.name
+        registration: {
+          name: data.registration?.name || form.name,
+          email: data.registration?.email || form.email
+        },
+        emailDelivery: {
+          status: data.emailDelivery?.status
+        }
       });
     } catch (err: any) {
       setError(err.message || 'Erro ao enviar inscrição');
@@ -116,15 +136,47 @@ export default function PublicRegistrationPage() {
 
       <section className="max-w-5xl mx-auto px-5 py-8">
         {result ? (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
-            <CheckCircle2 className={result.status === 'APROVADA' ? 'text-emerald-500' : 'text-amber-500'} size={36} />
-            <h2 className="text-2xl font-black mt-4">{result.status === 'APROVADA' ? 'Inscrição confirmada' : 'Inscrição recebida'}</h2>
-            <p className="text-slate-600 mt-2">{result.message}</p>
-            {result.qrToken && (
-              <div className="mt-6 inline-flex flex-col items-center gap-3 rounded-2xl border border-slate-200 p-5 bg-slate-50">
-                <UserQRCode value={result.qrToken} size={180} frameless />
-                <p className="text-xs font-bold text-slate-500 uppercase">Apresente este QR Code no credenciamento</p>
-              </div>
+          <div className="mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+            <div className={`mx-auto flex h-14 w-14 items-center justify-center rounded-2xl ${result.status === 'APROVADA' ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'}`}>
+              <CheckCircle2 size={34} />
+            </div>
+
+            {result.status === 'APROVADA' ? (
+              <>
+                <h2 className="mt-5 text-2xl font-black sm:text-3xl">Inscrição confirmada!</h2>
+                {result.emailDelivery?.status === 'ENVIADO' ? (
+                  <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-slate-600 sm:text-base">
+                    Sua inscrição foi aprovada e enviamos a confirmação para:
+                    <strong className="mt-1 block text-slate-950">{result.registration?.email || form.email}</strong>
+                  </p>
+                ) : (
+                  <div className="mx-auto mt-4 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900">
+                    Sua inscrição foi aprovada, mas não conseguimos enviar o e-mail neste momento. Salve este QR Code ou acesse sua credencial pelo botão abaixo.
+                  </div>
+                )}
+
+                {result.qrToken && (
+                  <div className="mx-auto mt-6 flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <UserQRCode value={result.qrToken} size={190} frameless />
+                    <p className="text-sm font-semibold leading-6 text-slate-600">
+                      Apresente o QR Code abaixo no credenciamento. Você também pode acessar sua credencial pelo botão abaixo.
+                    </p>
+                    <a
+                      href={`/convite/${encodeURIComponent(result.qrToken)}`}
+                      className="inline-flex w-full items-center justify-center rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-emerald-400"
+                    >
+                      Acessar minha credencial
+                    </a>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 className="mt-5 text-2xl font-black sm:text-3xl">Inscrição recebida!</h2>
+                <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-slate-600 sm:text-base">
+                  Sua inscrição está aguardando aprovação. Assim que for aprovada, você receberá a confirmação e sua credencial por e-mail.
+                </p>
+              </>
             )}
           </div>
         ) : (

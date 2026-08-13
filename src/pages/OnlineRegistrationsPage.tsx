@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Copy, Loader2, Plus, QrCode, Search, Settings, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Copy, Loader2, Mail, Plus, QrCode, RefreshCw, Search, Settings, Trash2, XCircle } from 'lucide-react';
 import UserQRCode from '../components/UserQRCode';
 import { Event, OnlineRegistration, OnlineRegistrationConfig, OnlineRegistrationField, OnlineRegistrationStatus } from '../types';
 
@@ -25,6 +25,20 @@ const statusClasses: Record<OnlineRegistrationStatus, string> = {
   CANCELADA: 'bg-slate-100 text-slate-600 border-slate-200'
 };
 
+const emailStatusLabels = {
+  NAO_ENVIADO: 'Não enviado',
+  ENVIANDO: 'Enviando',
+  ENVIADO: 'Enviado',
+  FALHOU: 'Falhou'
+} as const;
+
+const emailStatusClasses = {
+  NAO_ENVIADO: 'bg-slate-100 text-slate-600',
+  ENVIANDO: 'bg-sky-50 text-sky-700',
+  ENVIADO: 'bg-emerald-50 text-emerald-700',
+  FALHOU: 'bg-rose-50 text-rose-700'
+} as const;
+
 const defaultConfig = (event?: Event | null): Partial<OnlineRegistrationConfig> => ({
   enabled: false,
   slug: event?.name ? event.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : '',
@@ -40,7 +54,7 @@ const defaultConfig = (event?: Event | null): Partial<OnlineRegistrationConfig> 
 
 const defaultOnlineFields = (): OnlineRegistrationField[] => [
   { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
-  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: false, visible: true, system: true, order: 2 },
+  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: true, visible: true, system: true, order: 2 },
   { id: 'orf_phone', key: 'phone', label: 'Telefone/WhatsApp', type: 'tel', required: true, visible: true, system: true, order: 3 },
   { id: 'orf_company', key: 'company', label: 'Empresa', type: 'text', required: false, visible: true, system: true, order: 4 },
   { id: 'orf_position', key: 'position', label: 'Cargo', type: 'text', required: false, visible: true, system: true, order: 5 },
@@ -52,7 +66,9 @@ const normalizeOnlineFields = (fields?: OnlineRegistrationField[]) => {
   const incoming = Array.isArray(fields) ? fields : [];
   const base = defaultOnlineFields().map(field => ({ ...field, ...(incoming.find(item => item.key === field.key) || {}) }));
   const custom = incoming.filter(field => !base.some(item => item.key === field.key));
-  return [...base, ...custom].sort((a, b) => (a.order || 0) - (b.order || 0));
+  return [...base, ...custom]
+    .map(field => field.key === 'email' ? { ...field, required: true, visible: true, type: 'email' as const } : field)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 };
 
 export default function OnlineRegistrationsPage({
@@ -69,6 +85,7 @@ export default function OnlineRegistrationsPage({
   const [config, setConfig] = useState<Partial<OnlineRegistrationConfig>>(defaultConfig(events.find(e => e.id === eventFilter)));
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sendingEmailId, setSendingEmailId] = useState('');
   const [details, setDetails] = useState<OnlineRegistration | null>(null);
 
   const selectedEvent = events.find(event => event.id === eventFilter) || null;
@@ -146,12 +163,32 @@ export default function OnlineRegistrationsPage({
   const updateStatus = async (registration: OnlineRegistration, action: 'approve' | 'reject' | 'cancel') => {
     const labels = { approve: 'aprovada', reject: 'reprovada', cancel: 'cancelada' };
     const response = await apiCall(`/api/online-registrations/${registration.id}/${action}`, { method: 'POST' });
-    addToast(`Inscrição ${labels[action]} com sucesso.`, 'success');
+    if (action === 'approve' && response.emailDelivery?.status === 'FALHOU') {
+      addToast('Inscrição aprovada, mas o e-mail não foi enviado. Você pode tentar novamente.', 'error');
+    } else {
+      addToast(action === 'approve' ? 'Inscrição aprovada e confirmação enviada por e-mail.' : `Inscrição ${labels[action]} com sucesso.`, 'success');
+    }
     if (action === 'approve') {
       onParticipantsChanged?.(registration.eventId);
       if (response.registration) setDetails(response.registration);
     }
     await loadRegistrations();
+  };
+
+  const resendConfirmation = async (registration: OnlineRegistration) => {
+    setSendingEmailId(registration.id);
+    try {
+      const response = await apiCall(`/api/online-registrations/${registration.id}/resend-confirmation`, { method: 'POST' });
+      if (response.emailDelivery?.status === 'ENVIADO') {
+        addToast('Confirmação reenviada por e-mail.', 'success');
+      } else {
+        addToast(response.emailDelivery?.error || 'Não foi possível enviar a confirmação.', 'error');
+      }
+      if (response.registration) setDetails(current => current?.id === registration.id ? response.registration : current);
+      await loadRegistrations();
+    } finally {
+      setSendingEmailId('');
+    }
   };
 
   const updateField = (fieldKey: string, updates: Partial<OnlineRegistrationField>) => {
@@ -363,6 +400,7 @@ export default function OnlineRegistrationsPage({
                       <select
                         value={field.type}
                         onChange={e => updateField(field.key, { type: e.target.value as any })}
+                        disabled={field.key === 'email'}
                         className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"
                       >
                         <option value="text">Texto</option>
@@ -387,13 +425,14 @@ export default function OnlineRegistrationsPage({
 
                   <div className="flex flex-wrap gap-3">
                     <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600">
-                      <input type="checkbox" checked={field.visible !== false} onChange={e => updateField(field.key, { visible: e.target.checked })} />
+                      <input type="checkbox" checked={field.visible !== false} disabled={field.key === 'email'} onChange={e => updateField(field.key, { visible: e.target.checked })} />
                       Exibir
                     </label>
                     <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600">
-                      <input type="checkbox" checked={field.required === true} onChange={e => updateField(field.key, { required: e.target.checked })} />
+                      <input type="checkbox" checked={field.required === true} disabled={field.key === 'email'} onChange={e => updateField(field.key, { required: e.target.checked })} />
                       Obrigatório
                     </label>
+                    {field.key === 'email' && <span className="text-xs font-semibold text-emerald-700">Necessário para enviar a confirmação</span>}
                   </div>
                 </div>
               ))}
@@ -429,15 +468,16 @@ export default function OnlineRegistrationsPage({
                   <th className="text-left p-3">Contato</th>
                   <th className="text-left p-3">Evento</th>
                   <th className="text-left p-3">Status</th>
+                  <th className="text-left p-3">E-mail</th>
                   <th className="text-left p-3">Data</th>
                   <th className="text-right p-3">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={16} />Carregando...</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={16} />Carregando...</td></tr>
                 ) : registrations.length === 0 ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-slate-500">Nenhuma inscrição encontrada.</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-slate-500">Nenhuma inscrição encontrada.</td></tr>
                 ) : registrations.map(registration => {
                   const event = events.find(item => item.id === registration.eventId);
                   return (
@@ -449,12 +489,29 @@ export default function OnlineRegistrationsPage({
                       </td>
                       <td className="p-3 text-slate-600">{event?.name || registration.eventId}</td>
                       <td className="p-3"><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-black ${statusClasses[registration.status]}`}>{statusLabels[registration.status]}</span></td>
+                      <td className="p-3">
+                        {registration.status === 'APROVADA' ? (
+                          <span title={registration.confirmationEmailError || ''} className={`inline-flex rounded-full px-2 py-1 text-xs font-black ${emailStatusClasses[registration.confirmationEmailStatus || 'NAO_ENVIADO']}`}>
+                            {emailStatusLabels[registration.confirmationEmailStatus || 'NAO_ENVIADO']}
+                          </span>
+                        ) : <span className="text-xs text-slate-400">—</span>}
+                      </td>
                       <td className="p-3 text-slate-500">{new Date(registration.registeredAt).toLocaleString('pt-BR')}</td>
                       <td className="p-3">
                         <div className="flex justify-end gap-2">
                           <button onClick={() => setDetails(registration)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold">Detalhes</button>
                           {registration.status === 'PENDENTE' && <button onClick={() => updateStatus(registration, 'approve')} className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-black text-slate-950">Aprovar</button>}
                           {registration.status === 'PENDENTE' && <button onClick={() => updateStatus(registration, 'reject')} className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700">Reprovar</button>}
+                          {registration.status === 'APROVADA' && (
+                            <button
+                              onClick={() => resendConfirmation(registration)}
+                              disabled={sendingEmailId === registration.id}
+                              className="rounded-lg border border-emerald-200 px-2 py-1 text-xs font-bold text-emerald-700 disabled:opacity-50"
+                              title="Reenviar confirmação por e-mail"
+                            >
+                              {sendingEmailId === registration.id ? <Loader2 className="animate-spin" size={14} /> : <Mail size={14} />}
+                            </button>
+                          )}
                           {registration.status !== 'CANCELADA' && <button onClick={() => updateStatus(registration, 'cancel')} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600">Cancelar</button>}
                         </div>
                       </td>
@@ -485,11 +542,31 @@ export default function OnlineRegistrationsPage({
               <Info label="CPF" value={details.cpf || '-'} />
               <Info label="Categoria" value={details.category || '-'} />
               <Info label="Inscrição" value={new Date(details.registeredAt).toLocaleString('pt-BR')} />
+              {details.status === 'APROVADA' && <Info label="Confirmação por e-mail" value={emailStatusLabels[details.confirmationEmailStatus || 'NAO_ENVIADO']} />}
+              {details.confirmationEmailSentAt && <Info label="Último envio" value={new Date(details.confirmationEmailSentAt).toLocaleString('pt-BR')} />}
+              {!!details.confirmationEmailAttempts && <Info label="Tentativas de envio" value={String(details.confirmationEmailAttempts)} />}
             </div>
+            {details.confirmationEmailError && (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                <strong>Erro no envio:</strong> {details.confirmationEmailError}
+              </div>
+            )}
+            {details.status === 'APROVADA' && (
+              <button
+                onClick={() => resendConfirmation(details)}
+                disabled={sendingEmailId === details.id}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-200 px-4 py-2 text-sm font-black text-emerald-700 disabled:opacity-50"
+              >
+                {sendingEmailId === details.id ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                Reenviar confirmação
+              </button>
+            )}
             {details.customFields && Object.keys(details.customFields).length > 0 && (
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 {Object.entries(details.customFields).map(([key, value]) => (
-                  <div key={key}>`r`n                    <Info label={key} value={typeof value === 'boolean' ? (value ? 'Sim' : 'N�o') : String(value || '-')} />`r`n                  </div>
+                  <div key={key}>
+                    <Info label={key} value={typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : String(value || '-')} />
+                  </div>
                 ))}
               </div>
             )}
@@ -526,4 +603,3 @@ function Info({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

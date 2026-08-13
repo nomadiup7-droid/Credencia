@@ -11,6 +11,7 @@ import checkInRouter from './routes/checkin';
 import { authenticateToken, hashPassword, requireAdmin, signAuthToken, verifyPassword } from './server/auth';
 import { getPagination, logApiError, normalizeSearch, paginateArray, sendError, sendSuccess, sortRecords } from './server/apiResponse';
 import { openApiDocument } from './server/openapi';
+import { sendRegistrationConfirmationEmail } from './server/registrationEmail';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -60,7 +61,7 @@ const SYSTEM_PERMISSIONS = [
 const ALL_SYSTEM_PERMISSIONS = [...SYSTEM_PERMISSIONS];
 
 const getPublicBaseUrl = (req: express.Request) => {
-  const configured = process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL;
+  const configured = process.env.APP_URL || process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL;
   if (configured) return configured.replace(/\/$/, '');
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
   const host = req.get('host') || `localhost:${PORT}`;
@@ -834,7 +835,7 @@ const generateQrToken = () => `OR-${randomBytes(18).toString('hex')}`;
 
 const DEFAULT_ONLINE_REGISTRATION_FIELDS: OnlineRegistrationField[] = [
   { id: 'orf_name', key: 'name', label: 'Nome completo', type: 'text', required: true, visible: true, system: true, order: 1 },
-  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: false, visible: true, system: true, order: 2 },
+  { id: 'orf_email', key: 'email', label: 'E-mail', type: 'email', required: true, visible: true, system: true, order: 2 },
   { id: 'orf_phone', key: 'phone', label: 'Telefone/WhatsApp', type: 'tel', required: true, visible: true, system: true, order: 3 },
   { id: 'orf_company', key: 'company', label: 'Empresa', type: 'text', required: false, visible: true, system: true, order: 4 },
   { id: 'orf_position', key: 'position', label: 'Cargo', type: 'text', required: false, visible: true, system: true, order: 5 },
@@ -855,8 +856,8 @@ const getOnlineRegistrationFields = (config: any): OnlineRegistrationField[] => 
       key: String(field.key || field.id || `custom_${index}`).replace(/[^a-zA-Z0-9_]/g, '_'),
       label: normalizeText(field.label) || 'Campo',
       type: ['text', 'email', 'tel', 'number', 'select', 'checkbox'].includes(field.type) ?field.type : 'text',
-      required: field.required === true,
-      visible: field.visible !== false,
+      required: field.key === 'email' ? true : field.required === true,
+      visible: field.key === 'email' ? true : field.visible !== false,
       options: Array.isArray(field.options) ?field.options.map((item: any) => normalizeText(item)).filter(Boolean) : [],
       system: field.system === true,
       order: Number.isFinite(Number(field.order)) ?Number(field.order) : index + 1
@@ -926,6 +927,55 @@ const ensureOnlineRegistrationParticipant = async (registration: OnlineRegistrat
   });
 
   return { registration: updated || registration, participant };
+};
+
+const sendAndTrackRegistrationConfirmation = async (
+  req: express.Request,
+  registration: OnlineRegistration,
+  event: any,
+  force = false
+) => {
+  if (!force && registration.confirmationEmailStatus === 'ENVIADO') {
+    return { registration, emailDelivery: { status: 'ENVIADO', skipped: true } };
+  }
+
+  const attempt = Math.max(0, Number(registration.confirmationEmailAttempts || 0)) + 1;
+  const lastAttemptAt = new Date().toISOString();
+  let trackingRegistration = await db.updateOnlineRegistration(registration.id, {
+    confirmationEmailStatus: 'ENVIANDO',
+    confirmationEmailAttempts: attempt,
+    confirmationEmailLastAttemptAt: lastAttemptAt,
+    confirmationEmailError: undefined
+  }) || registration;
+
+  try {
+    const qrToken = trackingRegistration.qrToken;
+    const sent = await sendRegistrationConfirmationEmail({
+      registrationId: trackingRegistration.id,
+      attempt,
+      participantName: trackingRegistration.name,
+      participantEmail: trackingRegistration.email || '',
+      eventName: event.name,
+      eventDate: event.date,
+      eventLocation: event.location,
+      credentialUrl: getCredentialLink(req, qrToken)
+    });
+    trackingRegistration = await db.updateOnlineRegistration(trackingRegistration.id, {
+      confirmationEmailStatus: 'ENVIADO',
+      confirmationEmailSentAt: new Date().toISOString(),
+      confirmationEmailError: undefined,
+      confirmationEmailId: sent.id
+    }) || trackingRegistration;
+    return { registration: trackingRegistration, emailDelivery: { status: 'ENVIADO', id: sent.id } };
+  } catch (error) {
+    const message = (error instanceof Error ? error.message : 'Falha desconhecida no envio.').slice(0, 1000);
+    console.error(`Error sending confirmation email for registration ${registration.id}:`, message);
+    trackingRegistration = await db.updateOnlineRegistration(registration.id, {
+      confirmationEmailStatus: 'FALHOU',
+      confirmationEmailError: message
+    }) || trackingRegistration;
+    return { registration: trackingRegistration, emailDelivery: { status: 'FALHOU', error: message } };
+  }
 };
 
 const validateOnlineRegistrationAvailability = async (config: any) => {
@@ -1013,6 +1063,14 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
       res.status(400).json({ error: 'Telefone/WhatsApp é obrigatório.' });
       return;
     }
+    if (!email) {
+      res.status(400).json({ error: 'E-mail é obrigatório para receber a confirmação da inscrição.' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: 'Informe um endereço de e-mail válido.' });
+      return;
+    }
     for (const field of visibleFields) {
       if (!field.required) continue;
       const value = field.system ?formData[field.key] : customFields[field.key];
@@ -1064,12 +1122,14 @@ app.post('/api/public/online-registration/:slug/register', async (req, res) => {
 
     if (isAutomatic) {
       const result = await ensureOnlineRegistrationParticipant(registration);
+      const confirmation = await sendAndTrackRegistrationConfirmation(req, result.registration, event);
       res.status(201).json({
         status: 'APROVADA',
         message: 'Inscrição confirmada com sucesso.',
-        registration: result.registration,
+        registration: confirmation.registration,
         participant: result.participant,
-        qrToken: result.registration.qrToken || result.participant.ticketCode
+        qrToken: result.registration.qrToken || result.participant.ticketCode,
+        emailDelivery: confirmation.emailDelivery
       });
       return;
     }
@@ -1205,7 +1265,12 @@ app.post('/api/online-registrations/:id/approve', authenticateToken, async (req,
     }
 
     const result = await ensureOnlineRegistrationParticipant(registration, user.id);
-    res.json(result);
+    const confirmation = await sendAndTrackRegistrationConfirmation(req, result.registration, event);
+    res.json({
+      ...result,
+      registration: confirmation.registration,
+      emailDelivery: confirmation.emailDelivery
+    });
   } catch (error) {
     console.error('Error approving online registration:', error);
     res.status(500).json({ error: 'Erro ao aprovar inscrição online' });
@@ -1243,6 +1308,40 @@ const updateOnlineRegistrationStatusRoute = (status: OnlineRegistrationStatus) =
 
 app.post('/api/online-registrations/:id/reject', authenticateToken, updateOnlineRegistrationStatusRoute('REPROVADA'));
 app.post('/api/online-registrations/:id/cancel', authenticateToken, updateOnlineRegistrationStatusRoute('CANCELADA'));
+
+app.post('/api/online-registrations/:id/resend-confirmation', authenticateToken, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const registration = await db.getOnlineRegistrationById(req.params.id);
+    if (!registration) {
+      res.status(404).json({ error: 'Inscrição não encontrada' });
+      return;
+    }
+    const event = await db.getEventById(registration.eventId);
+    if (!event || event.organizationId !== user.organizationId) {
+      res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+    if (!(await canModerateOnlineRegistrationsForEvent(user, event.id))) {
+      res.status(403).json({ error: 'Acesso negado para reenviar confirmações' });
+      return;
+    }
+    if (registration.status !== 'APROVADA' || !registration.qrToken) {
+      res.status(400).json({ error: 'A confirmação só pode ser enviada para uma inscrição aprovada.' });
+      return;
+    }
+    if (!registration.email) {
+      res.status(400).json({ error: 'Esta inscrição não possui e-mail.' });
+      return;
+    }
+
+    const confirmation = await sendAndTrackRegistrationConfirmation(req, registration, event, true);
+    res.json(confirmation);
+  } catch (error) {
+    console.error('Error resending online registration confirmation:', error);
+    res.status(500).json({ error: 'Erro ao reenviar confirmação da inscrição' });
+  }
+});
 
 // --- AUTHENTICATION ENDPOINTS ---
 app.post('/api/auth/login', async (req, res) => {

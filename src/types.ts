@@ -91,6 +91,7 @@ export type ParticipantCategory = 'VIP' | 'Palestrante' | 'Expositor' | 'Partici
 export type OnlineRegistrationConfigStatus = 'ABERTA' | 'PAUSADA' | 'ENCERRADA';
 export type OnlineRegistrationApprovalMode = 'AUTOMATICA' | 'MANUAL';
 export type OnlineRegistrationStatus = 'PENDENTE' | 'APROVADA' | 'REPROVADA' | 'CANCELADA';
+export type ConfirmationEmailStatus = 'NAO_ENVIADO' | 'ENVIANDO' | 'ENVIADO' | 'FALHOU';
 export type OnlineRegistrationFieldType = 'text' | 'email' | 'tel' | 'number' | 'select' | 'checkbox';
 
 export interface OnlineRegistrationField {
@@ -142,6 +143,12 @@ export interface OnlineRegistration {
   approvedAt?: string;
   approvedBy?: string;
   cancelledAt?: string;
+  confirmationEmailStatus?: ConfirmationEmailStatus;
+  confirmationEmailSentAt?: string;
+  confirmationEmailLastAttemptAt?: string;
+  confirmationEmailError?: string;
+  confirmationEmailId?: string;
+  confirmationEmailAttempts?: number;
   createdAt: string;
   updatedAt: string;
 }
