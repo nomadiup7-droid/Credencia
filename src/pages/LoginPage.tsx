@@ -178,9 +178,9 @@ export default function LoginPage({
       <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#030604] to-transparent" />
 
       <div className="relative z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[1fr_430px] gap-8 lg:gap-12 items-center">
-        <section className="min-h-[260px] flex flex-col justify-end lg:min-h-[640px]">
-          <div className="max-w-2xl">
-            <div className="mb-7 flex items-center gap-3">
+        <section className="flex min-h-[260px] flex-col justify-center lg:min-h-[560px] lg:-translate-y-6">
+          <div className="mx-auto max-w-2xl text-center lg:mx-0 lg:text-left">
+            <div className="mb-7 flex items-center justify-center gap-3 lg:justify-start">
               <img src={credenciaLogoIcon} alt="" className="h-14 sm:h-16 w-auto object-contain drop-shadow-[0_18px_32px_rgba(18,224,0,0.22)]" />
               <div>
                 <div className="font-display text-2xl sm:text-3xl font-bold tracking-wide text-white">CREDENCIA</div>
@@ -191,13 +191,13 @@ export default function LoginPage({
               <span className="h-2 w-2 rounded-full bg-[#12e000] shadow-[0_0_18px_rgba(18,224,0,0.85)]" />
               Plataforma de credenciamento
             </div>
-            <h1 className="mt-5 text-3xl sm:text-5xl font-bold tracking-tight text-white font-display max-w-xl leading-[0.98]">
+            <h1 className="mx-auto mt-5 max-w-xl text-3xl font-bold leading-[0.98] tracking-tight text-white font-display sm:text-5xl lg:mx-0">
               Operação elegante para eventos de alta exigência.
             </h1>
-            <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-lg leading-relaxed">
+            <p className="mx-auto mt-4 max-w-lg text-sm leading-relaxed text-slate-200 sm:text-base lg:mx-0">
               Controle participantes, check-ins, acessos e impressões em um fluxo claro para recepção, supervisão e administração.
             </p>
-            <div className="mt-8 grid grid-cols-3 gap-3 max-w-xl">
+            <div className="mx-auto mt-8 grid max-w-xl grid-cols-3 gap-3 lg:mx-0">
               <div className="border border-white/12 bg-white/8 rounded-xl p-4 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                 <div className="text-sm font-bold text-white">Check-in</div>
                 <div className="text-xs text-slate-300 mt-1">Busca, QR Code e presença.</div>
