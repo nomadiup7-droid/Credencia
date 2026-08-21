@@ -280,7 +280,7 @@ const isOfficialLog = (log: { isTest?: boolean; origin?: string; testStatus?: st
 };
 const isEventClosed = (event?: { eventMode?: string }) => getEventState(event) === 'ENCERRADO';
 
-const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; activityId?: string; ticketNumber?: number; action: ActionLogAction; isTest?: boolean; origin?: 'TESTE' | 'OFICIAL'; testStatus?: 'ATIVO' | 'CANCELADO_TESTE' }) => {
+const writeActionLog = async (log: { eventId?: string; userId?: string; participantId?: string; activityId?: string; ticketNumber?: number; action: ActionLogAction; isTest?: boolean; origin?: 'TESTE' | 'OFICIAL'; testStatus?: 'ATIVO' | 'CANCELADO_TESTE'; metadata?: Record<string, unknown> }) => {
   try {
     if (!log.eventId || !log.userId) return;
     await db.createActionLog({
@@ -292,6 +292,7 @@ const writeActionLog = async (log: { eventId?: string; userId?: string; particip
       ...(log.origin ?{ origin: log.origin } : {}),
       ...(log.isTest !== undefined ?{ isTest: log.isTest } : {}),
       ...(log.testStatus ?{ testStatus: log.testStatus } : {}),
+      ...(log.metadata ?{ metadata: log.metadata } : {}),
       action: log.action
     });
   } catch (error) {
@@ -690,6 +691,22 @@ const canCreateParticipantForEvent = async (user: any, eventId: string) => {
   if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
   if (await hasEventPermission(user, eventId, 'participants.create')) return true;
   if (await hasEventPermission(user, eventId, 'checkin.createParticipant')) return true;
+
+  const activeLinks = (await db.getEventUsers())
+    .filter(link => link.userId === user.id && link.active);
+  const eventLink = activeLinks.find(link => link.eventId === eventId);
+
+  if (eventLink) {
+    return eventLink.role === 'ADMIN' || eventLink.role === 'CHECKIN_CADASTRO';
+  }
+
+  return activeLinks.length === 0 && globalRole === 'CHECKIN_CADASTRO';
+};
+
+const canEditParticipantAtCheckin = async (user: any, eventId: string) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') return true;
+  if (await hasEventPermission(user, eventId, 'participants.edit')) return true;
 
   const activeLinks = (await db.getEventUsers())
     .filter(link => link.userId === user.id && link.active);
@@ -2429,6 +2446,94 @@ app.patch('/api/participants/:id/credential/status', authenticateToken, requireA
     action: status === 'BLOQUEADA' ? 'BLOCK_PARTICIPANT_CREDENTIAL' as ActionLogAction : 'EDIT_PARTICIPANT',
     metadata: { status }
   } as any);
+  res.json(updated);
+});
+
+app.patch('/api/participants/:id/checkin-review', authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const current = await db.getParticipantById(req.params.id);
+  if (!current) {
+    res.status(404).json({ error: 'Participante não encontrado' });
+    return;
+  }
+
+  const event = await db.getEventById(current.eventId);
+  if (!event || event.organizationId !== user.organizationId) {
+    res.status(403).json({ error: 'Acesso negado para esta organização' });
+    return;
+  }
+
+  if (!(await canEditParticipantAtCheckin(user, current.eventId))) {
+    res.status(403).json({ error: 'Usuário sem permissão para conferir e editar este cadastro' });
+    return;
+  }
+
+  const fields = await db.getParticipantFields();
+  const normalizedBody = normalizeParticipantPayloadCustomFields(req.body || {}, fields);
+  const incomingCustomFields = normalizedBody.customFields && typeof normalizedBody.customFields === 'object' && !Array.isArray(normalizedBody.customFields)
+    ? normalizedBody.customFields
+    : {};
+  const existingCustomFields = current.customFields && typeof current.customFields === 'object' && !Array.isArray(current.customFields)
+    ? current.customFields
+    : {};
+
+  const editableUpdates: Partial<Participant> = {
+    customFields: { ...existingCustomFields, ...incomingCustomFields }
+  };
+  const stringFields: Array<keyof Participant> = ['name', 'badgeName', 'email', 'phone', 'cpf', 'company', 'position', 'notes'];
+  for (const key of stringFields) {
+    if (Object.prototype.hasOwnProperty.call(normalizedBody, key)) {
+      (editableUpdates as any)[key] = String((normalizedBody as any)[key] || '').trim();
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(normalizedBody, 'category')) {
+    editableUpdates.category = String(normalizedBody.category || current.category || 'Participante') as ParticipantCategory;
+  }
+  if (!editableUpdates.badgeName && editableUpdates.name) {
+    editableUpdates.badgeName = editableUpdates.name;
+  }
+
+  const requiredFields = fields.filter(field => field.active && field.required);
+  for (const field of requiredFields) {
+    const fieldKey = PARTICIPANT_SYSTEM_FIELD_KEYS[field.id] || field.id;
+    const value = field.id in PARTICIPANT_SYSTEM_FIELD_KEYS
+      ? (editableUpdates as any)[fieldKey] ?? (current as any)[fieldKey]
+      : (editableUpdates.customFields as any)?.[field.id] ?? (existingCustomFields as any)?.[field.id];
+    const isEmpty = field.type === 'checkbox'
+      ? value !== true
+      : value === undefined || value === null || String(value).trim() === '';
+    if (isEmpty) {
+      res.status(400).json({ error: `${field.name} é obrigatório.` });
+      return;
+    }
+  }
+
+  if (!String(editableUpdates.name ?? current.name ?? '').trim()) {
+    res.status(400).json({ error: 'Nome completo é obrigatório.' });
+    return;
+  }
+
+  const changedFields = Object.entries(editableUpdates)
+    .filter(([key, value]) => {
+      if (key === 'customFields') {
+        return JSON.stringify(value || {}) !== JSON.stringify(existingCustomFields || {});
+      }
+      return String((current as any)[key] ?? '') !== String(value ?? '');
+    })
+    .map(([key]) => key)
+    .filter(key => !['cpf', 'qrToken', 'ticketCode'].includes(key));
+
+  const updated = await db.updateParticipant(current.id, editableUpdates);
+  if (updated) {
+    await writeActionLog({
+      eventId: current.eventId,
+      userId: user.id,
+      participantId: current.id,
+      action: 'EDIT_PARTICIPANT',
+      metadata: changedFields.length > 0 ? { changedFields, source: 'checkin-review' } : { source: 'checkin-review' }
+    });
+  }
+
   res.json(updated);
 });
 

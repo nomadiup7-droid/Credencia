@@ -279,8 +279,8 @@ export default function App() {
     enableCloakroom: false,
     enableScanner: true
   });
-  const [participantForm, setParticipantForm] = useState<{ id: string, name: string, email: string, cpf: string, category: ParticipantCategory, company: string, allowedAreaIds: string[], allowedAreas: string[] }>({
-    id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: []
+  const [participantForm, setParticipantForm] = useState<{ id: string, name: string, badgeName: string, email: string, phone: string, cpf: string, category: ParticipantCategory, company: string, position: string, notes: string, allowedAreaIds: string[], allowedAreas: string[] }>({
+    id: '', name: '', badgeName: '', email: '', phone: '', cpf: '', category: 'Participante', company: '', position: '', notes: '', allowedAreaIds: [], allowedAreas: []
   });
   const [cloakroomForm, setCloakroomForm] = useState({ participantId: '', participantName: '', itemDescription: '' });
   const [activityForm, setActivityForm] = useState({
@@ -1884,7 +1884,7 @@ export default function App() {
       }
 
       setIsParticipantModalOpen(false);
-      setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: [] });
+      setParticipantForm({ id: '', name: '', badgeName: '', email: '', phone: '', cpf: '', category: 'Participante', company: '', position: '', notes: '', allowedAreaIds: [], allowedAreas: [] });
       // Refresh current dashboard metrics
       loadDataForEvent(selectedEventId);
     } catch (err) {}
@@ -3904,10 +3904,14 @@ export default function App() {
     setParticipantForm({
       id: p.id,
       name: p.name,
+      badgeName: p.badgeName || p.name || '',
       email: p.email,
+      phone: p.phone || '',
       cpf: p.cpf,
       category: p.category,
       company: p.company || '',
+      position: p.position || '',
+      notes: p.notes || '',
       allowedAreaIds: p.allowedAreaIds || p.allowedAreas || [],
       allowedAreas: p.allowedAreas || p.allowedAreaIds || []
     });
@@ -5200,7 +5204,7 @@ export default function App() {
                     {canCreateParticipants && (
                       <button
                         onClick={() => {
-                          setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: [] });
+                          setParticipantForm({ id: '', name: '', badgeName: '', email: '', phone: '', cpf: '', category: 'Participante', company: '', position: '', notes: '', allowedAreaIds: [], allowedAreas: [] });
                           setIsParticipantModalOpen(true);
                         }}
                         className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition cursor-pointer"
@@ -5439,7 +5443,7 @@ export default function App() {
                 addToast={addToast}
                 onPrintBadge={(participant) => setActiveBadgeParticipant(participant)}
                 onNewParticipant={() => {
-                  setParticipantForm({ id: '', name: '', email: '', cpf: '', category: 'Participante', company: '', allowedAreaIds: [], allowedAreas: [] });
+                  setParticipantForm({ id: '', name: '', badgeName: '', email: '', phone: '', cpf: '', category: 'Participante', company: '', position: '', notes: '', allowedAreaIds: [], allowedAreas: [] });
                   setIsParticipantModalOpen(true);
                 }}
               />
@@ -8807,109 +8811,183 @@ export default function App() {
       {/* 2. PARTICIPANT MODAL */}
       {isParticipantModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6">
-            <h3 className="text-lg font-bold text-slate-800 font-display mb-4">
-              {participantForm.id ?'Editar Participante' : 'Adicionar Participante Manual'}
-            </h3>
-            
-            <form onSubmit={handleSaveParticipant} className="space-y-4">
+          <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-950 px-5 py-4 text-white">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome Completo</label>
-                <input
-                  type="text"
-                  required={!participantForm.id}
-                  value={participantForm.name}
-                  onChange={e => setParticipantForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Ex: Mariana Albuquerque de Barros"
-                  className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-88 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
-                />
+                <h3 className="text-lg font-black font-display">
+                  {participantForm.id ?'Editar participante' : 'Adicionar participante'}
+                </h3>
+                <p className="text-sm text-slate-300">
+                  {participantForm.id ?'Edite os dados do participante sem alterar o QR Code.' : 'Informe os dados para cadastrar um participante manualmente.'}
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsParticipantModalOpen(false)}
+                className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
+                aria-label="Fechar"
+              >
+                <X size={20} />
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">E-mail</label>
-                <input
-                  type="email"
-                  required={!participantForm.id}
-                  value={participantForm.email}
-                  onChange={e => setParticipantForm(prev => ({ ...prev, email: e.target.value }))}
-                  placeholder="mariana@exemplo.com"
-                  className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">CPF (Opcional - apenas números)</label>
-                <input
-                  type="text"
-                  maxLength={11}
-                  value={participantForm.cpf}
-                  onChange={e => setParticipantForm(prev => ({ ...prev, cpf: e.target.value.replace(/\D/g, '') }))}
-                  placeholder="Ex: 34567890123"
-                  className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Empresa (Opcional)</label>
-                <input
-                  type="text"
-                  value={participantForm.company || ''}
-                  onChange={e => setParticipantForm(prev => ({ ...prev, company: e.target.value }))}
-                  placeholder="Ex: Nome da Empresa ou Órgão"
-                  className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Categoria de Acesso</label>
-                <select
-                  value={participantForm.category}
-                  onChange={e => setParticipantForm(prev => ({ ...prev, category: e.target.value as ParticipantCategory }))}
-                  className="w-full px-3 py-3.2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm lg:mb-4 mb-2"
-                >
-                  <option value="Participante">Participante Geral</option>
-                  <option value="VIP">Convidado VIP</option>
-                  <option value="Palestrante">Palestrante</option>
-                  <option value="Expositor">Expositor Credenciado</option>
-                  <option value="Staff">Membro de Staff</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Áreas Autorizadas (Controle de Acesso)</label>
-                <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  {availableAreas.length === 0 ?(
-                    <div className="col-span-3 text-xs text-slate-400 py-1.5 text-center">
-                      Nenhuma Área configurada para este evento.
+            <form onSubmit={handleSaveParticipant} className="flex min-h-0 flex-1 flex-col">
+              <div className="overflow-y-auto p-5">
+                {participantForm.id && (
+                  <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-black text-slate-900">{participantForm.name || 'Participante'}</span>
+                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-700">
+                        Cadastro existente
+                      </span>
+                      <span className="text-xs font-semibold text-slate-500">{participantForm.category}</span>
                     </div>
-                  ) : (
-                    availableAreas.map(arr => {
-                      const isActive = arr.active !== false && arr.isActive !== false && arr.is_active !== false;
-                      const selectedAreas = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
-                      const checked = selectedAreas.includes(arr.id);
-                      return (
-                        <label key={arr.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded-sm hover:bg-slate-100 transition text-xs font-medium text-slate-700 ${!isActive ?'opacity-50' : ''}`} title={!isActive ?'Área Inativa' : ''}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              const current = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
-                              const updated = checked
-                                ?current.filter(aid => aid !== arr.id)
-                                : [...current, arr.id];
-                              setParticipantForm(prev => ({ ...prev, allowedAreaIds: updated, allowedAreas: updated }));
-                            }}
-                            className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
-                          />
-                          <span>{arr.name} {!isActive && '(Inativa)'}</span>
-                        </label>
-                      );
-                    })
-                  )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Nome completo <span className="text-rose-500">*</span>
+                    <input
+                      type="text"
+                      required={!participantForm.id}
+                      value={participantForm.name}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Ex: Mariana Albuquerque de Barros"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Nome no crachá
+                    <input
+                      type="text"
+                      value={participantForm.badgeName || ''}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, badgeName: e.target.value }))}
+                      placeholder="Nome que será impresso"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    E-mail {!participantForm.id && <span className="text-rose-500">*</span>}
+                    <input
+                      type="email"
+                      required={!participantForm.id}
+                      value={participantForm.email}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="mariana@exemplo.com"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Telefone/WhatsApp
+                    <input
+                      type="text"
+                      value={participantForm.phone || ''}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="(00) 00000-0000"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    CPF ou documento
+                    <input
+                      type="text"
+                      maxLength={11}
+                      value={participantForm.cpf}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, cpf: e.target.value.replace(/\D/g, '') }))}
+                      placeholder="Ex: 34567890123"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Categoria
+                    <select
+                      value={participantForm.category}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, category: e.target.value as ParticipantCategory }))}
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    >
+                      <option value="Participante">Participante</option>
+                      <option value="VIP">VIP</option>
+                      <option value="Palestrante">Palestrante</option>
+                      <option value="Expositor">Expositor</option>
+                      <option value="Staff">Staff</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Empresa
+                    <input
+                      type="text"
+                      value={participantForm.company || ''}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, company: e.target.value }))}
+                      placeholder="Ex: Nome da Empresa ou Órgão"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Cargo
+                    <input
+                      type="text"
+                      value={participantForm.position || ''}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, position: e.target.value }))}
+                      placeholder="Ex: Coordenadora"
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-bold text-slate-700 md:col-span-2">
+                    Observações
+                    <textarea
+                      value={participantForm.notes || ''}
+                      onChange={e => setParticipantForm(prev => ({ ...prev, notes: e.target.value }))}
+                      rows={3}
+                      className="w-full rounded-xl border border-emerald-400 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <div className="space-y-1 text-sm font-bold text-slate-700 md:col-span-2">
+                    <label className="block">Áreas autorizadas</label>
+                    <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {availableAreas.length === 0 ?(
+                        <div className="col-span-full py-1.5 text-center text-xs text-slate-400">
+                          Nenhuma área configurada para este evento.
+                        </div>
+                      ) : (
+                        availableAreas.map(arr => {
+                          const isActive = arr.active !== false && arr.isActive !== false && arr.is_active !== false;
+                          const selectedAreas = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
+                          const checked = selectedAreas.includes(arr.id);
+                          return (
+                            <label key={arr.id} className={`flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-medium text-slate-700 transition hover:bg-white ${!isActive ?'opacity-50' : ''}`} title={!isActive ?'Área Inativa' : ''}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  const current = participantForm.allowedAreaIds || participantForm.allowedAreas || [];
+                                  const updated = checked
+                                    ?current.filter(aid => aid !== arr.id)
+                                    : [...current, arr.id];
+                                  setParticipantForm(prev => ({ ...prev, allowedAreaIds: updated, allowedAreas: updated }));
+                                }}
+                                className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+                              />
+                              <span>{arr.name} {!isActive && '(Inativa)'}</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+              <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 {participantForm.id ?(
                   <button
                     type="button"
@@ -8917,32 +8995,32 @@ export default function App() {
                       await handleDeleteParticipant(participantForm.id);
                       setIsParticipantModalOpen(false);
                     }}
-                    className="px-3.5 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 transition hover:bg-rose-100"
                     title="Remover participante permanentemente"
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={14} />
                     <span>Excluir</span>
                   </button>
                 ) : (
                   <div />
                 )}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <button
                     type="button"
                     onClick={() => setIsParticipantModalOpen(false)}
-                    className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 text-sm font-medium transition cursor-pointer"
+                    className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-slate-800"
                   >
-                    Prestar Cadastro
+                    <Check size={16} />
+                    Salvar alterações
                   </button>
                 </div>
               </div>
-
             </form>
           </div>
         </div>

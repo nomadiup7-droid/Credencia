@@ -59,6 +59,32 @@ type FeedbackState =
   | { type: 'warning'; title: 'PARTICIPANTE JÁ CREDENCIADO'; message: string }
   | { type: 'error'; title: 'PARTICIPANTE NÃO ENCONTRADO'; message: string };
 
+type ReviewAction = 'save' | 'save-print';
+
+type ParticipantReviewForm = {
+  name: string;
+  badgeName: string;
+  email: string;
+  phone: string;
+  cpf: string;
+  company: string;
+  position: string;
+  category: ParticipantCategory;
+  notes: string;
+  customFields: Record<string, any>;
+};
+
+const PARTICIPANT_FIELD_KEYS: Record<string, keyof ParticipantReviewForm> = {
+  f_name: 'name',
+  f_email: 'email',
+  f_cpf: 'cpf',
+  f_category: 'category',
+  f_company: 'company',
+  f_phone: 'phone',
+  f_position: 'position',
+  f_badge_name: 'badgeName'
+};
+
 export default function CheckinPage({
   id,
   events,
@@ -146,6 +172,9 @@ export default function CheckinPage({
   const [badgeNameParticipant, setBadgeNameParticipant] = useState<Participant | null>(null);
   const [badgeNameValue, setBadgeNameValue] = useState('');
   const [isSavingBadgeName, setIsSavingBadgeName] = useState(false);
+  const [reviewParticipant, setReviewParticipant] = useState<Participant | null>(null);
+  const [reviewFormValues, setReviewFormValues] = useState<ParticipantReviewForm | null>(null);
+  const [reviewAction, setReviewAction] = useState<ReviewAction | null>(null);
 
   // Focus ref for continuous keyboard readiness
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +198,13 @@ export default function CheckinPage({
   const [dynamicFormValues, setDynamicFormValues] = useState<Record<string, any>>({});
 
   const selectedEvent = events.find(e => e.id === selectedEventId);
+  const currentUserRole = String(currentUser?.role || '').toUpperCase();
+  const canReviewParticipantRegistration = !!currentUser && (
+    currentUserRole === 'ADMIN' ||
+    currentUser?.role === 'admin' ||
+    currentUserRole === 'CHECKIN_CADASTRO' ||
+    (currentUser.permissions || []).includes('participants.edit')
+  );
   const selectedEventState = selectedEvent?.eventMode === 'PREPARACAO' || selectedEvent?.eventMode === 'TESTE'
     ? 'PREPARACAO'
     : selectedEvent?.eventMode === 'ENCERRADO'
@@ -188,10 +224,10 @@ export default function CheckinPage({
 
   // Keep input focused automatically
   useEffect(() => {
-    if (selectedEventId) {
+    if (selectedEventId && !reviewParticipant) {
       searchInputRef.current?.focus();
     }
-  }, [selectedEventId, isRegisterModalOpen, isReprintModalOpen]);
+  }, [selectedEventId, isRegisterModalOpen, isReprintModalOpen, reviewParticipant]);
 
   // Fetch Participant Configuration Fields
   const fetchRegistrationFields = async () => {
@@ -220,6 +256,9 @@ export default function CheckinPage({
       else if (f.id === 'f_cpf') fieldKey = 'cpf';
       else if (f.id === 'f_category') fieldKey = 'category';
       else if (f.id === 'f_company') fieldKey = 'company';
+      else if (f.id === 'f_phone') fieldKey = 'phone';
+      else if (f.id === 'f_position') fieldKey = 'position';
+      else if (f.id === 'f_badge_name') fieldKey = 'badgeName';
 
       if (f.type === 'checkbox') {
         initialValues[fieldKey] = false;
@@ -447,6 +486,150 @@ export default function CheckinPage({
       resetAfterAction();
     } catch (err: any) {
       addToast(err.message || 'Falha ao registrar impressão.', 'error');
+    }
+  };
+
+  const openParticipantReview = (participant: Participant) => {
+    if (!canReviewParticipantRegistration) return;
+    setReviewParticipant(participant);
+    setReviewFormValues({
+      name: participant.name || '',
+      badgeName: participant.badgeName || participant.name || '',
+      email: participant.email || '',
+      phone: participant.phone || '',
+      cpf: participant.cpf || '',
+      company: participant.company || '',
+      position: participant.position || '',
+      category: participant.category || 'Participante',
+      notes: participant.notes || '',
+      customFields: { ...(participant.customFields || {}) }
+    });
+  };
+
+  const closeParticipantReview = () => {
+    if (reviewAction) return;
+    setReviewParticipant(null);
+    setReviewFormValues(null);
+  };
+
+  const setReviewFieldValue = (key: keyof ParticipantReviewForm, value: any) => {
+    setReviewFormValues(prev => prev ? { ...prev, [key]: value } : prev);
+  };
+
+  const setReviewCustomFieldValue = (key: string, value: any) => {
+    setReviewFormValues(prev => prev ? {
+      ...prev,
+      customFields: { ...prev.customFields, [key]: value }
+    } : prev);
+  };
+
+  const validateReviewForm = () => {
+    if (!reviewFormValues) return 'Formulário inválido.';
+    if (!reviewFormValues.name.trim()) return 'Nome completo é obrigatório.';
+
+    const activeRequiredFields = registrationFields.filter(field => field.active && field.required);
+    for (const field of activeRequiredFields) {
+      const mappedKey = PARTICIPANT_FIELD_KEYS[field.id];
+      const value = mappedKey ? reviewFormValues[mappedKey] : reviewFormValues.customFields[field.id];
+      const isEmpty = field.type === 'checkbox'
+        ? value !== true
+        : value === undefined || value === null || String(value).trim() === '';
+      if (isEmpty) return `${field.name} é obrigatório.`;
+    }
+    return '';
+  };
+
+  const saveParticipantReview = async () => {
+    if (!reviewParticipant || !reviewFormValues) throw new Error('Participante não selecionado.');
+    const payload = {
+      name: reviewFormValues.name,
+      badgeName: reviewFormValues.badgeName || reviewFormValues.name,
+      email: reviewFormValues.email,
+      phone: reviewFormValues.phone,
+      cpf: reviewFormValues.cpf,
+      company: reviewFormValues.company,
+      position: reviewFormValues.position,
+      category: reviewFormValues.category,
+      notes: reviewFormValues.notes,
+      customFields: reviewFormValues.customFields
+    };
+
+    const updated = await apiCall(`/api/participants/${reviewParticipant.id}/checkin-review`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    setParticipants(prev =>
+      prev.map(item => item.id === updated.id ? { ...item, ...updated } : item)
+    );
+    setReviewParticipant(prev => prev && prev.id === updated.id ? { ...prev, ...updated } : prev);
+    return updated as Participant;
+  };
+
+  const handleSaveParticipantReview = async (action: ReviewAction) => {
+    if (reviewAction) return;
+    const validationError = validateReviewForm();
+    if (validationError) {
+      addToast(validationError, 'warning');
+      return;
+    }
+
+    setReviewAction(action);
+    try {
+      const updatedParticipant = await saveParticipantReview();
+      if (action === 'save') {
+        addToast('Cadastro atualizado com sucesso.', 'success');
+        closeParticipantReview();
+        return;
+      }
+
+      if (updatedParticipant.checkedIn) {
+        await apiCall(`/api/participants/${updatedParticipant.id}/reprint`, { method: 'POST' });
+        setParticipants(prev =>
+          prev.map(item => item.id === updatedParticipant.id ? { ...item, ...updatedParticipant, printed: true } : item)
+        );
+        onPrintBadge({ ...updatedParticipant, printed: true });
+        addToast('Cadastro atualizado e reimpressão iniciada.', 'success');
+        closeParticipantReview();
+        resetAfterAction();
+        return;
+      }
+
+      const checkInResult = await apiCall('/api/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: updatedParticipant.id,
+          eventId: selectedEventId
+        })
+      });
+      const checkedParticipant = {
+        ...updatedParticipant,
+        ...(checkInResult.participant || checkInResult.user || {}),
+        checkedIn: true,
+        checkedInAt: checkInResult.checkIn?.checkInAt || checkInResult.checkInAt || updatedParticipant.checkedInAt || new Date().toISOString()
+      } as Participant;
+
+      await apiCall(`/api/participants/${checkedParticipant.id}/reprint`, { method: 'POST' });
+      const printableParticipant = { ...checkedParticipant, printed: true };
+      setParticipants(prev =>
+        prev.map(item => item.id === printableParticipant.id ? { ...item, ...printableParticipant } : item)
+      );
+      onPrintBadge(printableParticipant);
+      setFeedback({
+        type: 'success',
+        title: 'CHECK-IN REALIZADO',
+        message: `${printableParticipant.name} foi credenciado com sucesso.`
+      });
+      addToast('Cadastro atualizado, check-in realizado e impressão iniciada.', 'success');
+      closeParticipantReview();
+      resetAfterAction();
+      clearFeedbackAfterDelay();
+    } catch (error: any) {
+      addToast(error.message || 'Falha ao salvar ou imprimir. O formulário permanece aberto para nova tentativa.', 'error');
+    } finally {
+      setReviewAction(null);
     }
   };
 
@@ -860,7 +1043,7 @@ export default function CheckinPage({
           </div>
           
           {/* Main search input - Centered, massive and rapid */}
-          <div className="space-y-3">
+          <div className="mx-auto w-full max-w-[740px] space-y-3">
             <div className="hidden">
               <h1 className="text-xl sm:text-2xl font-black text-slate-800 font-display tracking-tight">
                 Buscar ou Escanear Participante
@@ -870,7 +1053,7 @@ export default function CheckinPage({
               </p>
             </div>
 
-            <div className="relative max-w-3xl mx-auto">
+            <div className="relative w-full">
               <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
                 <Search size={28} />
               </div>
@@ -885,7 +1068,7 @@ export default function CheckinPage({
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={config.searchPlaceholder || DEFAULT_CHECKIN_SCREEN_CONFIG.searchPlaceholder}
-                className="w-full pl-16 pr-14 py-5 sm:py-6 bg-white border-2 rounded-xl shadow-xl placeholder:text-slate-400 font-black focus:outline-none text-xl sm:text-2xl transition"
+                className="w-full pl-16 pr-14 py-5 sm:py-6 bg-white border-2 rounded-xl shadow-xl placeholder:text-slate-400 font-black focus:outline-none focus:ring-4 text-xl sm:text-2xl transition"
                 style={{ borderColor: config.primaryColor, boxShadow: `0 18px 45px ${config.primaryColor}22` }}
                 autoFocus
               />
@@ -904,7 +1087,7 @@ export default function CheckinPage({
             </div>
 
             {/* Sub Controls: Scan trigger and Add Participant */}
-            <div className="flex items-center justify-center gap-3 select-none pt-1">
+            <div className={`flex items-center justify-center gap-3 select-none pt-1 ${filteredParticipants.length > 0 ? 'justify-center sm:justify-start' : ''}`}>
               <button
                 onClick={() => setShowScannerSimulator(!showScannerSimulator)}
                 className={`hidden items-center gap-1.5 px-4 py-2 border rounded-xl text-xs font-bold transition cursor-pointer ${
@@ -918,10 +1101,12 @@ export default function CheckinPage({
               {canCreateParticipants && (
                 <button
                   onClick={() => setIsRegisterModalOpen(true)}
-                  className="checkin-new-participant-button cx-button-primary flex items-center gap-2 px-6 py-4 text-slate-950 text-base font-black rounded-xl shadow-lg transition cursor-pointer active:scale-[0.98]"
-                  style={{ background: 'linear-gradient(135deg, #12e000, #8fff86)', color: '#061009' }}
+                  className={`checkin-new-participant-button cx-button-primary flex items-center gap-2 rounded-xl text-slate-950 font-black shadow-lg transition cursor-pointer active:scale-[0.98] ${
+                    filteredParticipants.length > 0 ? 'px-4 py-2.5 text-sm shadow-sm' : 'px-6 py-4 text-base'
+                  }`}
+                  style={{ background: '#22e61a', color: '#061009' }}
                 >
-                  <Plus size={22} />
+                  <Plus size={filteredParticipants.length > 0 ? 18 : 22} />
                   <span>+ Novo Participante</span>
                 </button>
               )}
@@ -972,7 +1157,7 @@ export default function CheckinPage({
           </AnimatePresence>
 
           {/* Dynamic Result Area */}
-          <div className="max-w-3xl mx-auto pt-4">
+          <div className="mx-auto w-full max-w-[740px] pt-2">
             {normalizedDebouncedSearchTerm.length < 3 || isWaitingForDebouncedSearch ? (
               <div className="hidden text-center p-8 border border-dashed border-slate-300 rounded-lg bg-white select-none">
                 <QrCode size={36} className="text-slate-300 mx-auto mb-2" />
@@ -1007,43 +1192,53 @@ export default function CheckinPage({
                   </span>
                 </div>
 
-                <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+                <div className="max-h-[min(52vh,560px)] space-y-3 overflow-y-auto overflow-x-hidden py-1 pr-2 [scrollbar-width:thin]">
                   {filteredParticipants.map((p, idx) => {
                     const isSelfSelected = idx === activeSearchIndex;
                     const isPending = isCheckingInId === p.id;
+                    const participantDetails = [p.company, p.position].filter(Boolean);
 
                     return (
                       <div
                         key={p.id}
-                        onClick={() => selectParticipant(p)}
-                        className={`p-4 rounded-xl border transition-all duration-150 flex flex-col justify-between gap-3 bg-white relative cursor-pointer ${
+                        className={`w-full rounded-xl border bg-white p-5 shadow-lg shadow-slate-950/10 transition-all duration-150 sm:p-6 ${
                           isSelfSelected 
-                            ? 'ring-2 ring-blue-600 border-blue-100 shadow-md' 
-                            : 'border-slate-100 hover:border-slate-250 hover:bg-slate-50/30'
+                            ? 'ring-2 ring-blue-600 border-blue-100' 
+                            : 'border-slate-200 hover:border-slate-300'
                         }`}
                       >
                         {/* Demographic elements */}
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <h4 className="font-extrabold text-slate-900 text-xl sm:text-2xl font-display truncate max-w-[420px]">
+                        <div className="space-y-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => canReviewParticipantRegistration ? openParticipantReview(p) : selectParticipant(p)}
+                                  className="min-w-0 max-w-full text-left font-display text-[22px] font-extrabold leading-tight text-slate-950 transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-2xl"
+                              title={canReviewParticipantRegistration ? 'Conferir cadastro' : 'Selecionar participante'}
+                            >
                               {p.badgeName || p.name}
-                            </h4>
-                            <span className="hidden text-[9px] bg-slate-150 text-slate-600 font-extrabold px-1.5 py-0.5 rounded select-none uppercase">
+                            </button>
+                                {p.category && (
+                                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
                               {p.category}
                             </span>
-                            {p.company && (
-                              <span className="hidden text-[9px] bg-blue-50 text-blue-600 font-bold px-1.5 py-0.5 rounded truncate max-w-[140px]">
-                                {p.company}
-                              </span>
                             )}
-
+                              </div>
+                              {participantDetails.length > 0 && (
+                                <p className="text-sm font-semibold text-slate-500">
+                                  {participantDetails.join(' • ')}
+                                </p>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openBadgeNameEditor(p);
                               }}
-                              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-200"
+                              className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:shrink-0"
                             >
                               <Pencil size={14} />
                               Nome no crachá
@@ -1058,58 +1253,99 @@ export default function CheckinPage({
                         </div>
 
                         {/* Status bar & Operational Button with 1 clicks */}
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-1 select-none">
+                        <div className="mt-4 space-y-4 select-none">
                           <div>
                             {p.checkedIn ? (
-                              <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                                <span>Check-in já realizado: {p.checkedInAt ? new Date(p.checkedInAt).toLocaleTimeString('pt-BR') : 'Horário Desconhecido'}</span>
+                              <div className="flex w-full items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+                                <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                                <span>Check-in realizado às {p.checkedInAt ? new Date(p.checkedInAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'horário não informado'}</span>
                               </div>
                             ) : (
-                              <div className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-350 bg-slate-300"></span>
+                              <div className="flex w-full items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600">
+                                <CircleDot size={18} className="shrink-0 text-slate-500" />
                                 <span>Check-in pendente</span>
                               </div>
                             )}
                           </div>
 
                           {/* Dynamic single action buttons */}
-                          <div>
+                          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4 sm:gap-3">
                             {!p.checkedIn ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCheckIn(p);
-                                }}
-                                disabled={isPending}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-[11px] font-bold rounded-lg shadow-sm transition cursor-pointer"
-                              >
-                                {isPending ? (
-                                  <RefreshCw className="animate-spin" size={11} />
-                                ) : (
-                                  <UserCheck size={12} />
+                              <>
+                                {canReviewParticipantRegistration && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openParticipantReview(p);
+                                    }}
+                                    disabled={isPending}
+                                    className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 sm:w-auto"
+                                  >
+                                    <Pencil size={12} />
+                                    <span>Conferir cadastro</span>
+                                  </button>
                                 )}
-                                <span>Check-In & Imprimir</span>
-                              </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCheckIn(p);
+                                  }}
+                                  disabled={isPending}
+                                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:bg-emerald-800 disabled:opacity-70 sm:w-auto"
+                                >
+                                  {isPending ? (
+                                    <RefreshCw className="animate-spin" size={11} />
+                                  ) : (
+                                    <UserCheck size={12} />
+                                  )}
+                                  <span>Imprimir direto</span>
+                                </button>
+                              </>
                             ) : !p.printed ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDirectPrint(p);
-                                }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-lg shadow-sm transition cursor-pointer"
-                              >
-                                <Printer size={12} />
-                                <span>Imprimir Credencial</span>
-                              </button>
+                              <>
+                                {canReviewParticipantRegistration && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openParticipantReview(p);
+                                    }}
+                                    className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
+                                  >
+                                    <Pencil size={12} />
+                                    <span>Conferir dados e reimprimir</span>
+                                  </button>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDirectPrint(p);
+                                  }}
+                                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300 sm:w-auto"
+                                >
+                                  <Printer size={12} />
+                                  <span>Reimprimir</span>
+                                </button>
+                              </>
                             ) : (
-                              <div className="flex items-center gap-1">
+                              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:gap-3">
+                                {canReviewParticipantRegistration && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openParticipantReview(p);
+                                    }}
+                                    className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
+                                  >
+                                    <Pencil size={11} />
+                                    <span>Conferir dados e reimprimir</span>
+                                  </button>
+                                )}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     askReprintConfirmation(p);
                                   }}
-                                  className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
+                                  className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-black text-white transition hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300 sm:w-auto"
                                 >
                                   <Printer size={11} />
                                   <span>Reimprimir</span>
@@ -1119,7 +1355,7 @@ export default function CheckinPage({
                                     e.stopPropagation();
                                     resetAfterAction();
                                   }}
-                                  className="px-2.5 py-1.5 border border-slate-200 text-slate-500 hover:bg-slate-550/1 hover:bg-slate-50 text-[11px] font-semibold rounded-lg transition"
+                                  className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-rose-200 px-4 py-2.5 text-sm font-bold text-rose-600 transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200 sm:w-auto"
                                 >
                                   Cancelar
                                 </button>
@@ -1264,6 +1500,209 @@ export default function CheckinPage({
       </AnimatePresence>
 
       <AnimatePresence>
+        {reviewParticipant && reviewFormValues && canReviewParticipantRegistration && (
+          <div className="fixed inset-0 z-[73] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-950 px-5 py-4 text-white">
+                <div>
+                  <h2 className="text-lg font-black">Conferir cadastro</h2>
+                  <p className="text-sm text-slate-300">
+                    {reviewParticipant.checkedIn
+                      ? 'Edite os dados sem alterar o check-in já realizado.'
+                      : 'Confira os dados antes de credenciar e imprimir.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeParticipantReview}
+                  disabled={!!reviewAction}
+                  className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto p-5">
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-black text-slate-900">{reviewParticipant.name}</span>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${reviewParticipant.checkedIn ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {reviewParticipant.checkedIn ? 'Check-in realizado' : 'Check-in pendente'}
+                    </span>
+                    {reviewParticipant.checkedInAt && (
+                      <span className="text-xs font-semibold text-slate-500">
+                        {new Date(reviewParticipant.checkedInAt).toLocaleString('pt-BR')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Nome completo <span className="text-rose-500">*</span>
+                    <input
+                      value={reviewFormValues.name}
+                      onChange={e => setReviewFieldValue('name', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      autoFocus
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Nome no crachá
+                    <input
+                      value={reviewFormValues.badgeName}
+                      onChange={e => setReviewFieldValue('badgeName', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    E-mail
+                    <input
+                      type="email"
+                      value={reviewFormValues.email}
+                      onChange={e => setReviewFieldValue('email', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Telefone/WhatsApp
+                    <input
+                      value={reviewFormValues.phone}
+                      onChange={e => setReviewFieldValue('phone', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    CPF ou documento
+                    <input
+                      value={reviewFormValues.cpf}
+                      onChange={e => setReviewFieldValue('cpf', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Categoria
+                    <select
+                      value={reviewFormValues.category}
+                      onChange={e => setReviewFieldValue('category', e.target.value as ParticipantCategory)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="Participante">Participante</option>
+                      <option value="Palestrante">Palestrante</option>
+                      <option value="Organizador">Organizador</option>
+                      <option value="VIP">VIP</option>
+                      <option value="Imprensa">Imprensa</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Empresa
+                    <input
+                      value={reviewFormValues.company}
+                      onChange={e => setReviewFieldValue('company', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700">
+                    Cargo
+                    <input
+                      value={reviewFormValues.position}
+                      onChange={e => setReviewFieldValue('position', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-bold text-slate-700 md:col-span-2">
+                    Observações
+                    <textarea
+                      value={reviewFormValues.notes}
+                      onChange={e => setReviewFieldValue('notes', e.target.value)}
+                      rows={3}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+
+                  {registrationFields
+                    .filter(field => field.active && !PARTICIPANT_FIELD_KEYS[field.id])
+                    .sort((a, b) => (a.order || 0) - (b.order || 0))
+                    .map(field => (
+                      <div key={field.id} className="space-y-1 text-sm font-bold text-slate-700">
+                        <label className="block">
+                          {field.name} {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        {field.type === 'select' ? (
+                          <select
+                            value={String(reviewFormValues.customFields[field.id] || '')}
+                            onChange={e => setReviewCustomFieldValue(field.id, e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                          >
+                            <option value="">Selecione</option>
+                            {(field.options || []).map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        ) : field.type === 'checkbox' ? (
+                          <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={reviewFormValues.customFields[field.id] === true}
+                              onChange={e => setReviewCustomFieldValue(field.id, e.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                            />
+                            {field.name}
+                          </label>
+                        ) : (
+                          <input
+                            type={field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : 'text'}
+                            value={String(reviewFormValues.customFields[field.id] || '')}
+                            onChange={e => setReviewCustomFieldValue(field.id, e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                          />
+                        )}
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeParticipantReview}
+                  disabled={!!reviewAction}
+                  className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveParticipantReview('save')}
+                  disabled={!!reviewAction}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {reviewAction === 'save' ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                  {reviewAction === 'save' ? 'Salvando...' : 'Salvar alterações'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveParticipantReview('save-print')}
+                  disabled={!!reviewAction}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-500 disabled:opacity-60"
+                >
+                  {reviewAction === 'save-print' ? <RefreshCw size={16} className="animate-spin" /> : <Printer size={16} />}
+                  {reviewAction === 'save-print'
+                    ? reviewParticipant.checkedIn ? 'Imprimindo...' : 'Credenciando...'
+                    : reviewParticipant.checkedIn ? 'Salvar e reimprimir' : 'Salvar e imprimir'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {badgeNameParticipant && (
           <div className="fixed inset-0 z-[72] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
             <motion.form
@@ -1371,6 +1810,9 @@ export default function CheckinPage({
                       else if (f.id === 'f_cpf') fieldKey = 'cpf';
                       else if (f.id === 'f_category') fieldKey = 'category';
                       else if (f.id === 'f_company') fieldKey = 'company';
+                      else if (f.id === 'f_phone') fieldKey = 'phone';
+                      else if (f.id === 'f_position') fieldKey = 'position';
+                      else if (f.id === 'f_badge_name') fieldKey = 'badgeName';
 
                       return (
                         <div key={f.id} className="space-y-1.5">
