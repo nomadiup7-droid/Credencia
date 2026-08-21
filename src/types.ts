@@ -422,6 +422,11 @@ export interface ParticipantField {
   options?: string[]; // for type 'select'
   active: boolean;
   order?: number;
+  key?: string;
+  system?: boolean;
+  essential?: boolean;
+  archived?: boolean;
+  answerCount?: number;
 }
 
 export interface AccessArea {

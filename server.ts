@@ -149,6 +149,131 @@ const PARTICIPANT_SYSTEM_FIELD_KEYS: Record<string, string> = {
   f_badge_name: 'badgeName'
 };
 
+const PARTICIPANT_SYSTEM_FIELDS: ParticipantField[] = [
+  { id: 'f_name', key: 'name', name: 'Nome completo', type: 'text', required: true, active: true, order: 1, system: true, essential: true },
+  { id: 'f_badge_name', key: 'badge_name', name: 'Nome no crachá', type: 'text', required: false, active: true, order: 2, system: true },
+  { id: 'f_email', key: 'email', name: 'E-mail', type: 'email', required: true, active: true, order: 3, system: true },
+  { id: 'f_phone', key: 'phone', name: 'Telefone/WhatsApp', type: 'text', required: false, active: true, order: 4, system: true },
+  { id: 'f_cpf', key: 'cpf', name: 'CPF ou documento', type: 'text', required: false, active: true, order: 5, system: true },
+  { id: 'f_company', key: 'company', name: 'Empresa', type: 'text', required: false, active: true, order: 6, system: true },
+  { id: 'f_position', key: 'position', name: 'Cargo', type: 'text', required: false, active: true, order: 7, system: true },
+  { id: 'f_category', key: 'category', name: 'Categoria', type: 'select', required: true, active: true, options: ['Participante', 'Palestrante', 'VIP', 'Expositor', 'Staff'], order: 8, system: true }
+];
+
+const PARTICIPANT_FIELD_TYPES = new Set(['text', 'number', 'email', 'select', 'checkbox']);
+const SYSTEM_FIELD_IDS = new Set(PARTICIPANT_SYSTEM_FIELDS.map(field => field.id));
+const SYSTEM_FIELD_BY_ID = new Map(PARTICIPANT_SYSTEM_FIELDS.map(field => [field.id, field]));
+
+const hasParticipantFieldValue = (value: any) => {
+  if (value === true || value === false) return true;
+  if (value === null || value === undefined) return false;
+  return String(value).trim().length > 0;
+};
+
+const countParticipantFieldAnswers = (field: ParticipantField, participants: Participant[]) => {
+  const systemKey = PARTICIPANT_SYSTEM_FIELD_KEYS[field.id];
+  return participants.filter(participant => {
+    const value = systemKey
+      ? (participant as any)[systemKey]
+      : (participant.customFields && typeof participant.customFields === 'object'
+        ? (participant.customFields as any)[field.id]
+        : undefined);
+    return hasParticipantFieldValue(value);
+  }).length;
+};
+
+const normalizeParticipantFields = (
+  configured: ParticipantField[],
+  participants: Participant[] = [],
+  includeAnswerCount = false
+) => {
+  const incoming = Array.isArray(configured) ? configured : [];
+  const incomingEntries = incoming
+    .map((field): [string, ParticipantField] => [String(field.id || '').trim(), field])
+    .filter(([id]) => id);
+  const incomingById = new Map<string, ParticipantField>(incomingEntries);
+  const usedIds = new Set<string>();
+
+  const normalizedSystem = PARTICIPANT_SYSTEM_FIELDS.map(defaultField => {
+    const existing = incomingById.get(defaultField.id);
+    usedIds.add(defaultField.id);
+    const merged: ParticipantField = {
+      ...defaultField,
+      name: String(existing?.name || defaultField.name).trim() || defaultField.name,
+      required: defaultField.id === 'f_name' ? true : existing?.required === true,
+      active: defaultField.id === 'f_name' ? true : existing?.active !== false,
+      order: Number.isFinite(Number(existing?.order)) ? Number(existing?.order) : defaultField.order,
+      options: defaultField.type === 'select'
+        ? (Array.isArray(existing?.options) && existing.options.length ? existing.options : defaultField.options)
+        : undefined
+    };
+    return includeAnswerCount ? { ...merged, answerCount: countParticipantFieldAnswers(merged, participants) } : merged;
+  });
+
+  const custom = incoming
+    .filter(field => field?.id && !usedIds.has(String(field.id)))
+    .map((field, index) => {
+      const id = String(field.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const type = PARTICIPANT_FIELD_TYPES.has(String(field.type)) ? field.type : 'text';
+      const options = type === 'select'
+        ? [...new Set((field.options || []).map(option => String(option).trim()).filter(Boolean))]
+        : undefined;
+      const normalized: ParticipantField = {
+        id,
+        name: String(field.name || '').trim() || `Campo personalizado ${index + 1}`,
+        type,
+        required: field.required === true,
+        active: field.active !== false,
+        order: Number.isFinite(Number(field.order)) ? Number(field.order) : PARTICIPANT_SYSTEM_FIELDS.length + index + 1,
+        options
+      };
+      return includeAnswerCount ? { ...normalized, answerCount: countParticipantFieldAnswers(normalized, participants) } : normalized;
+    });
+
+  const dedupedCustom = custom.filter((field, index, list) =>
+    list.findIndex(item => item.id === field.id) === index && !SYSTEM_FIELD_IDS.has(field.id)
+  );
+
+  return [...normalizedSystem, ...dedupedCustom]
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map((field, index) => ({ ...field, order: index + 1 }));
+};
+
+const sanitizeParticipantFieldsForSave = (incomingFields: ParticipantField[], existingFields: ParticipantField[], participants: Participant[]) => {
+  const existingById = new Map(existingFields.map(field => [field.id, field]));
+  const incomingIds = new Set(incomingFields.map(field => field.id));
+  const missingAnsweredCustomFields = existingFields.filter(field =>
+    !SYSTEM_FIELD_IDS.has(field.id) &&
+    !incomingIds.has(field.id) &&
+    countParticipantFieldAnswers(field, participants) > 0
+  ).map(field => ({ ...field, active: false }));
+
+  const combined = normalizeParticipantFields([...incomingFields, ...missingAnsweredCustomFields], participants, false);
+  return combined.map(field => {
+    const previous = existingById.get(field.id);
+    const systemDefault = SYSTEM_FIELD_BY_ID.get(field.id);
+    if (systemDefault) {
+      return {
+        ...field,
+        id: systemDefault.id,
+        key: systemDefault.key,
+        type: systemDefault.type,
+        system: true,
+        essential: systemDefault.essential,
+        required: systemDefault.id === 'f_name' ? true : field.required,
+        active: systemDefault.id === 'f_name' ? true : field.active,
+        options: systemDefault.type === 'select' ? field.options || systemDefault.options : undefined
+      };
+    }
+    const answerCount = countParticipantFieldAnswers(field, participants);
+    return {
+      ...field,
+      type: previous && answerCount > 0 ? previous.type : field.type,
+      options: field.type === 'select' ? field.options : undefined
+    };
+  });
+};
+
 const normalizeParticipantPayloadCustomFields = <T extends Record<string, any>>(raw: T, fields: ParticipantField[]): T & { customFields: Record<string, any> } => {
   const payload: Record<string, any> = { ...raw };
   const customFields = raw.customFields && typeof raw.customFields === 'object' && !Array.isArray(raw.customFields)
@@ -216,6 +341,21 @@ const requireEventCreatePermission = async (req: express.Request, res: express.R
   const user = (req as any).user;
   if (!user || !(await canCreateEventsForUser(user))) {
     res.status(403).json({ error: 'Usuário sem permissão para criar eventos' });
+    return;
+  }
+  next();
+};
+
+const requireCustomFieldsPermission = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as any).user;
+  const globalRole = String(user?.role || '').toUpperCase();
+  if (globalRole === 'ADMIN' || user?.role === 'admin') {
+    next();
+    return;
+  }
+  const permissions = await resolveEventPermissions(user);
+  if (!permissions.includes('settings.customFields')) {
+    res.status(403).json({ error: 'Usuário sem permissão para gerenciar campos de cadastro' });
     return;
   }
   next();
@@ -3583,21 +3723,56 @@ app.get('/api/events/:eventId/dashboard', authenticateToken, requireAdmin, async
 app.get('/api/fields', authenticateToken, async (req, res) => {
   try {
     const fields = await db.getParticipantFields();
-    res.json(fields);
+    const participants = await db.getParticipants();
+    res.json(normalizeParticipantFields(fields, participants, true));
   } catch (error: any) {
     res.status(500).json({ error: 'Erro ao listar campos de cadastro' });
   }
 });
 
-app.post('/api/fields', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/fields/sync', authenticateToken, requireCustomFieldsPermission, async (req, res) => {
+  try {
+    const currentFields = await db.getParticipantFields();
+    const participants = await db.getParticipants();
+    const normalized = normalizeParticipantFields(currentFields, participants, false);
+    const updated = await db.saveParticipantFields(normalized);
+    const withCounts = normalizeParticipantFields(updated, participants, true);
+    res.json({
+      success: true,
+      fields: withCounts,
+      summary: {
+        total: withCounts.length,
+        system: withCounts.filter(field => field.system).length,
+        custom: withCounts.filter(field => !field.system).length
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao sincronizar campos de cadastro' });
+  }
+});
+
+app.post('/api/fields', authenticateToken, requireCustomFieldsPermission, async (req, res) => {
   try {
     const { fields } = req.body;
     if (!fields || !Array.isArray(fields)) {
       res.status(400).json({ error: 'Lista de campos inválida' });
       return;
     }
-    const updated = await db.saveParticipantFields(fields);
-    res.json({ success: true, fields: updated });
+    const fieldNames = fields.map((field: ParticipantField) => String(field?.name || '').trim().toLowerCase()).filter(Boolean);
+    if (new Set(fieldNames).size !== fieldNames.length) {
+      res.status(400).json({ error: 'Existem campos de cadastro com nomes duplicados' });
+      return;
+    }
+    const currentFields = await db.getParticipantFields();
+    const participants = await db.getParticipants();
+    const sanitized = sanitizeParticipantFieldsForSave(fields, currentFields, participants);
+    const invalidSelectField = sanitized.find(field => field.type === 'select' && (!Array.isArray(field.options) || field.options.length === 0));
+    if (invalidSelectField) {
+      res.status(400).json({ error: `O campo "${invalidSelectField.name}" precisa ter pelo menos uma opção` });
+      return;
+    }
+    const updated = await db.saveParticipantFields(sanitized);
+    res.json({ success: true, fields: normalizeParticipantFields(updated, participants, true) });
   } catch (error: any) {
     res.status(500).json({ error: 'Erro ao atualizar campos de cadastro' });
   }

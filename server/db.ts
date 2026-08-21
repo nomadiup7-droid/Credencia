@@ -164,11 +164,14 @@ const DEFAULT_ORGANIZATIONS: Organization[] = [
 
 // Default Seed Data
 const DEFAULT_PARTICIPANT_FIELDS: ParticipantField[] = [
-  { id: 'f_name', name: 'Nome Completo', type: 'text', required: true, active: true, order: 1 },
-  { id: 'f_email', name: 'E-mail de Contato', type: 'email', required: true, active: true, order: 2 },
-  { id: 'f_cpf', name: 'CPF', type: 'text', required: true, active: true, order: 3 },
-  { id: 'f_category', name: 'Categoria Operacional', type: 'select', required: true, active: true, options: ['Participante', 'Palestrante', 'VIP', 'Expositor', 'Staff'], order: 4 },
-  { id: 'f_company', name: 'Empresa', type: 'text', required: false, active: true, order: 5 }
+  { id: 'f_name', key: 'name', name: 'Nome completo', type: 'text', required: true, active: true, order: 1, system: true, essential: true },
+  { id: 'f_badge_name', key: 'badge_name', name: 'Nome no crachá', type: 'text', required: false, active: true, order: 2, system: true },
+  { id: 'f_email', key: 'email', name: 'E-mail', type: 'email', required: true, active: true, order: 3, system: true },
+  { id: 'f_phone', key: 'phone', name: 'Telefone/WhatsApp', type: 'text', required: false, active: true, order: 4, system: true },
+  { id: 'f_cpf', key: 'cpf', name: 'CPF ou documento', type: 'text', required: false, active: true, order: 5, system: true },
+  { id: 'f_company', key: 'company', name: 'Empresa', type: 'text', required: false, active: true, order: 6, system: true },
+  { id: 'f_position', key: 'position', name: 'Cargo', type: 'text', required: false, active: true, order: 7, system: true },
+  { id: 'f_category', key: 'category', name: 'Categoria', type: 'select', required: true, active: true, options: ['Participante', 'Palestrante', 'VIP', 'Expositor', 'Staff'], order: 8, system: true }
 ];
 
 const DEFAULT_USERS: DBUser[] = [
@@ -2271,13 +2274,14 @@ class Database {
   }
 
   async saveParticipantFields(fields: ParticipantField[]): Promise<ParticipantField[]> {
+    const persistableFields = fields.map(({ key, system, essential, archived, answerCount, ...field }) => field);
     if (this.useSupabase) {
-      const mapped = fields.map(f => toSnake(f));
+      const mapped = persistableFields.map(f => toSnake(f));
       const { error } = await this.supabase.from('participant_fields').upsert(mapped);
       if (error) throw error;
-      return fields;
+      return persistableFields;
     }
-    this.data.participantFields = fields;
+    this.data.participantFields = persistableFields;
     this.saveLocal();
     return this.data.participantFields;
   }

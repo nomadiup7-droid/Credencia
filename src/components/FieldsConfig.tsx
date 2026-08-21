@@ -21,10 +21,57 @@ interface FieldsConfigProps {
   currentUser: any;
 }
 
+type FilterKey = 'all' | 'active' | 'inactive' | 'system' | 'custom';
+
+const SYSTEM_FIELD_KEYS: Record<string, string> = {
+  f_name: 'name',
+  f_badge_name: 'badge_name',
+  f_email: 'email',
+  f_phone: 'phone',
+  f_cpf: 'cpf',
+  f_company: 'company',
+  f_position: 'position',
+  f_category: 'category'
+};
+
+const SYSTEM_FIELD_IDS = new Set(Object.keys(SYSTEM_FIELD_KEYS));
+const SUPPORTED_TYPES: ParticipantField['type'][] = ['text', 'number', 'email', 'select', 'checkbox'];
+
+const typeLabels: Record<ParticipantField['type'], string> = {
+  text: 'Texto',
+  number: 'Numero',
+  email: 'E-mail',
+  select: 'Selecao',
+  checkbox: 'Sim/Nao'
+};
+
+const sortFields = (list: ParticipantField[]) =>
+  [...list].sort((a, b) => (a.order || 0) - (b.order || 0)).map((field, index) => ({ ...field, order: index + 1 }));
+
+const getFieldKey = (field: ParticipantField) => field.key || SYSTEM_FIELD_KEYS[field.id] || field.id;
+const isSystemField = (field: ParticipantField) => field.system === true || SYSTEM_FIELD_IDS.has(field.id);
+const isEssentialField = (field: ParticipantField) => field.essential === true || field.id === 'f_name';
+const hasAnswers = (field: ParticipantField) => Number(field.answerCount || 0) > 0;
+const splitOptions = (value: string) => [...new Set(value.split(',').map(opt => opt.trim()).filter(Boolean))];
+const createFieldId = (name: string) => {
+  const slug = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32) || 'campo';
+  const suffix = globalThis.crypto?.randomUUID?.().slice(0, 8) || String(Date.now()).slice(-8);
+  return `f_custom_${slug}_${suffix}`;
+};
+
 export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsConfigProps) {
   const [fields, setFields] = useState<ParticipantField[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [filter, setFilter] = useState<FilterKey>('all');
 
   // New Field Form States
   const [newFieldName, setNewFieldName] = useState('');
@@ -41,11 +88,14 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
   // Fetch configured fields
   const fetchFields = async () => {
     setIsLoading(true);
+    setLoadError('');
     try {
       const data = await apiCall('/api/fields');
-      setFields(data || []);
+      setFields(sortFields(Array.isArray(data) ? data : []));
     } catch (err: any) {
-      addToast(err.message || 'Erro ao carregar campos de cadastro', 'error');
+      const message = err.message || 'Erro ao carregar campos de cadastro';
+      setLoadError(message);
+      addToast(message, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -59,13 +109,14 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
   const handleSaveFields = async (updatedFieldsList: ParticipantField[]) => {
     setIsSaving(true);
     try {
+      const orderedFields = sortFields(updatedFieldsList);
       const response = await apiCall('/api/fields', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: updatedFieldsList })
+        body: JSON.stringify({ fields: orderedFields })
       });
       if (response.success) {
-        setFields(response.fields);
+        setFields(sortFields(response.fields || orderedFields));
         addToast('Configuração de campos de cadastro salva com sucesso!', 'success');
       } else {
         addToast(response.error || 'Erro ao salvar configurações', 'error');
@@ -77,6 +128,23 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
     }
   };
 
+  const handleSyncFields = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await apiCall('/api/fields/sync', { method: 'POST' });
+      if (response.success) {
+        setFields(sortFields(response.fields || []));
+        addToast('Campos de sistema sincronizados sem duplicar dados.', 'success');
+      } else {
+        addToast(response.error || 'Erro ao sincronizar campos de cadastro', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao sincronizar campos de cadastro', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Add a new custom field
   const handleAddField = (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,16 +152,17 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
       addToast('O nome do campo é obrigatório.', 'warning');
       return;
     }
+    if (fields.some(field => field.name.trim().toLowerCase() === newFieldName.trim().toLowerCase())) {
+      addToast('Já existe um campo com esse nome.', 'warning');
+      return;
+    }
 
-    const fieldId = 'f_custom_' + Math.random().toString(36).substring(2, 9);
+    const fieldId = createFieldId(newFieldName);
     
     // Parse options list if type select
     let options: string[] | undefined = undefined;
     if (newFieldType === 'select') {
-      options = newFieldOptionsString
-        .split(',')
-        .map(opt => opt.trim())
-        .filter(opt => opt.length > 0);
+      options = splitOptions(newFieldOptionsString);
       
       if (options.length === 0) {
         addToast('Campos do tipo seleção exigem pelo menos uma opção separada por vírgulas.', 'warning');
@@ -125,7 +194,8 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
   // Toggle field properties (Active / Required)
   const handleToggleActive = (id: string) => {
     // Prevent disabling critical "Name" field as it is strictly necessary
-    if (id === 'f_name') {
+    const field = fields.find(f => f.id === id);
+    if (field && isEssentialField(field)) {
       addToast('O campo "Nome Completo" é obrigatório para funcionamento e emissão do crachá.', 'warning');
       return;
     }
@@ -142,7 +212,8 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
 
   const handleToggleRequired = (id: string) => {
     // Prevent setting Name as optional
-    if (id === 'f_name') {
+    const field = fields.find(f => f.id === id);
+    if (field && isEssentialField(field)) {
       addToast('O campo "Nome Completo" deve obrigatoriamente ser requerido.', 'warning');
       return;
     }
@@ -160,15 +231,17 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
   // Delete customized fields
   const handleDeleteField = (id: string) => {
     // Block deleting default fields
-    if (['f_name', 'f_email', 'f_cpf', 'f_category', 'f_company'].includes(id)) {
+    const target = fields.find(f => f.id === id);
+    if (!target) return;
+    if (isSystemField(target)) {
       addToast('Para segurança do sistema, campos padrão não podem ser deletados (apenas desativados).', 'warning');
       return;
     }
-
-    const updated = fields.filter(f => f.id !== id).map((f, index) => ({
-      ...f,
-      order: index + 1
-    }));
+    const confirmed = window.confirm(hasAnswers(target)
+      ? 'Este campo possui respostas. Ele será desativado e mantido para preservar o histórico. Deseja continuar?'
+      : 'Este campo será desativado e ficará preservado no histórico. Deseja continuar?');
+    if (!confirmed) return;
+    const updated = fields.map(f => f.id === id ? { ...f, active: false } : f);
     setFields(updated);
     handleSaveFields(updated);
   };
@@ -212,21 +285,27 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
       addToast('O nome do campo não pode ser vazio.', 'warning');
       return;
     }
+    if (fields.some(field => field.id !== editingFieldId && field.name.trim().toLowerCase() === editFieldName.trim().toLowerCase())) {
+      addToast('Já existe um campo com esse nome.', 'warning');
+      return;
+    }
 
     const updated = fields.map(f => {
       if (f.id === editingFieldId) {
         let options: string[] | undefined = undefined;
         if (f.type === 'select') {
-          options = editFieldOptionsString
-            .split(',')
-            .map(opt => opt.trim())
-            .filter(opt => opt.length > 0);
+          options = splitOptions(editFieldOptionsString);
+          if (options.length === 0) {
+            addToast('Campos do tipo seleção exigem pelo menos uma opção.', 'warning');
+            return f;
+          }
         }
 
         return {
           ...f,
           name: editFieldName.trim(),
-          required: editFieldRequired,
+          required: isEssentialField(f) ? true : editFieldRequired,
+          active: isEssentialField(f) ? true : f.active,
           options
         };
       }
@@ -237,6 +316,30 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
     handleSaveFields(updated);
     setEditingFieldId(null);
   };
+
+  const counters = {
+    total: fields.length,
+    active: fields.filter(f => f.active !== false).length,
+    inactive: fields.filter(f => f.active === false).length,
+    system: fields.filter(isSystemField).length,
+    custom: fields.filter(f => !isSystemField(f)).length
+  };
+
+  const filterOptions: Array<{ id: FilterKey; label: string; count: number }> = [
+    { id: 'all', label: 'Todos', count: counters.total },
+    { id: 'active', label: 'Ativos', count: counters.active },
+    { id: 'inactive', label: 'Inativos', count: counters.inactive },
+    { id: 'system', label: 'Sistema', count: counters.system },
+    { id: 'custom', label: 'Personalizados', count: counters.custom }
+  ];
+
+  const visibleFields = fields.filter(field => {
+    if (filter === 'active') return field.active !== false;
+    if (filter === 'inactive') return field.active === false;
+    if (filter === 'system') return isSystemField(field);
+    if (filter === 'custom') return !isSystemField(field);
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -253,14 +356,43 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
           </p>
         </div>
 
-        <button 
-          onClick={fetchFields}
-          disabled={isLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-250 border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition cursor-pointer select-none"
-        >
-          {isLoading ? <RefreshCw className="animate-spin" size={12} /> : <RefreshCw size={12} />}
-          <span>Sincronizar</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={fetchFields}
+            disabled={isLoading || isSaving}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition cursor-pointer select-none disabled:opacity-60"
+          >
+            {isLoading ? <RefreshCw className="animate-spin" size={12} /> : <RefreshCw size={12} />}
+            <span>Recarregar</span>
+          </button>
+          <button
+            onClick={handleSyncFields}
+            disabled={isSyncing || isSaving}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer select-none disabled:opacity-60"
+          >
+            {isSyncing ? <RefreshCw className="animate-spin" size={12} /> : <RefreshCw size={12} />}
+            <span>Sincronizar sistema</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Total</p>
+          <p className="text-2xl font-black text-slate-900">{counters.total}</p>
+        </div>
+        <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-4 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Ativos</p>
+          <p className="text-2xl font-black text-emerald-800">{counters.active}</p>
+        </div>
+        <div className="bg-blue-50 rounded-2xl border border-blue-100 p-4 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-wider text-blue-700">Sistema</p>
+          <p className="text-2xl font-black text-blue-900">{counters.system}</p>
+        </div>
+        <div className="bg-violet-50 rounded-2xl border border-violet-100 p-4 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-wider text-violet-700">Personalizados</p>
+          <p className="text-2xl font-black text-violet-900">{counters.custom}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -349,19 +481,47 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
             </h3>
 
             <div className="text-[10px] text-slate-400 font-black">
-              CAMPOS ATIVOS: {fields.filter(f => f.active).length} / {fields.length}
+              CAMPOS ATIVOS: {counters.active} / {counters.total}
             </div>
           </div>
 
-          {fields.length === 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {filterOptions.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setFilter(option.id)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-black border transition ${
+                  filter === option.id
+                    ? 'bg-slate-950 text-white border-slate-950'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {option.label} {option.count}
+              </button>
+            ))}
+          </div>
+
+          {loadError ? (
+            <div className="text-center py-12 bg-rose-50 border border-rose-100 rounded-2xl text-rose-700 text-xs font-bold">
+              <AlertTriangle className="mx-auto mb-2" size={24} />
+              <p>Não foi possível carregar os campos de cadastro.</p>
+              <p className="mt-1 font-medium">{loadError}</p>
+              <button onClick={fetchFields} className="mt-4 px-4 py-2 bg-rose-600 text-white rounded-xl font-black">
+                Tentar novamente
+              </button>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-20 text-slate-400 text-xs">
-              Listando campos de cadastro...
+              <RefreshCw className="animate-spin mx-auto mb-2" size={18} />
+              Carregando campos de cadastro...
             </div>
           ) : (
             <div className="space-y-3">
-              {fields.map((f, idx) => {
+              {visibleFields.map((f, idx) => {
                 const isUnderEdit = editingFieldId === f.id;
-                const isDefaultField = ['f_name', 'f_email', 'f_cpf', 'f_category', 'f_company'].includes(f.id);
+                const isDefaultField = isSystemField(f);
+                const isEssential = isEssentialField(f);
 
                 return (
                   <div 
@@ -376,7 +536,7 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
                       <div className="flex flex-col gap-0.5 shrink-0 select-none">
                         <button 
                           onClick={() => handleMoveUp(idx)}
-                          disabled={idx === 0}
+                          disabled={idx === 0 || filter !== 'all'}
                           title="Mover para cima"
                           className="p-1 text-slate-405 text-slate-400 hover:text-slate-800 rounded disabled:opacity-20 cursor-pointer"
                         >
@@ -384,7 +544,7 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
                         </button>
                         <button 
                           onClick={() => handleMoveDown(idx)}
-                          disabled={idx === fields.length - 1}
+                          disabled={idx === visibleFields.length - 1 || filter !== 'all'}
                           title="Mover para baixo"
                           className="p-1 text-slate-405 text-slate-400 hover:text-slate-800 rounded disabled:opacity-20 cursor-pointer"
                         >
@@ -456,13 +616,20 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
                             )}
                             {isDefaultField && (
                               <span className="text-[8px] uppercase font-black bg-blue-50 text-blue-600 px-1 py-0.2 rounded tracking-wider select-none">
-                                Padrão
+                                Sistema
+                              </span>
+                            )}
+                            {!isDefaultField && (
+                              <span className="text-[8px] uppercase font-black bg-violet-50 text-violet-600 px-1 py-0.2 rounded tracking-wider select-none">
+                                Personalizado
                               </span>
                             )}
                           </div>
 
                           <div className="text-[10px] text-slate-405 text-slate-400 mt-1 flex flex-wrap gap-2 font-medium">
-                            <span>Tipo: <b className="font-bold text-slate-600 uppercase">{f.type === 'select' ? 'Seleção' : f.type === 'checkbox' ? 'Check' : f.type}</b></span>
+                            <span>Chave: <b className="font-mono text-slate-600">{getFieldKey(f)}</b></span>
+                            <span>Tipo: <b className="font-bold text-slate-600 uppercase">{typeLabels[f.type] || f.type}</b></span>
+                            <span>Respostas: <b className="font-bold text-slate-600">{f.answerCount || 0}</b></span>
                             {f.options && (
                               <span className="truncate max-w-[240px]">Opções: <b className="font-mono text-slate-600">{f.options.join(', ')}</b></span>
                             )}
@@ -477,6 +644,7 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
                       {/* Active toggle */}
                       <button
                         onClick={() => handleToggleActive(f.id)}
+                        disabled={isEssential}
                         className={`p-1 flex items-center gap-1 rounded-lg text-[10px] font-bold uppercase transition border ${
                           f.active 
                             ? 'bg-emerald-50 text-emerald-600 border-emerald-150 hover:bg-emerald-100' 
@@ -506,7 +674,7 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
                             : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
                         }`}
                         title={f.required ? "Mudar para Opcional" : "Mudar para Obrigatório"}
-                        disabled={f.id === 'f_name'}
+                        disabled={isEssential}
                       >
                         <span>REQ</span>
                       </button>
@@ -536,6 +704,11 @@ export default function FieldsConfig({ apiCall, addToast, currentUser }: FieldsC
                   </div>
                 );
               })}
+              {visibleFields.length === 0 && (
+                <div className="text-center py-12 border border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs font-bold">
+                  Nenhum campo encontrado para este filtro.
+                </div>
+              )}
             </div>
           )}
 
