@@ -63,6 +63,7 @@ export default function PublicCredentialPage({ token }: PublicCredentialPageProp
   const event = data.event;
   const participant = data.participant;
   const credential = data.credential;
+  const credentialQrToken = credential.token || credential.qrPayload;
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 sm:p-6 font-sans">
@@ -88,7 +89,7 @@ export default function PublicCredentialPage({ token }: PublicCredentialPageProp
 
           <div className="mt-6 flex justify-center">
             <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-              <UserQRCode value={credential.qrPayload} size={230} frameless />
+              <UserQRCode value={credentialQrToken} size={230} frameless />
             </div>
           </div>
           <div className="mt-3 font-mono text-xs text-slate-500 break-all">{participant.ticketCode}</div>

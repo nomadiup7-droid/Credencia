@@ -10,6 +10,7 @@ interface RegistrationConfirmationEmailInput {
   eventDate?: string;
   eventLocation?: string;
   credentialUrl: string;
+  credentialQrPayload: string;
 }
 
 const escapeHtml = (value?: string) => String(value || '')
@@ -89,8 +90,9 @@ export async function sendRegistrationConfirmationEmail(input: RegistrationConfi
   if (!fromEmail) throw new Error('RESEND_FROM_EMAIL não configurado.');
   if (!input.participantEmail) throw new Error('A inscrição não possui e-mail.');
   if (!input.credentialUrl) throw new Error('Não foi possível gerar o link da credencial.');
+  if (!input.credentialQrPayload) throw new Error('Não foi possível gerar o QR Code da credencial.');
 
-  const qrCode = await QRCode.toBuffer(input.credentialUrl, {
+  const qrCode = await QRCode.toBuffer(input.credentialQrPayload, {
     type: 'png',
     width: 440,
     margin: 2,

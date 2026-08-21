@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Event, Participant, User, ParticipantField, ParticipantCategory, CheckinScreenConfig } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { extractCredentialTokenFromScan } from '../utils/participantSearch';
 import { 
   UserCheck, 
   QrCode, 
@@ -255,7 +256,8 @@ export default function CheckinPage({
 
   // Real-time matched participants
   const filteredParticipants = useMemo(() => {
-    const query = normalizeQuery(debouncedSearchTerm);
+    const tokenCandidate = extractCredentialTokenFromScan(debouncedSearchTerm);
+    const query = normalizeQuery(tokenCandidate || debouncedSearchTerm);
     if (query.length < 3) return [];
 
     const getSearchScore = (participant: Participant) => {
@@ -265,11 +267,13 @@ export default function CheckinPage({
       const firstName = normalizeQuery(participant.name.split(/\s+/)[0] || '');
       const badgeFirstName = normalizeQuery((participant.badgeName || '').split(/\s+/)[0] || '');
       const ticketCode = normalizeQuery(participant.ticketCode || '');
+      const qrToken = normalizeQuery(participant.qrToken || '');
       const cpf = normalizeQuery(participant.cpf || '');
       const email = normalizeQuery(participant.email || '');
 
       if (id === query) return 0;
       if (ticketCode === query) return 0;
+      if (qrToken === query) return 0;
       if (cpf === query) return 1;
       if (firstName.startsWith(query)) return 2;
       if (badgeFirstName.startsWith(query)) return 3;
@@ -277,6 +281,7 @@ export default function CheckinPage({
       if (badgeName.startsWith(query)) return 5;
       if (id.includes(query)) return 6;
       if (ticketCode.includes(query)) return 6;
+      if (qrToken.includes(query)) return 6;
       if (cpf.includes(query)) return 7;
       if (email.startsWith(query)) return 8;
       if (name.includes(query)) return 9;
@@ -445,6 +450,56 @@ export default function CheckinPage({
     }
   };
 
+  const handleCheckInByCode = async (code: string) => {
+    if (!selectedEventId) {
+      addToast('Selecione um evento ativo.', 'warning');
+      return;
+    }
+
+    const result = await apiCall('/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: code,
+        eventId: selectedEventId
+      })
+    });
+
+    const resultParticipant = result.participant || result.user;
+    if (!resultParticipant?.id) {
+      throw new Error(result.message || 'Participante não localizado.');
+    }
+
+    const timestamp = result.checkIn?.checkInAt || result.checkInAt || resultParticipant.checkedInAt || new Date().toISOString();
+    const existingParticipant = participants.find(item => item.id === resultParticipant.id);
+    const updatedParticipant = {
+      ...(existingParticipant || resultParticipant),
+      ...resultParticipant,
+      checkedIn: true,
+      checkedInAt: timestamp
+    } as Participant;
+
+    setParticipants(prev => {
+      const exists = prev.some(item => item.id === updatedParticipant.id);
+      if (!exists) return [...prev, updatedParticipant];
+      return prev.map(item => item.id === updatedParticipant.id ? { ...item, ...updatedParticipant } : item);
+    });
+
+    setFeedback({
+      type: result.alreadyCheckedIn ? 'warning' : 'success',
+      title: result.alreadyCheckedIn ? 'PARTICIPANTE JÁ CREDENCIADO' : 'CHECK-IN REALIZADO',
+      message: result.alreadyCheckedIn
+        ? result.message || `${updatedParticipant.name} já estava credenciado.`
+        : `${updatedParticipant.name} foi credenciado com sucesso.`
+    });
+    addToast(
+      result.alreadyCheckedIn ? result.message || 'Participante já credenciado.' : `Check-in realizado com sucesso: ${updatedParticipant.name}`,
+      result.alreadyCheckedIn ? 'info' : 'success'
+    );
+    await handleDirectPrint(updatedParticipant);
+    clearFeedbackAfterDelay();
+  };
+
   // Reprint ask
   const askReprintConfirmation = (participant: Participant) => {
     setParticipantToReprint(participant);
@@ -570,7 +625,7 @@ export default function CheckinPage({
   };
 
   // Keyboard navigation on list items
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       if (filteredParticipants.length === 0) return;
       e.preventDefault();
@@ -585,12 +640,17 @@ export default function CheckinPage({
       if (selected) {
         selectParticipant(selected);
       } else if (normalizeQuery(searchTerm).length >= 3) {
-        setFeedback({
-          type: 'error',
-          title: 'PARTICIPANTE NÃO ENCONTRADO',
-          message: `Nenhum participante encontrado para "${searchTerm}".`
-        });
-        clearFeedbackAfterDelay();
+        try {
+          const tokenCandidate = extractCredentialTokenFromScan(searchTerm);
+          await handleCheckInByCode(tokenCandidate || searchTerm.trim());
+        } catch (error: any) {
+          setFeedback({
+            type: 'error',
+            title: 'PARTICIPANTE NÃO ENCONTRADO',
+            message: error.message || `Nenhum participante encontrado para "${searchTerm}".`
+          });
+          clearFeedbackAfterDelay();
+        }
       }
     }
   };

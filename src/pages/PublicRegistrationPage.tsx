@@ -159,7 +159,7 @@ export default function PublicRegistrationPage() {
 
                 {result.qrToken && (
                   <div className="mx-auto mt-6 flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                    <UserQRCode value={credentialHref} size={190} frameless />
+                    <UserQRCode value={result.qrToken} size={190} frameless />
                     <p className="text-sm font-semibold leading-6 text-slate-600">
                       Apresente o QR Code abaixo no credenciamento. Você também pode acessar sua credencial pelo botão abaixo.
                     </p>

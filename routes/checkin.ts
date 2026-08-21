@@ -25,10 +25,14 @@ const isEventClosed = (event?: { eventMode?: string }) => getEventState(event) =
 const extractCredentialToken = (value: string) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const match = raw.match(/\/convite\/([^/?#]+)/i);
+  const scannerNormalized = raw.replace(/[Çç]/g, ':');
+  const directToken = scannerNormalized.match(/qr_[a-z0-9_-]+/i)?.[0];
+  if (directToken) return directToken;
+  const match = scannerNormalized.match(/(?:\/|;|\\)convite(?:\/|;|\\)+([^/?#;\\\s]+)/i);
   if (match) return decodeURIComponent(match[1]);
   try {
-    const parsed = new URL(raw);
+    const urlLike = scannerNormalized.replace(/;+/g, '/');
+    const parsed = new URL(urlLike);
     const token = parsed.pathname.match(/\/convite\/([^/?#]+)/i)?.[1];
     if (token) return decodeURIComponent(token);
   } catch {}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Event, Participant, User, ParticipantField, ParticipantCategory } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { extractCredentialTokenFromScan } from '../utils/participantSearch';
 import { 
   UserCheck, 
   QrCode, 
@@ -217,13 +218,16 @@ export default function CheckInModular({
     }
 
     const handler = setTimeout(() => {
+      const tokenCandidate = extractCredentialTokenFromScan(q);
       const normQuery = q.toLowerCase();
+      const tokenQuery = tokenCandidate.toLowerCase().trim();
       const digitsQuery = q.replace(/\D/g, '');
 
       const found = participants.filter((p) => {
         const pId = p.id ? p.id.toLowerCase() : '';
         const pCpf = p.cpf ? p.cpf.replace(/\D/g, '') : '';
         const pTicket = p.ticketCode ? p.ticketCode.toLowerCase() : '';
+        const pQrToken = p.qrToken ? p.qrToken.toLowerCase() : '';
         const pName = p.name ? p.name.toLowerCase() : '';
         const pEmail = p.email ? p.email.toLowerCase() : '';
 
@@ -232,7 +236,8 @@ export default function CheckInModular({
           pName.includes(normQuery) ||
           pEmail.includes(normQuery) ||
           (pCpf && pCpf.includes(digitsQuery)) ||
-          (pTicket && pTicket.includes(normQuery))
+          (pTicket && pTicket.includes(normQuery)) ||
+          (pQrToken && (pQrToken.includes(normQuery) || pQrToken.includes(tokenQuery)))
         );
       });
 
@@ -352,6 +357,61 @@ export default function CheckInModular({
     await processCheckInForParticipant(participant);
   };
 
+  const processCheckInByScannedCode = async (code: string) => {
+    const result = await apiCall('/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: code,
+        eventId: selectedEventId
+      })
+    });
+
+    const resultParticipant = result.participant || result.user;
+    if (!resultParticipant?.id) {
+      throw new Error(result.message || 'Participante não localizado.');
+    }
+
+    const timestamp = result.checkIn?.checkInAt || result.checkInAt || resultParticipant.checkedInAt || new Date().toISOString();
+    const existingParticipant = participants.find(item => item.id === resultParticipant.id);
+    const updatedParticipant = {
+      ...(existingParticipant || resultParticipant),
+      ...resultParticipant,
+      checkedIn: true,
+      checkedInAt: timestamp,
+      printed: true
+    } as Participant;
+
+    setParticipants(prev => {
+      const exists = prev.some(item => item.id === updatedParticipant.id);
+      if (!exists) return [...prev, updatedParticipant];
+      return prev.map(item => item.id === updatedParticipant.id ? { ...item, ...updatedParticipant } : item);
+    });
+
+    if (result.alreadyCheckedIn) {
+      setActiveParticipant(updatedParticipant);
+      setFeedbackState('success');
+      setFeedbackMessage(result.message || 'Participante já estava credenciado! Emitindo nova via.');
+      if (config.playSuccessSound) playChime('success');
+      try {
+        await apiCall(`/api/participants/${updatedParticipant.id}/reprint`, { method: 'POST' });
+        onPrintBadge(updatedParticipant);
+      } catch (error) {
+        console.warn('Falha ao reimprimir credencial já cadastrada:', error);
+      }
+      setupFeedbackTimeout();
+      return;
+    }
+
+    await apiCall(`/api/participants/${updatedParticipant.id}/reprint`, { method: 'POST' });
+    onPrintBadge(updatedParticipant);
+    setActiveParticipant(updatedParticipant);
+    setFeedbackState('success');
+    setFeedbackMessage(config.successCustomText || 'Check-in concluído com sucesso!');
+    if (config.playSuccessSound) playChime('success');
+    setupFeedbackTimeout();
+  };
+
   // Perform search / check-in action
   const handleMainSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -381,20 +441,24 @@ export default function CheckInModular({
     try {
       // 1. Search locally or via endpoint first.
       // Search matching participant in participants cache
+      const tokenCandidate = extractCredentialTokenFromScan(originalQuery);
       const normalizedQuery = originalQuery.toLowerCase().replace(/\D/g, ''); // for numeric CPF/Ticket match
       const rawNormalizedQuery = originalQuery.toLowerCase();
+      const rawTokenQuery = tokenCandidate.toLowerCase().trim();
 
       // Filter local list for matching participants (by exact ticketCode, normalized CPF, or name matching)
       const matches = participants.filter(p => {
         const pIdClean = p.id ? p.id.toLowerCase().trim() : '';
         const pCpfClean = p.cpf.replace(/\D/g, '');
         const pTicketClean = p.ticketCode.toLowerCase().trim();
+        const pQrTokenClean = (p.qrToken || '').toLowerCase().trim();
         const pNameLower = p.name.toLowerCase();
         const pEmailLower = p.email.toLowerCase();
 
         return (
           pIdClean === rawNormalizedQuery ||
           pTicketClean === rawNormalizedQuery ||
+          (pQrTokenClean && (pQrTokenClean === rawNormalizedQuery || pQrTokenClean === rawTokenQuery)) ||
           (pCpfClean && pCpfClean === normalizedQuery) ||
           pNameLower.includes(rawNormalizedQuery) ||
           pEmailLower.includes(rawNormalizedQuery)
@@ -402,8 +466,8 @@ export default function CheckInModular({
       });
 
       if (matches.length === 0) {
-        // No match found
-        triggerErrorState(config.errorCustomText);
+        const backendCode = rawTokenQuery || originalQuery;
+        await processCheckInByScannedCode(backendCode);
         return;
       }
 
@@ -413,6 +477,7 @@ export default function CheckInModular({
         const exactMatch = matches.find(p =>
           (p.id && p.id.toLowerCase().trim() === rawNormalizedQuery) ||
           p.ticketCode.toLowerCase() === rawNormalizedQuery ||
+          (p.qrToken || '').toLowerCase().trim() === rawTokenQuery ||
           p.cpf.replace(/\D/g, '') === normalizedQuery
         );
         if (exactMatch) {
