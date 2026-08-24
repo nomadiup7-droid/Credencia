@@ -7,7 +7,8 @@ import { UserRole } from '../src/types';
 
 const BCRYPT_ROUNDS = 12;
 const JWT_EXPIRES_IN = '12h';
-const runtimeJwtSecret = randomBytes(64).toString('hex');
+const isProduction = process.env.NODE_ENV === 'production';
+const runtimeJwtSecret = isProduction ? '' : randomBytes(64).toString('hex');
 let warnedMissingSecret = false;
 
 export interface AuthenticatedUser {
@@ -21,8 +22,14 @@ export interface AuthenticatedUser {
 }
 
 function getJwtSecret() {
-  const secret = process.env.JWT_SECRET;
+  const secret = process.env.JWT_SECRET?.trim();
   if (secret && secret.trim().length >= 32) return secret;
+
+  if (isProduction) {
+    const message = 'JWT_SECRET ausente ou invalido em producao. Configure um segredo fixo com no minimo 32 caracteres.';
+    console.error(message);
+    throw new Error(message);
+  }
 
   if (!warnedMissingSecret) {
     console.warn('JWT_SECRET ausente ou muito curto. Usando segredo temporario em memoria para desenvolvimento.');
@@ -30,6 +37,10 @@ function getJwtSecret() {
   }
 
   return runtimeJwtSecret;
+}
+
+if (isProduction) {
+  getJwtSecret();
 }
 
 export function sanitizeAuthenticatedUser(user: DBUser): AuthenticatedUser {
@@ -101,7 +112,7 @@ export const authenticateToken = async (req: express.Request, res: express.Respo
     const payload = jwt.verify(token, getJwtSecret()) as jwt.JwtPayload;
     const userId = String(payload.sub || '');
     if (!userId) {
-      res.status(403).json({ error: 'Token inválido ou expirado' });
+      res.status(401).json({ error: 'Token inválido ou expirado' });
       return;
     }
 
@@ -128,7 +139,11 @@ export const authenticateToken = async (req: express.Request, res: express.Respo
     (req as any).user = sanitizeAuthenticatedUser(user);
     next();
   } catch (error) {
-    res.status(403).json({ error: 'Token inválido ou expirado' });
+    if (error instanceof Error && error.message.includes('JWT_SECRET')) {
+      res.status(500).json({ error: 'Configuracao de autenticacao invalida no servidor' });
+      return;
+    }
+    res.status(401).json({ error: 'Token inválido ou expirado' });
   }
 };
 

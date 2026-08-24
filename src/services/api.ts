@@ -33,10 +33,6 @@ export function handleExpiredSession(response: Response, payload: ApiErrorPayloa
   expiredSessionToken = token;
   localStorage.removeItem('credencia_token');
   localStorage.removeItem('credencia_user');
-  localStorage.removeItem('currentEventId');
-  localStorage.removeItem('currentUserRole');
-  localStorage.removeItem('credencia_selected_event_id');
-  localStorage.removeItem('credencia_active_tab');
   window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
   return true;
 }
