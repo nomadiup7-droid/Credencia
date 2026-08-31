@@ -24,7 +24,7 @@ export function handleExpiredSession(response: Response, payload: ApiErrorPayloa
   if (token && token !== expiredSessionToken) expiredSessionActive = false;
 
   const message = String(payload.error || payload.message || '');
-  const isExpired = (response.status === 401 || response.status === 403)
+  const isExpired = response.status === 401
     && /token.*(?:inv[aá]lido|expirado)|(?:inv[aá]lido|expirado).*token/i.test(message);
 
   if (!token || !isExpired) return false;

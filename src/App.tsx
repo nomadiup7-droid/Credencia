@@ -767,7 +767,6 @@ export default function App() {
       setEvents([]);
       setParticipants([]);
       setStats(null);
-      setToasts([{ id: 'session-expired', message: 'Sua sessão expirou. Entre novamente.', type: 'info' }]);
     };
 
     window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
