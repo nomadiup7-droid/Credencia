@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from '@e965/xlsx';
 import {
   Calendar,
@@ -71,10 +71,10 @@ import { escapeCertificateHtml, replaceCertificatePlaceholders } from './utils/c
 import { getParticipantSearchScore, normalizeParticipantSearch } from './utils/participantSearch';
 import { readStoredActiveTab, readStoredToken, readStoredUser } from './utils/sessionStorage';
 import { fixMojibake } from './utils/text';
-import { BusinessIntelligenceDashboard, BIReportDefinition } from './components/bi';
 import { downloadCsv, ReportExportRow } from './services/reportExportService';
 import CloakroomMap, { CloakroomStoragePosition } from './components/cloakroom/CloakroomMap';
 import ReportExportMenu from './components/reports/ReportExportMenu';
+import ReportsWorkspace from './components/reports/ReportsWorkspace';
 import PublicCredentialPage from './components/PublicCredentialPage';
 import { generateReportPdf } from './services/reportPdfService';
 import type { ReportPdfKind, ReportPdfPayload, ReportPdfTableRow } from './types/report.types';
@@ -237,6 +237,17 @@ export default function App() {
   });
   const [isReportPollingEnabled, setIsReportPollingEnabled] = useState(false);
   const [reportPdfLoadingLabel, setReportPdfLoadingLabel] = useState('');
+  const [reportMode, setReportMode] = useState<'organization' | 'event'>(() => (isUserAdmin ? 'organization' : 'event'));
+  const [reportEventTab, setReportEventTab] = useState<'summary' | 'participants' | 'checkin' | 'access' | 'operators' | 'prints' | 'certificates' | 'cloakroom'>('summary');
+  const [isReportCustomizeOpen, setIsReportCustomizeOpen] = useState(false);
+  const [organizationReport, setOrganizationReport] = useState<any | null>(null);
+  const [isOrganizationReportLoading, setIsOrganizationReportLoading] = useState(false);
+  const [organizationReportPeriod, setOrganizationReportPeriod] = useState<'7d' | '30d' | 'month' | 'year' | 'all' | 'custom'>('30d');
+  const [organizationReportStatus, setOrganizationReportStatus] = useState<'all' | 'active' | 'future' | 'closed'>('all');
+  const [organizationReportSearch, setOrganizationReportSearch] = useState('');
+  const [organizationReportLocation, setOrganizationReportLocation] = useState('');
+  const [organizationReportCustomStart, setOrganizationReportCustomStart] = useState('');
+  const [organizationReportCustomEnd, setOrganizationReportCustomEnd] = useState('');
 
   // Modal / Form trigger states
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
@@ -1223,6 +1234,20 @@ export default function App() {
     }
   };
 
+  const loadOrganizationReport = async () => {
+    if (!isUserAdmin) return;
+    setIsOrganizationReportLoading(true);
+    try {
+      setOrganizationReport(await apiCall('/api/reports/organization'));
+    } catch (error) {
+      console.error('Error loading organization report:', error);
+      setOrganizationReport(null);
+      addToast('Não foi possível carregar o relatório geral.', 'error');
+    } finally {
+      setIsOrganizationReportLoading(false);
+    }
+  };
+
   // Bootstrapping
   useEffect(() => {
     if (token) {
@@ -1235,6 +1260,18 @@ export default function App() {
       loadDataForEvent(selectedEventId);
     }
   }, [selectedEventId]);
+
+  useEffect(() => {
+    if (activeTab === 'relatorios' && reportMode === 'organization' && isUserAdmin) {
+      loadOrganizationReport();
+    }
+  }, [activeTab, reportMode, isUserAdmin]);
+
+  useEffect(() => {
+    if (!isUserAdmin && reportMode === 'organization') {
+      setReportMode('event');
+    }
+  }, [isUserAdmin, reportMode]);
 
   // Current selected Event Object
   const currentEvent = useMemo(() => {
@@ -3720,21 +3757,6 @@ export default function App() {
       .map(([label, value]) => ({ label, value }));
   }, [reportParticipants, reportCheckinOperatorByParticipant]);
 
-  const reportAverageCheckinMinutes = useMemo(() => {
-    const durations = reportParticipants
-      .filter(participant => isOfficialParticipantCheckin(participant) && participant.checkedInAt && participant.createdAt)
-      .map(participant => {
-        const start = new Date(participant.createdAt).getTime();
-        const end = new Date(participant.checkedInAt as string).getTime();
-        if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
-        return Math.round((end - start) / 60000);
-      })
-      .filter((value): value is number => value !== null);
-
-    if (durations.length === 0) return null;
-    return Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
-  }, [reportParticipants]);
-
   const reportAverageStayMinutes = useMemo(() => {
     const grouped = new Map<string, number[]>();
     reportAreaAccessLogs
@@ -3776,37 +3798,20 @@ export default function App() {
 
   const reportBIMetrics = useMemo(() => ([
     { id: 'registered', title: 'Participantes inscritos', value: reportSummary.total, detail: 'Filtros atuais', icon: Users, tone: 'green' as const },
-    { id: 'confirmed', title: 'Participantes confirmados', value: reportSummary.checkedIn, detail: `${reportSummary.attendanceRate}% de presença`, icon: UserCheck, tone: 'green' as const },
     { id: 'checkins', title: 'Check-ins realizados', value: reportSummary.checkedIn, detail: `${reportSummary.pending} pendentes`, icon: CheckCircle2, tone: 'graphite' as const },
     { id: 'pending', title: 'Check-ins pendentes', value: reportSummary.pending, detail: 'Ainda ausentes', icon: Clock, tone: 'amber' as const },
-    { id: 'credential-links', title: 'Links visualizados', value: reportCredentialViewSummary.viewed, detail: `${reportCredentialViewSummary.totalOpenings} abertura(s)`, icon: Eye, tone: 'green' as const },
-    { id: 'events-active', title: 'Eventos ativos', value: reportEventStatusSummary.active, detail: 'Na organização', icon: Calendar, tone: 'blue' as const },
-    { id: 'events-closed', title: 'Eventos encerrados', value: reportEventStatusSummary.closed, detail: 'Datas anteriores', icon: History, tone: 'graphite' as const },
-    { id: 'avg-checkin', title: 'Tempo médio check-in', value: reportAverageCheckinMinutes === null ?'-' : `${reportAverageCheckinMinutes} min`, detail: 'Baseado em criação x check-in', icon: BarChart3, tone: 'green' as const },
-    { id: 'avg-stay', title: 'Média permanência', value: reportAverageStayMinutes === null ?'-' : `${reportAverageStayMinutes} min`, detail: 'Quando há múltiplos acessos', icon: ShieldCheck, tone: 'graphite' as const },
+    { id: 'credential-links', title: 'Participantes que visualizaram', value: reportCredentialViewSummary.viewed, detail: `${reportCredentialViewSummary.totalOpenings} abertura(s) totais`, icon: Eye, tone: 'green' as const },
+    ...(reportAverageStayMinutes === null ? [] : [{ id: 'avg-stay', title: 'Média de permanência', value: `${reportAverageStayMinutes} min`, detail: 'Registros com entrada e saída', icon: ShieldCheck, tone: 'graphite' as const }]),
     { id: 'area-access', title: 'Total de acessos por Área', value: reportAreaAccessLogs.length, detail: `${reportAreaAccessSummary.length} Área(s) com fluxo`, icon: ShieldCheck, tone: 'green' as const },
     { id: 'operators', title: 'Credenc. por operador', value: reportOperatorSummary.reduce((sum, item) => sum + item.value, 0), detail: `${reportOperatorSummary.length} operador(es)`, icon: Users, tone: 'blue' as const }
   ]), [
     reportSummary,
     reportCredentialViewSummary,
-    reportEventStatusSummary,
-    reportAverageCheckinMinutes,
     reportAverageStayMinutes,
     reportAreaAccessLogs,
     reportAreaAccessSummary,
     reportOperatorSummary
   ]);
-
-  const reportDefinitions: BIReportDefinition[] = [
-    { id: 'events', title: 'Eventos', description: 'Visão de eventos ativos, encerrados e operação selecionada.', status: 'available' },
-    { id: 'participants', title: 'Participantes', description: 'Dados cadastrais, categorias, presença e filtros atuais.', status: 'available' },
-    { id: 'checkin', title: 'Check-in', description: 'Fluxo por horário, pend?ncias, operadores e status.', status: 'available' },
-    { id: 'access-control', title: 'Controle de acesso', description: 'Acessos liberados, negados e totais por Área.', status: 'available' },
-    { id: 'printed-labels', title: 'Etiquetas impressas', description: 'Preparado para contabilizar impressões e reimpressões.', status: reportPrintedLabelsCount > 0 ?'available' : 'prepared' },
-    { id: 'cloakroom', title: 'Chapelaria', description: 'Tickets, volumes, guardados e retirados.', status: 'available' },
-    { id: 'users', title: 'Usuários', description: 'Base de usuários e níveis de operação.', status: 'prepared' },
-    { id: 'operators', title: 'Operadores', description: 'Credenciamentos e produtividade por operador.', status: reportOperatorSummary.length > 0 ?'available' : 'prepared' }
-  ];
 
   const exportReportParticipantsToCsv = () => {
     const rows: ReportExportRow[] = reportParticipants.map(participant => {
@@ -3831,6 +3836,101 @@ export default function App() {
   };
 
   const buildReportPdfPayload = (): ReportPdfPayload => {
+    const organizationRows = (() => {
+      const query = organizationReportSearch.trim().toLowerCase();
+      const location = organizationReportLocation.trim().toLowerCase();
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = new Date(end);
+      if (organizationReportPeriod === '7d') start.setDate(end.getDate() - 6);
+      if (organizationReportPeriod === '30d') start.setDate(end.getDate() - 29);
+      if (organizationReportPeriod === 'month') start.setDate(1);
+      if (organizationReportPeriod === 'year') start.setMonth(0, 1);
+      start.setHours(0, 0, 0, 0);
+      return (organizationReport?.events || []).filter((event: any) => {
+        const date = new Date(event.date);
+        const inPeriod = organizationReportPeriod === 'all' || (
+          organizationReportPeriod === 'custom'
+            ? (!organizationReportCustomStart || date >= new Date(`${organizationReportCustomStart}T00:00:00`)) &&
+              (!organizationReportCustomEnd || date <= new Date(`${organizationReportCustomEnd}T23:59:59`))
+            : Number.isFinite(date.getTime()) && date >= start && date <= end
+        );
+        return inPeriod &&
+          (organizationReportStatus === 'all' || event.status === organizationReportStatus) &&
+          (!query || String(event.name || '').toLowerCase().includes(query)) &&
+          (!location || String(event.location || '').toLowerCase().includes(location));
+      });
+    })();
+
+    if (reportMode === 'organization') {
+      const totals = organizationRows.reduce((acc: any, event: any) => {
+        acc.events += 1;
+        acc[event.status] = (acc[event.status] || 0) + 1;
+        acc.participants += event.participants || 0;
+        acc.checkedIn += event.checkedIn || 0;
+        acc.pending += event.pending || 0;
+        acc.linkViews += event.credentialLinksViewed || 0;
+        acc.linkOpenings += event.credentialLinkOpenings || 0;
+        acc.areaAccess += event.areaAccessTotal || 0;
+        acc.operatorCheckins += event.operatorCheckins || 0;
+        return acc;
+      }, { events: 0, active: 0, future: 0, closed: 0, participants: 0, checkedIn: 0, pending: 0, linkViews: 0, linkOpenings: 0, areaAccess: 0, operatorCheckins: 0 });
+      const attendanceRate = totals.participants > 0 ? Math.round((totals.checkedIn / totals.participants) * 100) : 0;
+      return {
+        scope: 'organization',
+        reportLabel: 'Relatório geral',
+        eventName: 'Relatório geral',
+        organizationName: currentUser?.organizationName,
+        generatedAt: new Date(),
+        logoUrl: reportBrandConfig.showLogo && reportBrandConfig.logoUrl ? reportBrandConfig.logoUrl : credenciaLogo,
+        watermarkUrl: reportBrandConfig.showWatermark ? reportBrandConfig.watermarkUrl : undefined,
+        watermarkOpacity: reportBrandConfig.watermarkOpacity,
+        brandConfig: reportBrandConfig,
+        reportConfig,
+        filters: [
+          `Período: ${organizationReportPeriod === '7d' ? 'Últimos 7 dias' : organizationReportPeriod === '30d' ? 'Últimos 30 dias' : organizationReportPeriod === 'month' ? 'Este mês' : organizationReportPeriod === 'year' ? 'Este ano' : organizationReportPeriod === 'custom' ? `${organizationReportCustomStart || 'início'} até ${organizationReportCustomEnd || 'fim'}` : 'Todos os períodos'}`,
+          `Status: ${organizationReportStatus === 'all' ? 'Todos' : organizationReportStatus}`,
+          organizationReportSearch ? `Busca: ${organizationReportSearch}` : '',
+          organizationReportLocation ? `Local: ${organizationReportLocation}` : ''
+        ].filter(Boolean),
+        metrics: [
+          { id: 'events-total', title: 'Total de eventos', value: totals.events, detail: 'Filtros atuais', icon: Calendar, tone: 'green' as const },
+          { id: 'participants-total', title: 'Total de participantes', value: totals.participants, detail: 'Eventos filtrados', icon: Users, tone: 'green' as const },
+          { id: 'checkins-total', title: 'Total de check-ins', value: totals.checkedIn, detail: `${totals.pending} pendentes`, icon: UserCheck, tone: 'graphite' as const },
+          { id: 'attendance-rate', title: 'Taxa geral de presença', value: `${attendanceRate}%`, detail: 'Check-ins / participantes', icon: CheckCircle2, tone: 'blue' as const },
+          { id: 'active-events', title: 'Eventos ativos', value: totals.active, detail: 'Na organização', icon: Calendar, tone: 'green' as const },
+          { id: 'future-events', title: 'Eventos futuros', value: totals.future, detail: 'Próximos eventos', icon: Clock, tone: 'amber' as const },
+          { id: 'closed-events', title: 'Eventos encerrados', value: totals.closed, detail: 'Eventos finalizados', icon: History, tone: 'graphite' as const },
+          { id: 'credential-links', title: 'Participantes que visualizaram', value: totals.linkViews, detail: `${totals.linkOpenings} abertura(s) totais`, icon: Eye, tone: 'green' as const }
+        ],
+        summary: { total: totals.participants, checkedIn: totals.checkedIn, pending: totals.pending, attendanceRate },
+        hourlyData: [],
+        presenceData: [
+          { label: 'Presentes', value: totals.checkedIn, color: '#12e000' },
+          { label: 'Ausentes', value: totals.pending, color: '#f5b842' }
+        ],
+        categoryData: organizationRows.map((event: any) => ({ label: event.name, value: event.participants || 0 })),
+        areaData: organizationRows.map((event: any) => ({ label: event.name, value: event.areaAccessTotal || 0 })).filter((item: any) => item.value > 0),
+        operatorData: organizationRows.map((event: any) => ({ label: event.name, value: event.operatorCheckins || 0 })).filter((item: any) => item.value > 0),
+        organizationEventRows: organizationRows.map((event: any) => ({
+          Evento: event.name,
+          Data: event.date ? new Date(event.date).toLocaleDateString('pt-BR') : '-',
+          Status: event.status === 'active' ? 'Ativo' : event.status === 'future' ? 'Futuro' : 'Encerrado',
+          Participantes: event.participants || 0,
+          'Check-ins': event.checkedIn || 0,
+          Pendentes: event.pending || 0,
+          Presença: `${event.attendanceRate || 0}%`,
+          Local: event.location || '-'
+        })),
+        participants: [],
+        participantRows: [],
+        areaRows: [],
+        operatorRows: [],
+        cloakroomItems: [],
+        printedLabelsCount: 0
+      };
+    }
+
     const participantRows: ReportPdfTableRow[] = reportParticipants.map(participant => ({
       Nome: participant.name,
       CPF: participant.cpf || '-',
@@ -3852,13 +3952,41 @@ export default function App() {
       Credenciamentos: item.value
     }));
 
+    const linksRows: ReportPdfTableRow[] = reportCredentialViews.map(item => ({
+      Participante: item.name,
+      Status: item.viewed ? 'Visualizado' : 'Não visualizado',
+      'Primeira visualização': item.firstViewedAt ? new Date(item.firstViewedAt).toLocaleString('pt-BR') : '-',
+      Aberturas: item.viewCount
+    }));
+
+    const certificateRows: ReportPdfTableRow[] = reportCertificates.map(certificate => ({
+      Código: certificate.certificateCode,
+      Participante: certificate.participantName,
+      Tipo: certificate.type === 'general' ? 'Geral' : 'Atividade',
+      Atividade: certificate.type === 'activity' ? fixMojibake(certificate.activityTitle || '-') : '-',
+      Horas: `${certificate.totalHours}h`,
+      Emissão: certificate.issuedAt ? new Date(certificate.issuedAt).toLocaleString('pt-BR') : '-'
+    }));
+
     return {
+      scope: 'event',
+      reportLabel: 'Relatório por evento',
       eventName: currentEvent?.name || 'Evento não informado',
       eventDate: currentEvent?.date ?new Date(currentEvent.date).toLocaleDateString('pt-BR') : undefined,
       eventLocation: currentEvent?.location,
+      eventStatus: currentEvent?.eventMode === 'ENCERRADO' ? 'Encerrado' : 'Ativo',
       organizationName: currentUser?.organizationName,
       generatedAt: new Date(),
       logoUrl: reportBrandConfig.showLogo && reportBrandConfig.logoUrl ?reportBrandConfig.logoUrl : credenciaLogo,
+      watermarkUrl: reportBrandConfig.showWatermark ? reportBrandConfig.watermarkUrl : undefined,
+      watermarkOpacity: reportBrandConfig.watermarkOpacity,
+      brandConfig: reportBrandConfig,
+      reportConfig,
+      filters: [
+        `Categoria: ${selectedCategoryFilter === 'all' ? 'Todas' : selectedCategoryFilter}`,
+        `Status: ${selectedPresenceFilter === 'all' ? 'Todos' : selectedPresenceFilter === 'present' ? 'Credenciados' : 'Pendentes'}`,
+        searchQuery ? `Busca: ${searchQuery}` : ''
+      ].filter(Boolean),
       metrics: reportBIMetrics,
       summary: reportSummary,
       hourlyData: reportCheckinsByHour.map(item => ({ label: item.label, value: item.count })),
@@ -3874,13 +4002,15 @@ export default function App() {
       participantRows,
       areaRows,
       operatorRows,
+      linksRows,
+      certificateRows,
       cloakroomItems: reportCloakroomItems,
       printedLabelsCount: reportPrintedLabelsCount
     };
   };
 
   const handleGenerateReportPdf = async (kind: ReportPdfKind) => {
-    if (!currentEvent) {
+    if (reportMode === 'event' && !currentEvent) {
       addToast('Selecione um evento para gerar o relatório.', 'error');
       return;
     }
@@ -7485,809 +7615,74 @@ export default function App() {
 
             {/* --- TAB 6: RELATÓRIOS --- */}
             {activeTab === 'relatorios' && (
-              <div className="space-y-6 animate-fade-in">
-                <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
-                        <img src={reportBrandConfig.logoUrl} alt="Logo do relatório" className="h-12 max-w-[160px] object-contain rounded bg-white border border-slate-100 p-1" />
-                      )}
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Relatórios</p>
-                        <h2 className="text-2xl font-bold text-slate-900 font-display mt-1">Dashboard de credenciamento</h2>
-                      </div>
-                    </div>
-                    <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-                      Acompanhe presença, categorias e horários do evento atual sem alterar as exportações existentes.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
-                    <button
-                      onClick={() => exportParticipantsToExcelWithFilter(false, reportParticipants, 'Relatorio_Filtrado')}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      <Download size={15} />
-                      <span>Baixar planilha geral</span>
-                    </button>
-                    <button
-                      onClick={() => exportParticipantsToExcelWithFilter(true, reportParticipants, 'Presentes_Filtrado')}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      <CheckCircle2 size={15} />
-                      <span>Baixar presentes</span>
-                    </button>
-                    <button
-                      onClick={printCredentialLinksReport}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-950 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      <Eye size={15} />
-                      <span>Imprimir links visualizados</span>
-                    </button>
-                    <ReportExportMenu
-                      onGeneratePdf={handleGenerateReportPdf}
-                      onPrintCurrent={triggerPrintableReport}
-                      loadingLabel={reportPdfLoadingLabel}
-                    />
-                  </div>
-                </div>
-
-                <BusinessIntelligenceDashboard
-                  metrics={reportBIMetrics}
-                  hourlyData={reportCheckinsByHour.map(item => ({ label: item.label, value: item.count }))}
-                  categoryData={reportParticipantsByCategory.map(item => ({ label: item.label, value: item.count }))}
-                  presenceData={reportPresenceBreakdown.map(item => ({
-                    label: item.label,
-                    value: item.count,
-                    color: item.label === 'Credenciados' ?'#12e000' : '#f5b842'
-                  }))}
-                  areaData={reportAreaAccessSummary.map(item => ({ label: item.areaName, value: item.total }))}
-                  operatorData={reportOperatorSummary}
-                  reportDefinitions={reportDefinitions}
-                  pollingEnabled={isReportPollingEnabled}
-                  onTogglePolling={() => {
-                    setIsReportPollingEnabled(prev => !prev);
-                    addToast(isReportPollingEnabled ?'Atualização automática pausada.' : 'Atualização automática ativada a cada 45 segundos.', 'info');
-                  }}
-                  onExportExcel={() => exportParticipantsToExcelWithFilter(false, reportParticipants, 'BI_Relatorio_Filtrado')}
-                  onExportCsv={exportReportParticipantsToCsv}
-                  onGeneratePdf={handleGenerateReportPdf}
-                  onPrintCurrent={triggerPrintableReport}
-                  pdfLoadingLabel={reportPdfLoadingLabel}
-                />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-                  {[
-                    { title: 'Total de participantes', value: reportSummary.total, icon: Users, color: 'bg-blue-50 text-blue-700 border-blue-100' },
-                    { title: 'Check-ins realizados', value: reportSummary.checkedIn, icon: UserCheck, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-                    { title: 'Participantes pendentes', value: reportSummary.pending, icon: Clock, color: 'bg-amber-50 text-amber-700 border-amber-100' },
-                    { title: 'Percentual de presença', value: `${reportSummary.attendanceRate}%`, icon: BarChart3, color: 'bg-violet-50 text-violet-700 border-violet-100' },
-                    { title: 'Links visualizados', value: reportCredentialViewSummary.viewed, icon: Eye, color: 'bg-cyan-50 text-cyan-700 border-cyan-100' }
-                  ].map(card => {
-                    const Icon = card.icon;
-                    return (
-                      <div key={card.title} className={`bg-white border rounded-lg p-5 shadow-xs ${card.color}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold uppercase tracking-wider opacity-75">{card.title}</p>
-                            <p className="text-3xl font-black text-slate-950 mt-2">{card.value}</p>
-                          </div>
-                          <div className="w-10 h-10 rounded-lg bg-white/75 flex items-center justify-center shrink-0">
-                            <Icon size={20} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Evento atual</label>
-                      <select
-                        value={selectedEventId}
-                        disabled
-                        className="w-full px-3 py-3 bg-slate-100 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700"
-                      >
-                        <option>{currentEvent?.name || 'Evento não selecionado'}</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Categoria</label>
-                      <select
-                        value={selectedCategoryFilter}
-                        onChange={e => setSelectedCategoryFilter(e.target.value)}
-                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="all">Todas as categorias</option>
-                        <option value="VIP">VIP</option>
-                        <option value="Palestrante">Palestrante</option>
-                        <option value="Expositor">Expositor</option>
-                        <option value="Participante">Participante</option>
-                        <option value="Staff">Staff</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Status</label>
-                      <select
-                        value={selectedPresenceFilter}
-                        onChange={e => setSelectedPresenceFilter(e.target.value as any)}
-                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="all">Todos</option>
-                        <option value="present">Credenciados</option>
-                        <option value="absent">Pendentes</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Busca</label>
-                      <div className="relative">
-                        <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          value={searchQuery}
-                          onChange={e => setSearchQuery(e.target.value)}
-                          placeholder="Nome ou CPF"
-                          className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                  <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
-                        <Sliders size={17} className="text-slate-500" />
-                        <span>Configurar relatório</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Escolha quais informações devem sair no relatório impresso ou exportado.
-                      </p>
-                      <p className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
-                        Este relatório será gerado com {getReportSelectedSectionCount()} seções selecionadas
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setAllReportOptions(true)}
-                        className="px-3 py-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer"
-                      >
-                        Selecionar tudo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAllReportOptions(false)}
-                        className="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition cursor-pointer"
-                      >
-                        Limpar seleção
-                      </button>
-                      <button
-                        type="button"
-                        onClick={resetReportOptions}
-                        className="px-3 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 text-xs font-bold transition cursor-pointer"
-                      >
-                        Restaurar padrão
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-4 mt-5">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {REPORT_CONFIG_GROUPS.map(group => {
-                        const selectedCount = group.keys.filter(item => reportConfig[item.key]).length;
-                        const isSelected = selectedCount > 0;
-                        return (
-                          <div
-                            key={group.id}
-                            className={`rounded-xl border p-4 transition ${
-                              isSelected ?'border-emerald-200 bg-emerald-50/40 shadow-xs' : 'border-slate-200 bg-white'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <h4 className="text-sm font-black text-slate-900">{group.title}</h4>
-                                <p className="text-xs text-slate-500 mt-1">{group.description}</p>
-                              </div>
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
-                                isSelected ?'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {selectedCount}/{group.keys.length}
-                              </span>
-                            </div>
-
-                            <div className="mt-3 space-y-2">
-                              {group.keys.map(item => (
-                                <label key={item.key} className="flex items-center gap-2 rounded-lg bg-white/80 border border-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={reportConfig[item.key]}
-                                    onChange={event => updateReportOption(item.key, event.target.checked)}
-                                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-100"
-                                  />
-                                  <span>{item.label}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Prévia simples</h4>
-                      <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 space-y-2">
-                        <div className="h-3 w-28 rounded bg-slate-900" />
-                        {reportConfig.summaryTotal || reportConfig.summaryCheckedIn || reportConfig.summaryPending || reportConfig.summaryAttendanceRate ?(
-                          <div className="grid grid-cols-2 gap-2">
-                            {[1, 2, 3, 4].slice(0, Math.max(1, REPORT_CONFIG_GROUPS[0].keys.filter(item => reportConfig[item.key]).length)).map(item => (
-                              <div key={item} className="h-10 rounded bg-emerald-100 border border-emerald-200" />
-                            ))}
-                          </div>
-                        ) : null}
-                        {REPORT_CONFIG_GROUPS[2].keys.some(item => reportConfig[item.key]) && (
-                          <div className="space-y-1 pt-1">
-                            <div className="h-2 rounded bg-blue-200 w-full" />
-                            <div className="h-2 rounded bg-blue-100 w-2/3" />
-                            <div className="h-2 rounded bg-blue-100 w-1/2" />
-                          </div>
-                        )}
-                        {REPORT_CONFIG_GROUPS[3].keys.some(item => reportConfig[item.key]) && (
-                          <div className="pt-2 space-y-1">
-                            <div className="h-2 rounded bg-slate-200 w-full" />
-                            <div className="h-2 rounded bg-slate-100 w-full" />
-                            <div className="h-2 rounded bg-slate-100 w-5/6" />
-                          </div>
-                        )}
-                      </div>
-                      <p className="mt-3 text-xs text-slate-500">
-                        {getReportSelectedOptionCount()} informação(ões) selecionada(s). Os filtros atuais continuam sendo aplicados.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
-                        <FileText size={17} className="text-slate-500" />
-                        <span>Identidade visual do relatório</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Configure uma logo no topo e uma marca d'água para a versão impressa do relatório.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG)}
-                      className="self-start px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
-                    >
-                      Limpar marca
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                    <div className="space-y-3">
-                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={reportBrandConfig.showLogo}
-                          onChange={event => setReportBrandConfig(prev => ({ ...prev, showLogo: event.target.checked }))}
-                          className="rounded border-slate-300"
-                        />
-                        Exibir logo no topo
-                      </label>
-                      <input
-                        type="url"
-                        value={reportBrandConfig.logoUrl}
-                        onChange={event => setReportBrandConfig(prev => ({ ...prev, logoUrl: event.target.value }))}
-                        placeholder="URL da logo superior"
-                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <label className="flex items-center justify-center gap-2 w-full px-3 py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-lg text-sm font-bold text-slate-700 cursor-pointer transition">
-                        <Upload size={16} />
-                        <span>Fazer upload da logo</span>
-                        <input
-                          type="file"
-                          accept={REPORT_IMAGE_ACCEPT}
-                          onChange={event => {
-                            handleReportImageUpload(event.target.files?.[0], 'logoUrl');
-                            event.currentTarget.value = '';
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-                      <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
-                      {reportBrandConfig.showLogo && reportBrandConfig.logoUrl && (
-                        <div className="h-16 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-2">
-                          <img src={reportBrandConfig.logoUrl} alt="Prévia da logo do relatório" className="max-h-full max-w-full object-contain" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={reportBrandConfig.showWatermark}
-                          onChange={event => setReportBrandConfig(prev => ({ ...prev, showWatermark: event.target.checked }))}
-                          className="rounded border-slate-300"
-                        />
-                        Exibir marca d'água na impressão
-                      </label>
-                      <input
-                        type="url"
-                        value={reportBrandConfig.watermarkUrl}
-                        onChange={event => setReportBrandConfig(prev => ({ ...prev, watermarkUrl: event.target.value }))}
-                        placeholder="URL da imagem da marca d'água"
-                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <label className="flex items-center justify-center gap-2 w-full px-3 py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-lg text-sm font-bold text-slate-700 cursor-pointer transition">
-                        <Upload size={16} />
-                        <span>Fazer upload da marca d'água</span>
-                        <input
-                          type="file"
-                          accept={REPORT_IMAGE_ACCEPT}
-                          onChange={event => {
-                            handleReportImageUpload(event.target.files?.[0], 'watermarkUrl');
-                            event.currentTarget.value = '';
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-                      <p className="text-[11px] text-slate-400">Formatos suportados: {REPORT_IMAGE_FORMATS}. Tamanho máximo: 2 MB.</p>
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                          <span>Opacidade</span>
-                          <span>{Math.round(reportBrandConfig.watermarkOpacity * 100)}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0.10"
-                          max="0.45"
-                          step="0.01"
-                          value={reportBrandConfig.watermarkOpacity}
-                          onChange={event => setReportBrandConfig(prev => ({ ...prev, watermarkOpacity: Number(event.target.value) }))}
-                          className="w-full"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                    <div className="flex items-center justify-between gap-3 mb-5">
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Check-ins por horário</h3>
-                      <History size={17} className="text-slate-400" />
-                    </div>
-                    <div className="space-y-3">
-                      {reportCheckinsByHour.length === 0 ?(
-                        <p className="text-sm text-slate-400 py-8 text-center">Nenhum check-in nos filtros atuais.</p>
-                      ) : (
-                        reportCheckinsByHour.map(item => {
-                          const max = Math.max(...reportCheckinsByHour.map(row => row.count), 1);
-                          return (
-                            <div key={item.label} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
-                                <span>{item.label}</span>
-                                <span>{item.count}</span>
-                              </div>
-                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.max((item.count / max) * 100, 6)}%` }} />
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                    <div className="flex items-center justify-between gap-3 mb-5">
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Participantes por categoria</h3>
-                      <Tag size={17} className="text-slate-400" />
-                    </div>
-                    <div className="space-y-3">
-                      {reportParticipantsByCategory.length === 0 ?(
-                        <p className="text-sm text-slate-400 py-8 text-center">Nenhuma categoria encontrada.</p>
-                      ) : (
-                        reportParticipantsByCategory.map(item => {
-                          const max = Math.max(...reportParticipantsByCategory.map(row => row.count), 1);
-                          return (
-                            <div key={item.label} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
-                                <span>{item.label}</span>
-                                <span>{item.count}</span>
-                              </div>
-                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-teal-500 rounded-full" style={{ width: `${Math.max((item.count / max) * 100, 6)}%` }} />
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                    <div className="flex items-center justify-between gap-3 mb-5">
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Presentes x Ausentes</h3>
-                      <BarChart3 size={17} className="text-slate-400" />
-                    </div>
-                    <div className="space-y-4">
-                      <div className="h-5 bg-slate-100 rounded-full overflow-hidden flex">
-                        {reportPresenceBreakdown.map(item => (
-                          <div
-                            key={item.label}
-                            className={`${item.color} h-full`}
-                            style={{ width: `${reportSummary.total > 0 ?(item.count / reportSummary.total) * 100 : 0}%` }}
-                          />
-                        ))}
-                      </div>
-                      {reportPresenceBreakdown.map(item => (
-                        <div key={item.label} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-full ${item.color}`} />
-                            <span className="font-semibold text-slate-700">{item.label}</span>
-                          </div>
-                          <span className="font-bold text-slate-950">{item.count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {currentEvent?.enableAccessControl !== false && (
-                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
-                          <ShieldCheck size={17} className="text-slate-500" />
-                          <span>Acessos por sala</span>
-                        </h3>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Exibe liberações e negações registradas pelo controle de acesso do evento.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs font-bold">
-                        <span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" />Liberados</span>
-                        <span className="inline-flex items-center gap-1.5 text-rose-700"><span className="w-2 h-2 rounded-full bg-rose-500" />Negados</span>
-                      </div>
-                    </div>
-
-                    {reportAreaAccessSummary.length === 0 ?(
-                      <div className="py-8 text-center border border-dashed border-slate-200 rounded-lg bg-slate-50">
-                        <ShieldAlert className="mx-auto text-slate-300 mb-2" size={28} />
-                        <p className="text-sm font-semibold text-slate-500">Nenhum acesso por sala registrado nos filtros atuais.</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {reportAreaAccessSummary.map(item => {
-                          const max = Math.max(...reportAreaAccessSummary.map(row => row.total), 1);
-                          return (
-                            <div key={item.areaId} className="border border-slate-100 rounded-lg p-4 bg-slate-50/60">
-                              <div className="flex items-center justify-between gap-3 mb-3">
-                                <span className="font-bold text-slate-800 text-sm">{item.areaName}</span>
-                                <span className="text-xs font-black text-slate-500">{item.total} leituras</span>
-                              </div>
-                              <div className="h-3 bg-white rounded-full overflow-hidden flex border border-slate-100">
-                                <div className="h-full bg-emerald-500" style={{ width: `${Math.max((item.allowed / max) * 100, item.allowed > 0 ?5 : 0)}%` }} />
-                                <div className="h-full bg-rose-500" style={{ width: `${Math.max((item.denied / max) * 100, item.denied > 0 ?5 : 0)}%` }} />
-                              </div>
-                              <div className="flex items-center justify-between text-xs text-slate-600 mt-2">
-                                <span>{item.allowed} liberados</span>
-                                <span>{item.denied} negados</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
-                        <Award size={17} className="text-slate-500" />
-                        <span>Relatório de Certificados</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Participantes com certificados emitidos nos filtros atuais.
-                      </p>
-                    </div>
-                    <p className="text-xs font-bold text-slate-500">
-                      {reportCertificates.length} certificado(s) emitido(s)
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
-                    {[
-                      { title: 'Certificados', value: reportCertificateSummary.total, icon: Award, color: 'bg-blue-50 text-blue-700 border-blue-100' },
-                      { title: 'Participantes', value: reportCertificateSummary.participantCount, icon: Users, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-                      { title: 'Gerais', value: reportCertificateSummary.general, icon: FileText, color: 'bg-slate-50 text-slate-700 border-slate-100' },
-                      { title: 'Por atividade', value: reportCertificateSummary.activity, icon: BookOpen, color: 'bg-violet-50 text-violet-700 border-violet-100' },
-                      { title: 'Horas somadas', value: `${reportCertificateSummary.totalHours}h`, icon: Clock, color: 'bg-amber-50 text-amber-700 border-amber-100' }
-                    ].map(card => {
-                      const Icon = card.icon;
-                      return (
-                        <div key={card.title} className={`rounded-lg border p-4 ${card.color}`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-wider opacity-80">{card.title}</p>
-                              <p className="text-2xl font-black mt-1">{card.value}</p>
-                            </div>
-                            <Icon size={22} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="overflow-x-auto border border-slate-100 rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                        <tr>
-                          <th className="text-left p-3">Código</th>
-                          <th className="text-left p-3">Participante</th>
-                          <th className="text-left p-3">Tipo</th>
-                          <th className="text-left p-3">Atividade</th>
-                          <th className="text-left p-3">Horas</th>
-                          <th className="text-left p-3">Emissão</th>
-                          <th className="text-left p-3">Operador</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reportCertificates.length === 0 ?(
-                          <tr>
-                            <td colSpan={7} className="p-6 text-center text-slate-500 font-semibold">
-                              Nenhum certificado emitido para os participantes filtrados.
-                            </td>
-                          </tr>
-                        ) : (
-                          reportCertificates.map(certificate => (
-                            <tr key={certificate.id} className="border-t border-slate-100">
-                              <td className="p-3 font-mono text-xs font-bold text-slate-700">{certificate.certificateCode}</td>
-                              <td className="p-3">
-                                <p className="font-bold text-slate-900">{certificate.participantName}</p>
-                                <p className="text-xs text-slate-500">{certificate.participantCpf || '-'}</p>
-                              </td>
-                              <td className="p-3">
-                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${certificate.type === 'general' ?'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
-                                  {certificate.type === 'general' ?'Geral' : 'Atividade'}
-                                </span>
-                              </td>
-                              <td className="p-3 text-slate-700">{certificate.type === 'activity' ?fixMojibake(certificate.activityTitle || '-') : '-'}</td>
-                              <td className="p-3 font-black text-slate-900">{certificate.totalHours}h</td>
-                              <td className="p-3 text-slate-600">{new Date(certificate.issuedAt).toLocaleString('pt-BR')}</td>
-                              <td className="p-3 text-slate-600">{certificate.operatorName || 'Operador'}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
-                        <FolderLock size={17} className="text-slate-500" />
-                        <span>Relatório da Chapelaria</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Entradas, devoluções e volumes registrados na chapelaria do evento atual.
-                      </p>
-                    </div>
-                    <p className="text-xs font-bold text-slate-500">
-                      {reportCloakroomItems.length} registro(s) nos filtros atuais
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
-                    {[
-                      { title: 'Tickets', value: reportCloakroomSummary.totalTickets, icon: Tag, color: 'bg-blue-50 text-blue-700 border-blue-100' },
-                      { title: 'Guardados', value: reportCloakroomSummary.stored, icon: FolderLock, color: 'bg-amber-50 text-amber-700 border-amber-100' },
-                      { title: 'Retirados', value: reportCloakroomSummary.returned, icon: CheckCircle2, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-                      { title: 'Volumes totais', value: reportCloakroomSummary.totalVolumes, icon: BarChart3, color: 'bg-slate-50 text-slate-700 border-slate-100' },
-                      { title: 'Volumes em guarda', value: reportCloakroomSummary.storedVolumes, icon: Clock, color: 'bg-rose-50 text-rose-700 border-rose-100' }
-                    ].map(card => {
-                      const Icon = card.icon;
-                      return (
-                        <div key={card.title} className={`border rounded-lg p-4 ${card.color}`}>
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-[11px] font-bold uppercase tracking-wider opacity-75">{card.title}</p>
-                              <p className="text-2xl font-black text-slate-950 mt-1">{card.value}</p>
-                            </div>
-                            <div className="w-9 h-9 rounded-lg bg-white/80 flex items-center justify-center shrink-0">
-                              <Icon size={18} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="overflow-x-auto border border-slate-100 rounded-lg">
-                    <table className="w-full text-left border-collapse min-w-[1050px]">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Ticket</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Participante</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Volumes</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Descrição</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Entrada</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador entrada</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Devolução</th>
-                          <th className="p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador retirada</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reportCloakroomItems.length === 0 ?(
-                          <tr>
-                            <td colSpan={9} className="p-10 text-center text-slate-400">
-                              <FolderLock className="mx-auto text-slate-300 mb-2" size={30} />
-                              <p className="font-semibold text-slate-500">Nenhuma movimentação de chapelaria nos filtros atuais.</p>
-                            </td>
-                          </tr>
-                        ) : (
-                          reportCloakroomItems.map(item => {
-                            const itemVolumes = getCloakroomItemVolumes(item);
-                            return (
-                            <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
-                              <td className="p-3 font-mono text-xs font-black text-slate-800">#{item.tagNumber}</td>
-                              <td className="p-3">
-                                <div className="font-bold text-slate-800 text-sm">{item.participantName}</div>
-                                {itemVolumes.length > 0 && (
-                                  <div className="text-[11px] text-slate-400 font-mono mt-1">{itemVolumes.map(volume => volume.tag).join(', ')}</div>
-                                )}
-                              </td>
-                              <td className="p-3 text-sm font-bold text-slate-700">{itemVolumes.length}</td>
-                              <td className="p-3 text-xs text-slate-600 max-w-[280px]">
-                                <div className="space-y-1">
-                                  {itemVolumes.map((volume, index) => (
-                                    <div key={volume.id || volume.tag || index}>
-                                      <span className="font-mono font-black text-slate-500">{volume.tag}</span>
-                                      <span> - {volume.description || '-'}</span>
-                                      <span className="block font-mono text-emerald-700">{formatCloakroomVolumeAddress(volume)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </td>
-                              <td className="p-3">
-                                {item.status === 'retirado' ?(
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-                                    <CheckCircle2 size={12} />
-                                    Retirado
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
-                                    <Clock size={12} />
-                                    Guardado
-                                  </span>
-                                )}
-                              </td>
-                              <td className="p-3 font-mono text-xs text-slate-700">{new Date(item.registeredAt).toLocaleString('pt-BR')}</td>
-                              <td className="p-3 text-xs text-slate-600">{item.registeredByName || '-'}</td>
-                              <td className="p-3 font-mono text-xs text-slate-700">{item.returnedAt ?new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td>
-                              <td className="p-3 text-xs text-slate-600">{item.returnedByName || '-'}</td>
-                            </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 font-display">Tabela do relatório</h3>
-                      <p className="text-xs text-slate-500">{reportParticipants.length} registros nos filtros atuais.</p>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse min-w-[1080px]">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">CPF</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Categoria</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Horário do check-in</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Acessos por sala</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Certificados</th>
-                          <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Operador responsável</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reportParticipants.length === 0 ?(
-                          <tr>
-                            <td colSpan={8} className="p-12 text-center text-slate-400">
-                              <Info className="mx-auto text-slate-300 mb-2" size={32} />
-                              <p className="font-semibold text-slate-500">Nenhum participante nos filtros atuais.</p>
-                            </td>
-                          </tr>
-                        ) : (
-                          reportParticipants.map(p => {
-                            const areaAccess = reportParticipantAreaAccess.find(item => item.participantId === p.id);
-                            const participantCertificates = reportCertificates.filter(certificate => certificate.participantId === p.id);
-                            return (
-                            <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
-                              <td className="p-4">
-                                <div className="font-bold text-slate-800 text-sm">{p.name}</div>
-                                <div className="text-xs text-slate-400">{p.email || 'E-mail não informado'}</div>
-                              </td>
-                              <td className="p-4 font-mono text-xs text-slate-700">{p.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</td>
-                              <td className="p-4">
-                                <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${CATEGORY_TAGS[p.category].bg}`}>
-                                  {p.category}
-                                </span>
-                              </td>
-                              <td className="p-4">
-                                {isOfficialParticipantCheckin(p) ?(
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-                                    <Check size={12} strokeWidth={3} />
-                                    Credenciado
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
-                                    <Clock size={12} />
-                                    Pendente
-                                  </span>
-                                )}
-                              </td>
-                              <td className="p-4 font-mono text-xs text-slate-700">
-                                {isOfficialParticipantCheckin(p) && p.checkedInAt ?new Date(p.checkedInAt).toLocaleString('pt-BR') : '-'}
-                              </td>
-                              <td className="p-4 text-xs text-slate-600">
-                                {areaAccess && areaAccess.total > 0 ?(
-                                  <div className="space-y-1">
-                                    <div className="font-semibold text-slate-800">
-                                      {areaAccess.allowedAreaNames.length > 0 ?areaAccess.allowedAreaNames.join(', ') : 'Sem liberação'}
-                                    </div>
-                                    {areaAccess.deniedCount > 0 && (
-                                      <div className="text-rose-600 font-semibold">{areaAccess.deniedCount} negado(s)</div>
-                                    )}
-                                  </div>
-                                ) : '-'}
-                              </td>
-                              <td className="p-4 text-xs text-slate-600">
-                                {participantCertificates.length === 0 ?'-' : (
-                                  <div className="space-y-1">
-                                    <div className="font-black text-slate-900">{participantCertificates.length} emitido(s)</div>
-                                    <div className="font-mono text-[10px] text-slate-500">
-                                      {participantCertificates.map(certificate => certificate.certificateCode).join(', ')}
-                                    </div>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="p-4 text-xs text-slate-600">
-                                {getReportCheckinOperator(p)}
-                              </td>
-                            </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
+              <ReportsWorkspace
+                isUserAdmin={isUserAdmin}
+                events={events}
+                currentEvent={currentEvent}
+                selectedEventId={selectedEventId}
+                setSelectedEvent={persistSelectedEvent}
+                reportMode={reportMode}
+                setReportMode={setReportMode}
+                reportEventTab={reportEventTab}
+                setReportEventTab={setReportEventTab}
+                organizationReport={organizationReport}
+                isOrganizationReportLoading={isOrganizationReportLoading}
+                loadOrganizationReport={loadOrganizationReport}
+                organizationReportPeriod={organizationReportPeriod}
+                setOrganizationReportPeriod={setOrganizationReportPeriod}
+                organizationReportStatus={organizationReportStatus}
+                setOrganizationReportStatus={setOrganizationReportStatus}
+                organizationReportSearch={organizationReportSearch}
+                setOrganizationReportSearch={setOrganizationReportSearch}
+                organizationReportLocation={organizationReportLocation}
+                setOrganizationReportLocation={setOrganizationReportLocation}
+                organizationReportCustomStart={organizationReportCustomStart}
+                setOrganizationReportCustomStart={setOrganizationReportCustomStart}
+                organizationReportCustomEnd={organizationReportCustomEnd}
+                setOrganizationReportCustomEnd={setOrganizationReportCustomEnd}
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                selectedCategoryFilter={selectedCategoryFilter}
+                setSelectedCategoryFilter={setSelectedCategoryFilter}
+                selectedPresenceFilter={selectedPresenceFilter}
+                setSelectedPresenceFilter={setSelectedPresenceFilter}
+                reportConfig={reportConfig}
+                reportBrandConfig={reportBrandConfig}
+                setReportBrandConfig={setReportBrandConfig}
+                updateReportOption={updateReportOption}
+                setAllReportOptions={setAllReportOptions}
+                resetReportOptions={resetReportOptions}
+                getReportSelectedOptionCount={getReportSelectedOptionCount}
+                getReportSelectedSectionCount={getReportSelectedSectionCount}
+                handleReportImageUpload={handleReportImageUpload}
+                exportParticipantsToExcelWithFilter={exportParticipantsToExcelWithFilter}
+                exportReportParticipantsToCsv={exportReportParticipantsToCsv}
+                handleGenerateReportPdf={handleGenerateReportPdf}
+                triggerPrintableReport={triggerPrintableReport}
+                reportPdfLoadingLabel={reportPdfLoadingLabel}
+                reportParticipants={reportParticipants}
+                filteredParticipantsList={filteredParticipantsList}
+                reportSummary={reportSummary}
+                reportCredentialViewSummary={reportCredentialViewSummary}
+                reportCheckinsByHour={reportCheckinsByHour}
+                reportParticipantsByCategory={reportParticipantsByCategory}
+                reportPresenceBreakdown={reportPresenceBreakdown}
+                reportAreaAccessLogs={reportAreaAccessLogs}
+                reportAreaAccessSummary={reportAreaAccessSummary}
+                reportParticipantAreaAccess={reportParticipantAreaAccess}
+                reportCertificates={reportCertificates}
+                reportCertificateSummary={reportCertificateSummary}
+                reportCloakroomItems={reportCloakroomItems}
+                reportCloakroomSummary={reportCloakroomSummary}
+                reportOperatorSummary={reportOperatorSummary}
+                reportAverageStayMinutes={reportAverageStayMinutes}
+                reportPrintedLabelsCount={reportPrintedLabelsCount}
+                officialActionLogs={officialActionLogs}
+                isOfficialParticipantCheckin={isOfficialParticipantCheckin}
+                getReportCheckinOperator={getReportCheckinOperator}
+                getCloakroomItemVolumes={getCloakroomItemVolumes}
+              />
             )}
-
             {/* --- TAB 7: CONFIGURAÇÃO DE ETIQUETAS DE CRACHÁ --- */}
             {activeTab === 'impressao' && (
               <div className="space-y-6 animate-fade-in">
@@ -9887,3 +9282,4 @@ export default function App() {
     </div>
   );
 }
+

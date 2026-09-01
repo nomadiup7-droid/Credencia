@@ -148,4 +148,41 @@ body:not(.theme-dark) [class*="focus:ring-[#1D4ED8]"]:focus {
   .print-only {
     display: block !important;
   }
+
+  body:has(.report-print-scope) * {
+    visibility: hidden;
+  }
+
+  .report-print-scope,
+  .report-print-scope * {
+    visibility: visible;
+  }
+
+  .report-print-scope {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    background: white !important;
+    color: black !important;
+    padding: 16px !important;
+  }
+
+  .report-print-controls,
+  .report-print-controls * {
+    display: none !important;
+  }
+
+  .report-print-scope table {
+    break-inside: auto;
+  }
+
+  .report-print-scope thead {
+    display: table-header-group;
+  }
+
+  .report-print-scope tr,
+  .report-print-scope .rounded-xl,
+  .report-print-scope .rounded-2xl {
+    break-inside: avoid;
+  }
 }

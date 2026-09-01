@@ -3630,6 +3630,106 @@ app.delete('/api/cloakroom/:id', authenticateToken, requireAdmin, async (req, re
 });
 
 
+// --- ORGANIZATION REPORT ENDPOINT ---
+app.get('/api/reports/organization', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const organizationEvents = await db.getEvents(user.organizationId);
+    const eventIds = new Set(organizationEvents.map(event => event.id));
+    const allAreaLogs = (await db.getAreaAccessLogs().catch(() => []))
+      .filter((log: any) => eventIds.has(log.eventId));
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const rows = await Promise.all(organizationEvents.map(async event => {
+      const [eventParticipants, actionLogs] = await Promise.all([
+        db.getParticipants(event.id).catch(() => []),
+        db.getActionLogs(event.id).catch(() => [])
+      ]);
+      const participants = eventParticipants as Participant[];
+      const checkedIn = participants.filter(isOfficialCheckIn).length;
+      const pending = Math.max(participants.length - checkedIn, 0);
+      const eventDate = new Date(event.date);
+      eventDate.setHours(0, 0, 0, 0);
+      const status = event.eventMode === 'ENCERRADO' || (Number.isFinite(eventDate.getTime()) && eventDate < today)
+        ? 'closed'
+        : Number.isFinite(eventDate.getTime()) && eventDate > today
+          ? 'future'
+          : 'active';
+      const eventAreaLogs = allAreaLogs.filter((log: any) => log.eventId === event.id);
+      const operatorNames = new Set(actionLogs
+        .filter((log: any) => log.action === 'CHECKIN')
+        .map((log: any) => String((log.metadata as any)?.operatorName || log.userId || '').trim())
+        .filter(Boolean));
+
+      return {
+        eventId: event.id,
+        name: event.name,
+        date: event.date,
+        location: event.location,
+        status,
+        participants: participants.length,
+        checkedIn,
+        pending,
+        attendanceRate: participants.length > 0 ? Math.round((checkedIn / participants.length) * 100) : 0,
+        credentialLinksViewed: participants.filter((participant: any) => Boolean(participant.credentialFirstViewedAt)).length,
+        credentialLinkOpenings: participants.reduce((sum: number, participant: any) => sum + (Number(participant.credentialViewCount) || 0), 0),
+        areaAccessTotal: eventAreaLogs.length,
+        operatorCheckins: operatorNames.size
+      };
+    }));
+
+    const monthlyEvents = rows.reduce<Record<string, number>>((acc, row) => {
+      const date = new Date(row.date);
+      const label = Number.isFinite(date.getTime())
+        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        : 'Sem data';
+      acc[label] = (acc[label] || 0) + 1;
+      return acc;
+    }, {});
+
+    const totals = rows.reduce((acc, row) => {
+      acc.events += 1;
+      acc[row.status] += 1;
+      acc.participants += row.participants;
+      acc.checkedIn += row.checkedIn;
+      acc.pending += row.pending;
+      acc.credentialLinksViewed += row.credentialLinksViewed;
+      acc.credentialLinkOpenings += row.credentialLinkOpenings;
+      acc.areaAccessTotal += row.areaAccessTotal;
+      acc.operatorCheckins += row.operatorCheckins;
+      return acc;
+    }, {
+      events: 0,
+      active: 0,
+      future: 0,
+      closed: 0,
+      participants: 0,
+      checkedIn: 0,
+      pending: 0,
+      averageAttendanceRate: 0,
+      credentialLinksViewed: 0,
+      credentialLinkOpenings: 0,
+      areaAccessTotal: 0,
+      operatorCheckins: 0
+    });
+    totals.averageAttendanceRate = totals.participants > 0 ? Math.round((totals.checkedIn / totals.participants) * 100) : 0;
+
+    res.json({
+      events: rows,
+      totals,
+      monthlyEvents: Object.entries(monthlyEvents)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([label, value]) => ({ label, value }))
+    });
+  } catch (error: any) {
+    console.error('Error serving organization report:', error);
+    res.status(500).json({ error: 'Erro de servidor ao gerar relatório geral' });
+  }
+});
+
+
 // --- DASHBOARD STATISTICS ENDPOINT ---
 app.get('/api/events/:eventId/dashboard', authenticateToken, requireAdmin, async (req, res) => {
   try {

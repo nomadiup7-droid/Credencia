@@ -25,6 +25,8 @@ export default function ReportExportMenu({ onGeneratePdf, onPrintCurrent, loadin
         type="button"
         onClick={() => setIsOpen(value => !value)}
         disabled={isLoading}
+        title="Gerar um modelo de relatório em PDF ou imprimir"
+        aria-label="Gerar um modelo de relatório em PDF ou imprimir"
         className={`inline-flex items-center justify-center gap-2 rounded-xl text-xs font-black transition cursor-pointer disabled:cursor-wait ${
           compact ? 'cx-button-primary px-4 py-3' : 'bg-slate-900 hover:bg-slate-800 text-white px-4 py-3'
         }`}

@@ -1,4 +1,4 @@
-import type { Participant, CloakroomItem } from '../types';
+import type { Participant, CloakroomItem, ReportBrandConfig, ReportConfig } from '../types';
 import type { BIChartDatum, BIMetric } from '../components/bi';
 
 export type ReportPdfKind = 'executive' | 'complete' | 'summary';
@@ -14,12 +14,20 @@ export type ReportPdfChartKey =
 export type ReportPdfTableRow = Record<string, string | number | boolean | null | undefined>;
 
 export interface ReportPdfPayload {
+  scope?: 'event' | 'organization';
+  reportLabel?: string;
   eventName: string;
   eventDate?: string;
   eventLocation?: string;
+  eventStatus?: string;
   organizationName?: string;
   generatedAt: Date;
   logoUrl?: string;
+  watermarkUrl?: string;
+  watermarkOpacity?: number;
+  brandConfig?: ReportBrandConfig;
+  reportConfig?: ReportConfig;
+  filters?: string[];
   metrics: BIMetric[];
   summary: {
     total: number;
@@ -32,6 +40,9 @@ export interface ReportPdfPayload {
   categoryData: BIChartDatum[];
   areaData: BIChartDatum[];
   operatorData: BIChartDatum[];
+  organizationEventRows?: ReportPdfTableRow[];
+  linksRows?: ReportPdfTableRow[];
+  certificateRows?: ReportPdfTableRow[];
   participants: Participant[];
   participantRows: ReportPdfTableRow[];
   areaRows: ReportPdfTableRow[];
