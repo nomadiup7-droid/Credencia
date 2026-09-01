@@ -65,7 +65,7 @@ import { CERTIFICATE_ELEMENT_PRESETS, DEFAULT_CERTIFICATE_TEMPLATE, getCertifica
 import { DEFAULT_CLOAKROOM_LABEL_CONFIG } from './constants/cloakroom';
 import { DEFAULT_IMPORT_FIELD_ORDER, IMPORT_TARGET_OPTIONS, IMPORT_TEMPLATES_STORAGE_KEY } from './constants/importTemplates';
 import { ACTIVE_TAB_STORAGE_KEY, CURRENT_EVENT_ID_STORAGE_KEY, CURRENT_USER_ROLE_STORAGE_KEY, LEGACY_SELECTED_EVENT_ID_STORAGE_KEY } from './constants/navigation';
-import { ALL_PERMISSION_IDS, PERMISSION_GROUPS, PERMISSION_PRESETS, formatUserRoleLabel, legacyPermissionsForRole, normalizePermissions } from './constants/permissions';
+import { ALL_PERMISSION_IDS, PERMISSION_GROUPS, PERMISSION_PRESETS, QUICK_OPERATOR_PROFILES, QuickOperatorProfileId, formatUserRoleLabel, getQuickOperatorPermissions, legacyPermissionsForRole, normalizePermissions } from './constants/permissions';
 import { DEFAULT_REPORT_BRAND_CONFIG, DEFAULT_REPORT_CONFIG, REPORT_CONFIG_GROUPS, REPORT_IMAGE_ACCEPT, REPORT_IMAGE_FORMATS, REPORT_OPTION_KEYS } from './constants/reports';
 import { escapeCertificateHtml, replaceCertificatePlaceholders } from './utils/certificate';
 import { getParticipantSearchScore, normalizeParticipantSearch } from './utils/participantSearch';
@@ -133,6 +133,8 @@ export default function App() {
   const canIssueCertificates = isUserAdmin || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('certificates.issue');
   const canManageParticipants = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'CHECKIN_CADASTRO' || hasSystemPermission('participants.view') || hasSystemPermission('participants.edit');
   const canViewReports = isUserAdmin || eventRole === 'SUPERVISOR' || eventRole === 'RELATORIO' || hasSystemPermission('reports.view');
+  const canViewActivityAttendance = isUserAdmin || hasSystemPermission('activityAttendance.view');
+  const canRegisterActivityAttendance = isUserAdmin || hasSystemPermission('activityAttendance.register');
 
   // Login Form States
   const [loginMethod, setLoginMethod] = useState<'pin' | 'email'>('email');
@@ -157,6 +159,20 @@ export default function App() {
   });
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [userCreationMode, setUserCreationMode] = useState<'choice' | 'full' | 'quick'>('choice');
+  const [quickSelectedProfileIds, setQuickSelectedProfileIds] = useState<QuickOperatorProfileId[]>(['checkinBasic']);
+  const [quickAdvancedPermissions, setQuickAdvancedPermissions] = useState(false);
+  const [quickShowAppliedPermissions, setQuickShowAppliedPermissions] = useState(false);
+  const [quickShowPassword, setQuickShowPassword] = useState(false);
+  const [savingUser, setSavingUser] = useState(false);
+  const [quickCreatedAccess, setQuickCreatedAccess] = useState<{
+    name: string;
+    eventName: string;
+    profileLabels: string;
+    email: string;
+    password: string;
+    pin?: string;
+  } | null>(null);
   const [userForm, setUserForm] = useState({
     id: '',
     name: '',
@@ -825,7 +841,164 @@ export default function App() {
   ) => {
     const current = new Set(source);
     permissions.forEach(permission => checked ?current.add(permission) : current.delete(permission));
+    if (checked && (current.has('activityAttendance.register') || current.has('activityAttendance.manage'))) {
+      current.add('activityAttendance.view');
+    }
+    if (!current.has('activityAttendance.view')) {
+      current.delete('activityAttendance.register');
+      current.delete('activityAttendance.manage');
+    }
     return normalizePermissions([...current]);
+  };
+
+  const generateSecureTemporaryPassword = () => {
+    const groups = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*'];
+    const allChars = groups.join('');
+    const pick = (chars: string) => {
+      const values = new Uint32Array(1);
+      window.crypto.getRandomValues(values);
+      return chars[values[0] % chars.length];
+    };
+    return [...groups.map(pick), ...Array.from({ length: 8 }, () => pick(allChars))]
+      .sort(() => {
+        const values = new Uint32Array(1);
+        window.crypto.getRandomValues(values);
+        return values[0] / 0xffffffff - 0.5;
+      })
+      .join('');
+  };
+
+  const getPermissionLabel = (permissionId: string) =>
+    PERMISSION_GROUPS.flatMap(group => group.permissions).find(permission => permission.id === permissionId)?.label || permissionId;
+
+  const getQuickProfileLabels = (profileIds = quickSelectedProfileIds) =>
+    QUICK_OPERATOR_PROFILES
+      .filter(profile => profile.id !== 'custom' && profileIds.includes(profile.id))
+      .map(profile => profile.title);
+
+  const applyQuickOperatorProfiles = (profileIds: QuickOperatorProfileId[]) => {
+    const permissions = setPermissionCollection([], getQuickOperatorPermissions(profileIds), true);
+    const eventRole: EventUserRole = profileIds.includes('checkinRegistration') ?'CHECKIN_CADASTRO' : 'CHECKIN';
+    setUserForm(prev => ({
+      ...prev,
+      role: 'OPERADOR',
+      permissions,
+      eventRole,
+      eventPermissions: permissions
+    }));
+  };
+
+  const openNewUserChoice = () => {
+    const baseProfileIds: QuickOperatorProfileId[] = ['checkinBasic'];
+    const permissions = setPermissionCollection([], getQuickOperatorPermissions(baseProfileIds), true);
+    setUserForm({
+      id: '',
+      name: '',
+      email: '',
+      password: generateSecureTemporaryPassword(),
+      role: 'OPERADOR',
+      permissions,
+      eventId: selectedEventId || '',
+      eventRole: 'CHECKIN',
+      eventPermissions: permissions,
+      eventActive: true
+    });
+    setQuickSelectedProfileIds(baseProfileIds);
+    setQuickAdvancedPermissions(false);
+    setQuickShowAppliedPermissions(false);
+    setQuickShowPassword(false);
+    setQuickCreatedAccess(null);
+    setUserCreationMode('choice');
+    setIsUserModalOpen(true);
+  };
+
+  const closeUserModal = () => {
+    setIsUserModalOpen(false);
+    setQuickCreatedAccess(null);
+    setUserForm(prev => ({ ...prev, password: '' }));
+  };
+
+  const startFullUserCreation = () => {
+    setUserForm(prev => ({
+      ...prev,
+      role: 'ADMIN',
+      permissions: ALL_PERMISSION_IDS,
+      eventRole: 'ADMIN',
+      eventPermissions: ALL_PERMISSION_IDS
+    }));
+    setUserCreationMode('full');
+  };
+
+  const startQuickUserCreation = () => {
+    applyQuickOperatorProfiles(quickSelectedProfileIds);
+    setUserCreationMode('quick');
+  };
+
+  const markQuickPermissionsCustomized = () => {
+    if (userCreationMode !== 'quick') return;
+    setQuickAdvancedPermissions(true);
+    setQuickSelectedProfileIds(prev => prev.includes('custom') ?prev : [...prev, 'custom']);
+  };
+
+  const toggleQuickOperatorProfile = (profileId: QuickOperatorProfileId) => {
+    if (profileId === 'custom') {
+      setQuickAdvancedPermissions(true);
+      setQuickSelectedProfileIds(prev => prev.includes('custom') ?prev : [...prev, 'custom']);
+      return;
+    }
+    setQuickSelectedProfileIds(prev => {
+      const hasProfile = prev.includes(profileId);
+      const next = hasProfile
+        ?prev.filter(id => id !== profileId)
+        : [...prev, profileId];
+      const operationalProfiles = next.filter(id => id !== 'custom');
+      const normalizedNext = (operationalProfiles.length ?next : ['checkinBasic']) as QuickOperatorProfileId[];
+      if (!quickAdvancedPermissions) applyQuickOperatorProfiles(normalizedNext);
+      return normalizedNext;
+    });
+  };
+
+  const copyQuickAccessData = async (access = quickCreatedAccess) => {
+    if (!access) return;
+    const message = [
+      `Olá, ${access.name}!`,
+      '',
+      'Seu acesso ao Credencia foi criado.',
+      '',
+      `Evento: ${access.eventName}`,
+      `Função: ${access.profileLabels}`,
+      `Login: ${access.email}`,
+      `Senha temporária: ${access.password}`,
+      access.pin ?`PIN: ${access.pin}` : '',
+      'Acesso: https://credenciacheckin.com.br'
+    ].filter(Boolean).join('\n');
+    try {
+      await navigator.clipboard.writeText(message);
+      addToast('Dados de acesso copiados. Envie por um canal privado.', 'success');
+    } catch (err) {
+      addToast('Não foi possível copiar automaticamente os dados de acesso.', 'error');
+    }
+  };
+
+  const createAnotherQuickOperator = () => {
+    const keepEventId = userForm.eventId;
+    const permissions = quickAdvancedPermissions
+      ?userForm.permissions
+      : setPermissionCollection([], getQuickOperatorPermissions(quickSelectedProfileIds), true);
+    setQuickCreatedAccess(null);
+    setQuickShowPassword(false);
+    setUserForm(prev => ({
+      ...prev,
+      id: '',
+      name: '',
+      email: '',
+      password: generateSecureTemporaryPassword(),
+      role: 'OPERADOR',
+      permissions,
+      eventId: keepEventId,
+      eventPermissions: permissions,
+      eventActive: true
+    }));
   };
 
   const applyUserPermissionPreset = (presetKey: string) => {
@@ -851,6 +1024,7 @@ export default function App() {
   };
 
   const toggleUserPermission = (permission: string, checked: boolean) => {
+    markQuickPermissionsCustomized();
     setUserForm(prev => ({
       ...prev,
       permissions: setPermissionCollection(prev.permissions, [permission], checked)
@@ -858,6 +1032,7 @@ export default function App() {
   };
 
   const toggleUserPermissionGroup = (permissions: string[], checked: boolean) => {
+    markQuickPermissionsCustomized();
     setUserForm(prev => ({
       ...prev,
       permissions: setPermissionCollection(prev.permissions, permissions, checked)
@@ -963,6 +1138,76 @@ export default function App() {
     } catch (e) {}
   };
 
+  const handleSaveQuickOperator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userForm.eventId) {
+      addToast('Selecione o evento do operador.', 'error');
+      return;
+    }
+    if (!userForm.name.trim()) {
+      addToast('Informe o nome do operador.', 'error');
+      return;
+    }
+    if (!userForm.email.trim()) {
+      addToast('Informe o e-mail ou login do operador.', 'error');
+      return;
+    }
+    if (usersList.some(user => user.email.toLowerCase() === userForm.email.trim().toLowerCase())) {
+      addToast('Já existe um usuário com este e-mail ou login.', 'error');
+      return;
+    }
+    if (userForm.password.length < 8) {
+      addToast('A senha temporária deve ter pelo menos 8 caracteres.', 'error');
+      return;
+    }
+    if (userForm.permissions.length === 0) {
+      addToast('Selecione pelo menos uma função ou permissão para o operador.', 'error');
+      return;
+    }
+
+    const selectedEvent = events.find(event => event.id === userForm.eventId);
+    setSavingUser(true);
+    try {
+      const saved = await apiCall('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          quickOperator: true,
+          name: userForm.name.trim(),
+          email: userForm.email.trim(),
+          password: userForm.password,
+          role: 'OPERADOR',
+          permissions: userForm.permissions,
+          eventId: userForm.eventId,
+          eventRole: userForm.eventRole,
+          eventPermissions: userForm.permissions,
+          eventActive: true
+        })
+      });
+
+      setUsersList(prev => [...prev, saved]);
+      if (saved.eventLink && userForm.eventId === eventUserForm.eventId) {
+        setEventUsers(prev => {
+          const exists = prev.some(link => link.id === saved.eventLink.id);
+          return exists ?prev.map(link => link.id === saved.eventLink.id ?saved.eventLink : link) : [...prev, saved.eventLink];
+        });
+      }
+
+      setQuickCreatedAccess({
+        name: saved.name,
+        eventName: selectedEvent?.name || 'Evento selecionado',
+        profileLabels: getQuickProfileLabels().join(', ') || 'Personalizado',
+        email: saved.temporaryCredentials?.email || userForm.email.trim(),
+        password: saved.temporaryCredentials?.password || userForm.password,
+        pin: saved.temporaryCredentials?.pin
+      });
+      addToast(`Operador "${saved.name}" criado com sucesso.`, 'success');
+    } catch (err) {
+      // apiCall already reports the server message through the global toast flow.
+    } finally {
+      setSavingUser(false);
+    }
+  };
+
   // Admin inserts or updates system users (operator/admin)
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1030,7 +1275,7 @@ export default function App() {
         addToast(`Vínculo de "${saved.name}" com evento criado.`, 'success');
       }
 
-      setIsUserModalOpen(false);
+      closeUserModal();
       setUserForm({
         id: '',
         name: '',
@@ -1115,17 +1360,18 @@ export default function App() {
           'etiquetas',
           'checkin-modular'
         ]
-      : ['eventos-ativos', 'checkin', 'checkin-mobile', 'presenca-atividade'];
+      : ['eventos-ativos', 'checkin', 'checkin-mobile'];
 
     if (canManageOperators) allowedTabs.push('usuarios');
     if (isUserAdmin || canManageParticipants) allowedTabs.push('participantes');
     if (isUserAdmin || canViewReports) allowedTabs.push('relatorios');
     if (canIssueCertificates) allowedTabs.push('certificados');
+    if (canViewActivityAttendance) allowedTabs.push('presenca-atividade');
 
     if (!allowedTabs.includes(activeTab)) {
       setActiveTab(isUserAdmin ?'dashboard' : 'checkin');
     }
-  }, [currentUser, isUserAdmin, canManageOperators, canManageParticipants, canViewReports, canIssueCertificates, activeTab]);
+  }, [currentUser, isUserAdmin, canManageOperators, canManageParticipants, canViewReports, canIssueCertificates, canViewActivityAttendance, activeTab]);
 
   // --- Fetch Operations ---
   const loadEvents = async () => {
@@ -1182,7 +1428,7 @@ export default function App() {
         apiCall('/api/access-control/logs').catch(() => []),
         apiCall(`/api/action-logs?eventId=${eventId}`).catch(() => []),
         apiCall(`/api/events/${eventId}/activities`).catch(() => []),
-        apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => []),
+        canViewActivityAttendance ?apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => []) : Promise.resolve([]),
         apiCall(`/api/events/${eventId}/certificates`).catch(() => [])
       ]);
       if (requestId !== loadDataRequestRef.current) return;
@@ -1678,6 +1924,10 @@ export default function App() {
 
   const handleSubmitActivityAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canRegisterActivityAttendance) {
+      setActivityAttendanceFeedback({ type: 'error', title: 'Permissão necessária', message: 'Seu acesso permite consultar presenças, mas não registrar novos participantes em atividades.' });
+      return;
+    }
     if (!selectedEventId || !activityAttendanceActivityId) {
       setActivityAttendanceFeedback({ type: 'error', title: 'Selecione uma atividade', message: 'Escolha a atividade antes de registrar presença.' });
       return;
@@ -4245,7 +4495,7 @@ export default function App() {
     ...(isUserAdmin ?[{ id: 'areas' as const, label: 'Salas e Acessos', icon: ShieldCheck }] : []),
     ...(isUserAdmin ?[{ id: 'scanner' as const, label: 'Scan', icon: Camera }] : []),
     ...(isUserAdmin ?[{ id: 'atividades' as const, label: 'Atividades', icon: BookOpen }] : []),
-    { id: 'presenca-atividade' as const, label: 'Presença em Atividade', icon: ClipboardCheck },
+    ...(canViewActivityAttendance ?[{ id: 'presenca-atividade' as const, label: 'Presença em Atividade', icon: ClipboardCheck }] : []),
     ...(canIssueCertificates ?[{ id: 'certificados' as const, label: 'Certificados', icon: Award }] : []),
     ...(isUserAdmin ?[{ id: 'chapelaria' as const, label: 'Chapelaria', icon: FolderLock }] : []),
     ...(canViewReports ?[{ id: 'relatorios' as const, label: 'Relatórios', icon: Download }] : []),
@@ -4264,6 +4514,17 @@ export default function App() {
   const activeActivities = activities.filter(activity => activity.active !== false);
   const selectedActivity = activities.find(activity => activity.id === activityAttendanceActivityId) || null;
   const selectedActivityAttendances = activityAttendances.filter(att => att.activityId === activityAttendanceActivityId);
+  const quickProfileIconById: Record<QuickOperatorProfileId, React.ElementType> = {
+    checkinBasic: CheckCircle2,
+    checkinRegistration: UserCheck,
+    accessControl: QrCode,
+    activityAttendance: ClipboardCheck,
+    printing: Printer,
+    custom: Sliders
+  };
+  const quickAppliedPermissionLabels = userForm.permissions.map(getPermissionLabel);
+  const quickSelectedProfileLabels = getQuickProfileLabels();
+  const quickSelectedEvent = events.find(event => event.id === userForm.eventId);
   const certificateParticipant = certificateLookup?.participant;
   const certificateEvent = certificateLookup?.event || currentEvent;
   const certificateActivity = activeCertificate?.activity
@@ -4316,6 +4577,7 @@ export default function App() {
   const credentialTotalViewCount = participants.reduce((total, participant) => total + (participant.credentialViewCount || 0), 0);
 
   const activityParticipantSuggestions = (() => {
+    if (!canRegisterActivityAttendance) return [];
     const query = normalizeParticipantSearch(activityAttendanceSearch);
     if (query.length < 3) return [];
     if (participants.some(participant => normalizeParticipantSearch(participant.name) === query || normalizeParticipantSearch(participant.badgeName || '') === query)) return [];
@@ -5773,7 +6035,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'presenca-atividade' && (
+            {activeTab === 'presenca-atividade' && canViewActivityAttendance && (
               <div className="space-y-6">
                 <div>
                   <p className="text-xs font-black uppercase tracking-widest text-slate-400">Presença em Atividade</p>
@@ -5812,9 +6074,10 @@ export default function App() {
                           value={activityAttendanceSearch}
                           onChange={e => { setActivityAttendanceSearch(e.target.value); setActivityAttendanceFeedback(null); }}
                           placeholder="Ler QR Code ou buscar participante"
-                          className="w-full rounded-xl border border-slate-200 py-4 pl-12 pr-4 text-lg font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={!canRegisterActivityAttendance}
+                          className="w-full rounded-xl border border-slate-200 py-4 pl-12 pr-4 text-lg font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                         />
-                        {activityParticipantSuggestions.length > 0 && (
+                        {canRegisterActivityAttendance && activityParticipantSuggestions.length > 0 && (
                           <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
                             {activityParticipantSuggestions.map(participant => (
                               <button
@@ -5834,7 +6097,13 @@ export default function App() {
                       </div>
                     </label>
 
-                    <button type="submit" className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-black text-white hover:bg-blue-700 transition">
+                    {!canRegisterActivityAttendance && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+                        Seu acesso permite consultar as presenças registradas, mas não registrar novos participantes nesta atividade.
+                      </div>
+                    )}
+
+                    <button type="submit" disabled={!canRegisterActivityAttendance} className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-black text-white hover:bg-blue-700 transition disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed">
                       Registrar presença
                     </button>
 
@@ -7748,21 +8017,7 @@ export default function App() {
                     <p className="text-slate-500 text-xs mt-0.5">Gerencie os logins, senhas e níveis de acesso dos operadores e administradores.</p>
                   </div>
                   <button
-                    onClick={() => {
-                      setUserForm({
-                        id: '',
-                        name: '',
-                        email: '',
-                        password: '',
-                        role: 'OPERADOR',
-                        permissions: PERMISSION_PRESETS.CHECKIN.permissions,
-                        eventId: selectedEventId || '',
-                        eventRole: 'CHECKIN',
-                        eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
-                        eventActive: true
-                      });
-                      setIsUserModalOpen(true);
-                    }}
+                    onClick={openNewUserChoice}
                     className="self-start px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/10 hover:shadow-blue-500/25 active:scale-[0.98] transition flex items-center gap-2 cursor-pointer"
                   >
                     <Plus size={16} />
@@ -7833,6 +8088,8 @@ export default function App() {
                                         eventPermissions: PERMISSION_PRESETS.CHECKIN.permissions,
                                         eventActive: true
                                       });
+                                      setUserCreationMode('full');
+                                      setQuickCreatedAccess(null);
                                       setIsUserModalOpen(true);
                                     }}
                                     className="p-1.5 bg-slate-50 hover:bg-slate-150 rounded-lg text-slate-550 border border-slate-200 hover:text-blue-600 transition cursor-pointer"
@@ -8669,12 +8926,167 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-slate-800 font-display mb-1">
-              {userForm.id ?'Editar Dados do Operador' : 'Adicionar Novo Operador'}
+              {userForm.id ?'Editar Dados do Operador' : userCreationMode === 'choice' ?'Novo usuário' : userCreationMode === 'quick' ?'Operador rápido' : 'Adicionar Novo Operador'}
             </h3>
             <p className="text-slate-500 text-xs mb-4">
-              {userForm.id ?'Modifique os dados ou redefina a senha do operador.' : 'O sistema gerará e-mail, senha e PIN temporários para o primeiro acesso.'}
+              {userForm.id
+                ?'Modifique os dados ou redefina a senha do operador.'
+                : userCreationMode === 'choice'
+                  ?'Escolha o tipo de acesso que deseja criar.'
+                  : userCreationMode === 'quick'
+                    ?'Criação simplificada para operadores de evento.'
+                    : 'O sistema gerará e-mail, senha e PIN temporários para o primeiro acesso.'}
             </p>
 
+            {!userForm.id && userCreationMode === 'choice' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={startFullUserCreation}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-blue-200 hover:bg-blue-50/40 transition cursor-pointer"
+                >
+                  <ShieldCheck size={26} className="text-blue-600 mb-4" />
+                  <h4 className="text-base font-black text-slate-900">Administrador</h4>
+                  <p className="mt-2 text-sm font-semibold text-slate-500">Acesso administrativo com configuração completa de permissões.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={startQuickUserCreation}
+                  className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 text-left shadow-sm hover:border-emerald-300 hover:bg-emerald-50 transition cursor-pointer"
+                >
+                  <Sparkles size={26} className="text-emerald-600 mb-4" />
+                  <h4 className="text-base font-black text-slate-900">Operador rápido</h4>
+                  <p className="mt-2 text-sm font-semibold text-slate-500">Criação simplificada para Check-in, controle de acesso, impressão ou presença em atividade.</p>
+                </button>
+              </div>
+            )}
+
+            {!userForm.id && userCreationMode === 'quick' && (
+              quickCreatedAccess ?(
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-center">
+                    <CheckCircle2 size={34} className="mx-auto text-emerald-600 mb-3" />
+                    <h4 className="text-xl font-black text-slate-950">Operador criado com sucesso</h4>
+                    <p className="mt-1 text-sm font-semibold text-slate-600">Entregue os dados abaixo por um canal privado.</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-5">
+                    <div><p className="text-[11px] font-black uppercase text-slate-400">Nome</p><p className="font-bold text-slate-900">{quickCreatedAccess.name}</p></div>
+                    <div><p className="text-[11px] font-black uppercase text-slate-400">Evento</p><p className="font-bold text-slate-900">{quickCreatedAccess.eventName}</p></div>
+                    <div><p className="text-[11px] font-black uppercase text-slate-400">Funções</p><p className="font-bold text-slate-900">{quickCreatedAccess.profileLabels}</p></div>
+                    <div><p className="text-[11px] font-black uppercase text-slate-400">Login</p><p className="font-mono text-sm font-bold text-slate-900">{quickCreatedAccess.email}</p></div>
+                    <div><p className="text-[11px] font-black uppercase text-slate-400">Senha temporária</p><p className="font-mono text-sm font-bold text-slate-900">{quickCreatedAccess.password}</p></div>
+                    <div><p className="text-[11px] font-black uppercase text-slate-400">PIN</p><p className="font-mono text-sm font-bold text-slate-900">{quickCreatedAccess.pin || '-'}</p></div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => copyQuickAccessData()} className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">Copiar dados de acesso</button>
+                    <button type="button" onClick={createAnotherQuickOperator} className="px-4 py-2.5 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-500 transition cursor-pointer">Criar outro operador</button>
+                    <button type="button" onClick={closeUserModal} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 transition cursor-pointer">Concluir</button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSaveQuickOperator} className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase">Evento *
+                      <select value={userForm.eventId} required onChange={e => setUserForm(prev => ({ ...prev, eventId: e.target.value }))} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+                        <option value="">Selecione o evento</option>
+                        {events.map(event => <option key={event.id} value={event.id}>{event.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase">Nome do operador *
+                      <input type="text" required value={userForm.name} onChange={e => setUserForm(prev => ({ ...prev, name: e.target.value }))} placeholder="Nome do operador" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase">E-mail ou login *
+                      <input type="email" required value={userForm.email} onChange={e => setUserForm(prev => ({ ...prev, email: e.target.value }))} placeholder="email@exemplo.com" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase">Senha temporária *
+                      <div className="mt-1 flex gap-2">
+                        <input type={quickShowPassword ?'text' : 'password'} required value={userForm.password} onChange={e => setUserForm(prev => ({ ...prev, password: e.target.value }))} className="min-w-0 flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                        <button type="button" onClick={() => setQuickShowPassword(prev => !prev)} className="px-3 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition cursor-pointer" title="Mostrar ou ocultar senha"><Eye size={16} /></button>
+                        <button type="button" onClick={() => setUserForm(prev => ({ ...prev, password: generateSecureTemporaryPassword() }))} className="px-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-bold transition cursor-pointer">Gerar</button>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900">Funções</h4>
+                        <p className="text-xs text-slate-500">Selecione uma ou mais funções para calcular as permissões.</p>
+                      </div>
+                      <button type="button" onClick={() => { setQuickAdvancedPermissions(true); setQuickSelectedProfileIds(prev => prev.includes('custom') ?prev : [...prev, 'custom']); }} className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                        Personalizar permissões
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {QUICK_OPERATOR_PROFILES.map(profile => {
+                        const Icon = quickProfileIconById[profile.id];
+                        const selected = quickSelectedProfileIds.includes(profile.id);
+                        return (
+                          <button key={profile.id} type="button" onClick={() => toggleQuickOperatorProfile(profile.id)} className={`rounded-xl border p-4 text-left transition cursor-pointer ${selected ?'border-emerald-400 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                            <div className="flex items-start gap-3">
+                              <span className={`rounded-lg p-2 ${selected ?'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}><Icon size={17} /></span>
+                              <span>
+                                <span className="block text-sm font-black text-slate-900">{profile.title}</span>
+                                <span className="mt-1 block text-xs font-semibold text-slate-500">{profile.description}</span>
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {quickAdvancedPermissions && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                        <label className="block text-xs font-semibold text-slate-500 uppercase">Pesquisar permissão
+                          <input type="search" value={permissionSearch} onChange={e => setPermissionSearch(e.target.value)} placeholder="Buscar por módulo ou permissão" className="mt-1 w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </label>
+                        <button type="button" onClick={() => { markQuickPermissionsCustomized(); setUserForm(prev => ({ ...prev, permissions: ALL_PERMISSION_IDS })); }} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition cursor-pointer">Marcar todas</button>
+                        <button type="button" onClick={() => { markQuickPermissionsCustomized(); setUserForm(prev => ({ ...prev, permissions: [] })); }} className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer">Desmarcar todas</button>
+                      </div>
+                      {renderPermissionAccordion({
+                        selected: userForm.permissions,
+                        search: permissionSearch,
+                        openGroups: openPermissionGroups,
+                        onToggleOpen: groupId => setOpenPermissionGroups(prev => ({ ...prev, [groupId]: !prev[groupId] })),
+                        onTogglePermission: toggleUserPermission,
+                        onToggleGroup: toggleUserPermissionGroup
+                      })}
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div className="text-sm text-slate-700">
+                        <p><b>Evento:</b> {quickSelectedEvent?.name || 'Selecione um evento'}</p>
+                        <p><b>Operador:</b> {userForm.name || 'Informe o nome'}</p>
+                        <p><b>Funções:</b> {quickSelectedProfileLabels.join(', ') || 'Personalizado'}</p>
+                        <p><b>Permissões:</b> {userForm.permissions.length} selecionadas</p>
+                      </div>
+                      <button type="button" onClick={() => setQuickShowAppliedPermissions(prev => !prev)} className="self-start md:self-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer">
+                        Ver permissões aplicadas
+                      </button>
+                    </div>
+                    {quickShowAppliedPermissions && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {quickAppliedPermissionLabels.map(label => <span key={label} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600">{label}</span>)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setUserCreationMode('choice')} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 text-sm font-medium transition cursor-pointer">Voltar</button>
+                    <div className="flex gap-3">
+                      <button type="button" onClick={closeUserModal} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 text-sm font-medium transition cursor-pointer">Cancelar</button>
+                      <button type="submit" disabled={savingUser} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-300 text-white rounded-lg text-sm font-semibold transition cursor-pointer disabled:cursor-not-allowed">{savingUser ?'Criando...' : 'Criar operador'}</button>
+                    </div>
+                  </div>
+                </form>
+              )
+            )}
+
+            {(userForm.id || userCreationMode === 'full') && (
             <form onSubmit={handleSaveUser} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nome Completo</label>
@@ -8901,7 +9313,7 @@ export default function App() {
                   type="button"
 
 
-                  onClick={() => setIsUserModalOpen(false)}
+                  onClick={closeUserModal}
                   className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 text-sm font-medium transition cursor-pointer"
                 >
                   Cancelar
@@ -8914,6 +9326,7 @@ export default function App() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}

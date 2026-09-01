@@ -2,6 +2,7 @@ import {
   Award,
   Calendar,
   CheckCircle2,
+  ClipboardCheck,
   Download,
   FolderLock,
   Printer,
@@ -11,6 +12,21 @@ import {
   Users
 } from 'lucide-react';
 import type { EventUserRole, PermissionGroupDefinition, UserRole } from '../types';
+
+export type QuickOperatorProfileId =
+  | 'checkinBasic'
+  | 'checkinRegistration'
+  | 'accessControl'
+  | 'activityAttendance'
+  | 'printing'
+  | 'custom';
+
+export interface QuickOperatorProfileDefinition {
+  id: QuickOperatorProfileId;
+  title: string;
+  description: string;
+  permissions: string[];
+}
 
 export const PERMISSION_GROUPS: PermissionGroupDefinition[] = [
   {
@@ -82,6 +98,16 @@ export const PERMISSION_GROUPS: PermissionGroupDefinition[] = [
     ]
   },
   {
+    id: 'activityAttendance',
+    title: 'Presença em Atividade',
+    icon: ClipboardCheck,
+    permissions: [
+      { id: 'activityAttendance.view', label: 'Acessar Presença em Atividade' },
+      { id: 'activityAttendance.register', label: 'Registrar presença em atividade' },
+      { id: 'activityAttendance.manage', label: 'Gerenciar presenças em atividade' }
+    ]
+  },
+  {
     id: 'print',
     title: 'Impressao',
     icon: Printer,
@@ -134,6 +160,52 @@ export const ALL_PERMISSION_IDS = PERMISSION_GROUPS.flatMap(group => group.permi
 
 export const normalizePermissions = (permissions?: string[]) =>
   [...new Set((permissions || []).filter(permission => ALL_PERMISSION_IDS.includes(permission)))];
+
+export const QUICK_OPERATOR_PROFILES: QuickOperatorProfileDefinition[] = [
+  {
+    id: 'checkinBasic',
+    title: 'Check-in básico',
+    description: 'Consultar participantes e realizar Check-in.',
+    permissions: ['events.view', 'participants.view', 'checkin.access', 'checkin.perform', 'checkin.reprint']
+  },
+  {
+    id: 'checkinRegistration',
+    title: 'Check-in com cadastro',
+    description: 'Realizar Check-in e cadastrar ou corrigir participantes durante o atendimento.',
+    permissions: ['events.view', 'participants.view', 'participants.create', 'participants.edit', 'checkin.access', 'checkin.perform', 'checkin.reprint', 'checkin.createParticipant']
+  },
+  {
+    id: 'accessControl',
+    title: 'Controle de acesso',
+    description: 'Ler QR Code e registrar acesso nas áreas autorizadas.',
+    permissions: ['events.view', 'participants.view', 'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows']
+  },
+  {
+    id: 'activityAttendance',
+    title: 'Presença em Atividade',
+    description: 'Consultar atividades e registrar a presença dos participantes.',
+    permissions: ['events.view', 'participants.view', 'activityAttendance.view', 'activityAttendance.register']
+  },
+  {
+    id: 'printing',
+    title: 'Impressão',
+    description: 'Imprimir e reimprimir etiquetas ou credenciais.',
+    permissions: ['events.view', 'participants.view', 'print.labels', 'print.badges', 'checkin.reprint']
+  },
+  {
+    id: 'custom',
+    title: 'Personalizado',
+    description: 'Escolher manualmente todas as permissões.',
+    permissions: []
+  }
+];
+
+export const getQuickOperatorPermissions = (profileIds: string[]) =>
+  normalizePermissions(
+    QUICK_OPERATOR_PROFILES
+      .filter(profile => profile.id !== 'custom' && profileIds.includes(profile.id))
+      .flatMap(profile => profile.permissions)
+  );
 
 export const legacyPermissionsForRole = (role?: string): string[] => {
   const normalized = String(role || '').toUpperCase();
@@ -211,7 +283,15 @@ export const PERMISSION_PRESETS: Record<string, { label: string; role: UserRole;
     label: 'Organizacao',
     role: 'OPERADOR',
     eventRole: 'ADMIN',
-    permissions: normalizePermissions(ALL_PERMISSION_IDS.filter(permission => !['events.delete', 'operators.delete', 'settings.backup', 'settings.integrations'].includes(permission)))
+    permissions: normalizePermissions(ALL_PERMISSION_IDS.filter(permission => ![
+      'events.delete',
+      'operators.delete',
+      'settings.backup',
+      'settings.integrations',
+      'activityAttendance.view',
+      'activityAttendance.register',
+      'activityAttendance.manage'
+    ].includes(permission)))
   }
 };
 

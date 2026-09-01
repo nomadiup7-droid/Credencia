@@ -52,6 +52,7 @@ const SYSTEM_PERMISSIONS = [
   'access.scanQr', 'access.rooms', 'access.restaurants', 'access.shows', 'access.manageAreas',
   'cloakroom.checkin', 'cloakroom.checkout', 'cloakroom.reprint',
   'certificates.issue', 'certificates.manageActivities', 'certificates.editTemplate',
+  'activityAttendance.view', 'activityAttendance.register', 'activityAttendance.manage',
   'print.configureLabels', 'print.configureBadges', 'print.labels', 'print.badges',
   'reports.view', 'reports.exportExcel', 'reports.exportPdf',
   'operators.create', 'operators.edit', 'operators.delete', 'operators.managePermissions',
@@ -321,6 +322,31 @@ const resolveEventPermissions = async (user: any, eventId?: string): Promise<str
 
 const hasEventPermission = async (user: any, eventId: string | undefined, permission: string) =>
   (await resolveEventPermissions(user, eventId)).includes(permission);
+
+const isAdminUser = (user: any) => {
+  const globalRole = String(user?.role || '').toUpperCase();
+  return globalRole === 'ADMIN' || user?.role === 'admin';
+};
+
+const isEventAdminUser = async (user: any, eventId: string) => {
+  if (isAdminUser(user)) return true;
+  const eventLink = await db.getEventUser(eventId, user.id);
+  return eventLink?.active === true && String(eventLink.role || '').toUpperCase() === 'ADMIN';
+};
+
+const canUseActivityAttendance = async (user: any, eventId: string, permission: 'activityAttendance.view' | 'activityAttendance.register' | 'activityAttendance.manage') => {
+  if (await isEventAdminUser(user, eventId)) return true;
+  if (!(await canAccessEvent(user, eventId))) return false;
+  return hasEventPermission(user, eventId, permission);
+};
+
+const canListActivitiesForEvent = async (user: any, eventId: string) => {
+  if (await isEventAdminUser(user, eventId)) return true;
+  if (!(await canAccessEvent(user, eventId))) return false;
+  return (await hasEventPermission(user, eventId, 'activityAttendance.view'))
+    || (await hasEventPermission(user, eventId, 'certificates.issue'))
+    || (await hasEventPermission(user, eventId, 'certificates.manageActivities'));
+};
 
 const canAccessEvent = async (user: any, eventId: string) => {
   const globalRole = String(user?.role || '').toUpperCase();
@@ -1657,15 +1683,28 @@ app.get('/api/users', authenticateToken, requireUserManagementPermission, async 
 
 // User manager manually creates a system user
 app.post('/api/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
-  const { name, role, permissions, eventId, eventRole, eventPermissions, eventActive } = req.body;
+  const { name, email, password, role, permissions, eventId, eventRole, eventPermissions, eventActive, quickOperator } = req.body;
   if (!name || !role) {
     res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     return;
   }
+  if (quickOperator === true && String(role).toUpperCase() === 'ADMIN') {
+    res.status(400).json({ error: 'O fluxo rápido não permite criar administradores' });
+    return;
+  }
 
   const temporaryId = randomBytes(6).toString('hex');
-  const temporaryEmail = `acesso-${temporaryId}@temporario.credencia`;
-  const temporaryPassword = `Crd!${randomBytes(9).toString('base64url')}`;
+  const temporaryEmail = String(email || '').trim().toLowerCase() || `acesso-${temporaryId}@temporario.credencia`;
+  const temporaryPassword = String(password || '') || `Crd!${randomBytes(9).toString('base64url')}`;
+  if (temporaryPassword.length < 8) {
+    res.status(400).json({ error: 'A senha temporária deve ter pelo menos 8 caracteres.' });
+    return;
+  }
+  const existingUser = await db.getUserByEmail(temporaryEmail);
+  if (existingUser) {
+    res.status(400).json({ error: 'E-mail em uso por outro usuário' });
+    return;
+  }
   let temporaryPin = '';
   do {
     temporaryPin = String(Math.floor(100000 + Math.random() * 900000));
@@ -2995,8 +3034,8 @@ app.get('/api/events/:eventId/activities', authenticateToken, async (req, res) =
       return;
     }
 
-    if (!(await canAccessEvent(user, req.params.eventId))) {
-      res.status(403).json({ error: 'Usuário sem acesso a este evento' });
+    if (!(await canListActivitiesForEvent(user, req.params.eventId))) {
+      res.status(403).json({ error: 'Usuário sem permissão para listar atividades neste evento' });
       return;
     }
 
@@ -3092,8 +3131,8 @@ app.get('/api/events/:eventId/activity-attendances', authenticateToken, async (r
       return;
     }
 
-    if (!(await canAccessEvent(user, req.params.eventId))) {
-      res.status(403).json({ error: 'Usuário sem acesso a este evento' });
+    if (!(await canUseActivityAttendance(user, req.params.eventId, 'activityAttendance.view'))) {
+      res.status(403).json({ error: 'Usuário sem permissão para consultar presenças em atividade' });
       return;
     }
 
@@ -3129,6 +3168,11 @@ app.post('/api/events/:eventId/activity-attendances', authenticateToken, async (
     const event = await db.getEventById(req.params.eventId);
     if (!event || event.organizationId !== user.organizationId) {
       res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+      return;
+    }
+
+    if (!(await canUseActivityAttendance(user, req.params.eventId, 'activityAttendance.register'))) {
+      res.status(403).json({ error: 'Usuário sem permissão para registrar presença em atividade' });
       return;
     }
 
