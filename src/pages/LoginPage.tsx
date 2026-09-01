@@ -15,7 +15,8 @@ interface LoginPageProps {
   passwordInput: string;
   setPasswordInput: React.Dispatch<React.SetStateAction<string>>;
   handleLogin: (event: React.FormEvent) => void;
-  handleRecoverLogin: (pin: string, newPassword: string) => Promise<{ email: string; name: string }>;
+  handleRecoverLogin: (identifier: string, pin: string, newPassword: string) => Promise<{ login: string; name: string }>;
+  handleRequestPasswordReset: (identifier: string) => Promise<void>;
   toasts: Toast[];
 }
 
@@ -31,9 +32,12 @@ export default function LoginPage({
   setPasswordInput,
   handleLogin,
   handleRecoverLogin,
+  handleRequestPasswordReset,
   toasts
 }: LoginPageProps) {
   const [isRecoveryMode, setIsRecoveryMode] = React.useState(false);
+  const [recoveryMethod, setRecoveryMethod] = React.useState<'email' | 'pin'>('email');
+  const [recoveryIdentifier, setRecoveryIdentifier] = React.useState('');
   const [recoveryPin, setRecoveryPin] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
@@ -41,6 +45,7 @@ export default function LoginPage({
   const [recoveryError, setRecoveryError] = React.useState('');
 
   const resetRecoveryForm = () => {
+    setRecoveryIdentifier('');
     setRecoveryPin('');
     setNewPassword('');
     setConfirmPassword('');
@@ -57,6 +62,21 @@ export default function LoginPage({
     event.preventDefault();
     setRecoveryError('');
 
+    if (!recoveryIdentifier.trim()) {
+      setRecoveryError('Informe seu e-mail ou usuário.');
+      return;
+    }
+
+    if (recoveryMethod === 'email') {
+      try {
+        await handleRequestPasswordReset(recoveryIdentifier);
+        closeRecovery();
+      } catch {
+        setRecoveryError('Não foi possível solicitar a recuperação agora.');
+      }
+      return;
+    }
+
     if (!/^\d{4,6}$/.test(recoveryPin)) {
       setRecoveryError('Informe o PIN de 4 a 6 números cadastrado no seu acesso.');
       return;
@@ -71,7 +91,7 @@ export default function LoginPage({
     }
 
     try {
-      await handleRecoverLogin(recoveryPin, newPassword);
+      await handleRecoverLogin(recoveryIdentifier, recoveryPin, newPassword);
       closeRecovery();
     } catch {
       setRecoveryError('Não foi possível validar o PIN. Confira e tente novamente.');
@@ -80,7 +100,32 @@ export default function LoginPage({
 
   const recoveryForm = (
     <form onSubmit={submitRecovery} className="space-y-4" noValidate>
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+        <button type="button" onClick={() => setRecoveryMethod('email')} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${recoveryMethod === 'email' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+          Por e-mail
+        </button>
+        <button type="button" onClick={() => setRecoveryMethod('pin')} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${recoveryMethod === 'pin' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+          Por PIN
+        </button>
+      </div>
+
       <div>
+        <label htmlFor="recovery-identifier" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+          E-mail ou usuário
+        </label>
+        <input
+          id="recovery-identifier"
+          type="text"
+          autoComplete="username"
+          value={recoveryIdentifier}
+          onChange={event => setRecoveryIdentifier(event.target.value)}
+          placeholder="email@empresa.com ou usuario"
+          disabled={authLoading}
+          className="min-h-12 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      </div>
+
+      {recoveryMethod === 'pin' && <div>
         <label htmlFor="recovery-pin" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
           PIN de acesso
         </label>
@@ -95,9 +140,9 @@ export default function LoginPage({
           disabled={authLoading}
           className="min-h-12 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium tracking-[0.3em] text-slate-900 placeholder:tracking-normal placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
         />
-      </div>
+      </div>}
 
-      <div>
+      {recoveryMethod === 'pin' && <div>
         <label htmlFor="recovery-password" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
           Nova senha
         </label>
@@ -121,9 +166,9 @@ export default function LoginPage({
             {showRecoveryPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
         </div>
-      </div>
+      </div>}
 
-      <div>
+      {recoveryMethod === 'pin' && <div>
         <label htmlFor="recovery-password-confirm" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
           Confirmar nova senha
         </label>
@@ -137,7 +182,7 @@ export default function LoginPage({
           disabled={authLoading}
           className="min-h-12 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
         />
-      </div>
+      </div>}
 
       {recoveryError && (
         <p role="alert" aria-live="polite" className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm font-medium text-rose-800">
@@ -151,7 +196,7 @@ export default function LoginPage({
         className="cx-button-primary flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:bg-slate-300"
       >
         {authLoading ? <RefreshCw className="animate-spin" size={16} /> : <KeyRound size={16} />}
-        <span>{authLoading ? 'Recuperando...' : 'Redefinir senha'}</span>
+        <span>{authLoading ? 'Recuperando...' : recoveryMethod === 'email' ? 'Enviar link de recuperação' : 'Redefinir senha'}</span>
       </button>
 
       <button
@@ -230,8 +275,8 @@ export default function LoginPage({
             </h2>
             <p className="text-sm text-slate-500 mt-1">
               {isRecoveryMode
-                ? 'Valide seu PIN para consultar o e-mail cadastrado e criar uma nova senha.'
-                : 'Use seu e-mail e senha para acessar a operação.'}
+                ? 'Use e-mail ou usuário para recuperar o acesso.'
+                : 'Use seu e-mail ou usuário e senha para acessar a operação.'}
             </p>
           </div>
 
@@ -313,13 +358,14 @@ export default function LoginPage({
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                  E-mail
+                  E-mail ou usuário
                 </label>
                 <input
-                  type="email"
+                  type="text"
+                  autoComplete="username"
                   value={emailInput}
                   onChange={e => setEmailInput(e.target.value)}
-                  placeholder="email@empresa.com"
+                  placeholder="email@empresa.com ou usuario"
                   className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-sm font-medium text-slate-900 placeholder-slate-400 outline-none backdrop-blur-sm focus:border-emerald-400"
                 />
               </div>

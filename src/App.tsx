@@ -108,6 +108,7 @@ const CLOAKROOM_MAX_VOLUMES = 5;
 
 export default function App() {
   const publicCredentialMatch = window.location.pathname.match(/^\/convite\/([^/?#]+)/);
+  const passwordResetMatch = window.location.pathname === '/redefinir-senha';
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('credencia_theme') === 'dark');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -115,7 +116,7 @@ export default function App() {
   // Session / Auth States
   const [token, setToken] = useState<string | null>(() => readStoredToken());
   const [currentUser, setCurrentUser] = useState<User | null>(() => readStoredUser());
-  const [firstAccessForm, setFirstAccessForm] = useState({ email: '', password: '', confirmPassword: '', pin: '' });
+  const [firstAccessForm, setFirstAccessForm] = useState({ email: '', recoveryEmail: '', password: '', confirmPassword: '', pin: '' });
   const [firstAccessLoading, setFirstAccessLoading] = useState(false);
   const [currentEventRole, setCurrentEventRole] = useState<string>('');
   const [currentEventPermissions, setCurrentEventPermissions] = useState<string[]>(() => normalizePermissions(readStoredUser()?.permissions || []));
@@ -142,6 +143,9 @@ export default function App() {
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Profile editing state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -169,7 +173,7 @@ export default function App() {
     name: string;
     eventName: string;
     profileLabels: string;
-    email: string;
+    login: string;
     password: string;
     pin?: string;
   } | null>(null);
@@ -177,6 +181,9 @@ export default function App() {
     id: '',
     name: '',
     email: '',
+    username: '',
+    recoveryEmail: '',
+    loginType: 'email' as 'email' | 'username',
     password: '',
     role: 'OPERADOR' as UserRole,
     permissions: PERMISSION_PRESETS.CHECKIN.permissions,
@@ -620,7 +627,7 @@ export default function App() {
   // Perform Application Authentication
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!emailInput || !passwordInput) {
+    if (!emailInput.trim() || !passwordInput) {
       addToast('Por favor, preencha todos os campos.', 'error');
       return;
     }
@@ -629,7 +636,7 @@ export default function App() {
     try {
       const data = await apiCall('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: emailInput, password: passwordInput })
+        body: JSON.stringify({ identifier: emailInput.trim(), password: passwordInput })
       });
 
       localStorage.setItem('credencia_token', data.token);
@@ -716,36 +723,36 @@ export default function App() {
     addToast('Sessão encerrada com sucesso', 'info');
   };
 
-  const handleRecoverLogin = async (pin: string, newPassword: string) => {
+  const handleRequestPasswordReset = async (identifier: string) => {
     setAuthLoading(true);
     try {
-      const loginResponse = await fetch('/api/auth/login-pin', {
+      await apiCall('/api/auth/password-reset/request', {
+        method: 'POST',
+        body: JSON.stringify({ identifier: identifier.trim() })
+      });
+      addToast('Se os dados estiverem corretos, enviaremos as instruções de recuperação.', 'success');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRecoverLogin = async (identifier: string, pin: string, newPassword: string) => {
+    setAuthLoading(true);
+    try {
+      const recoveryResponse = await fetch('/api/auth/recover-with-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin })
+        body: JSON.stringify({ identifier: identifier.trim(), pin, password: newPassword })
       });
-      const loginData = await loginResponse.json().catch(() => ({}));
-      if (!loginResponse.ok || !loginData?.token || !loginData?.user) {
-        throw new Error(loginData?.error || 'PIN não reconhecido. Confira e tente novamente.');
+      const recoveryData = await recoveryResponse.json().catch(() => ({}));
+      if (!recoveryResponse.ok) {
+        throw new Error(recoveryData?.error || 'Não foi possível redefinir a senha.');
       }
 
-      const updateResponse = await fetch(`/api/users/${loginData.user.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${loginData.token}`
-        },
-        body: JSON.stringify({ password: newPassword })
-      });
-      const updateData = await updateResponse.json().catch(() => ({}));
-      if (!updateResponse.ok) {
-        throw new Error(updateData?.error || 'Não foi possível redefinir a senha.');
-      }
-
-      setEmailInput(loginData.user.email);
+      setEmailInput(identifier.trim());
       setPasswordInput('');
-      addToast(`Login recuperado. Seu e-mail é ${loginData.user.email}`, 'success');
-      return { email: loginData.user.email as string, name: loginData.user.name as string };
+      addToast('Senha redefinida com sucesso. Entre com seu acesso.', 'success');
+      return { login: identifier.trim(), name: recoveryData.user?.name as string };
     } catch (error: any) {
       addToast(error?.message || 'Não foi possível recuperar o login.', 'error');
       throw error;
@@ -766,6 +773,7 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify({
           email: firstAccessForm.email,
+          recoveryEmail: firstAccessForm.recoveryEmail,
           password: firstAccessForm.password,
           pin: firstAccessForm.pin
         })
@@ -775,7 +783,7 @@ export default function App() {
       setToken(data.token);
       setCurrentUser(data.user);
       setCurrentEventPermissions(normalizePermissions(data.user?.permissions || legacyPermissionsForRole(data.user?.role)));
-      setFirstAccessForm({ email: '', password: '', confirmPassword: '', pin: '' });
+      setFirstAccessForm({ email: '', recoveryEmail: '', password: '', confirmPassword: '', pin: '' });
       addToast('Acesso definitivo configurado com sucesso.', 'success');
     } catch (error) {
       // apiCall already displays the error.
@@ -895,6 +903,9 @@ export default function App() {
       id: '',
       name: '',
       email: '',
+      username: '',
+      recoveryEmail: '',
+      loginType: 'email',
       password: generateSecureTemporaryPassword(),
       role: 'OPERADOR',
       permissions,
@@ -967,7 +978,7 @@ export default function App() {
       '',
       `Evento: ${access.eventName}`,
       `Função: ${access.profileLabels}`,
-      `Login: ${access.email}`,
+      `Login: ${access.login}`,
       `Senha temporária: ${access.password}`,
       access.pin ?`PIN: ${access.pin}` : '',
       'Acesso: https://credenciacheckin.com.br'
@@ -1148,11 +1159,12 @@ export default function App() {
       addToast('Informe o nome do operador.', 'error');
       return;
     }
-    if (!userForm.email.trim()) {
+    const loginValue = userForm.loginType === 'username' ? userForm.username.trim() || userForm.email.trim() : userForm.email.trim();
+    if (!loginValue) {
       addToast('Informe o e-mail ou login do operador.', 'error');
       return;
     }
-    if (usersList.some(user => user.email.toLowerCase() === userForm.email.trim().toLowerCase())) {
+    if (usersList.some(user => String(user.email || user.username || '').toLowerCase() === loginValue.toLowerCase())) {
       addToast('Já existe um usuário com este e-mail ou login.', 'error');
       return;
     }
@@ -1173,7 +1185,10 @@ export default function App() {
         body: JSON.stringify({
           quickOperator: true,
           name: userForm.name.trim(),
-          email: userForm.email.trim(),
+          loginType: userForm.loginType,
+          email: userForm.loginType === 'email' ? userForm.email.trim() : '',
+          username: userForm.loginType === 'username' ? loginValue : '',
+          recoveryEmail: userForm.recoveryEmail.trim(),
           password: userForm.password,
           role: 'OPERADOR',
           permissions: userForm.permissions,
@@ -1196,7 +1211,7 @@ export default function App() {
         name: saved.name,
         eventName: selectedEvent?.name || 'Evento selecionado',
         profileLabels: getQuickProfileLabels().join(', ') || 'Personalizado',
-        email: saved.temporaryCredentials?.email || userForm.email.trim(),
+        login: saved.temporaryCredentials?.login || saved.temporaryCredentials?.email || saved.temporaryCredentials?.username || loginValue,
         password: saved.temporaryCredentials?.password || userForm.password,
         pin: saved.temporaryCredentials?.pin
       });
@@ -1211,7 +1226,8 @@ export default function App() {
   // Admin inserts or updates system users (operator/admin)
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userForm.name || (userForm.id && !userForm.email)) {
+    const loginValue = userForm.loginType === 'username' ? userForm.username.trim() : userForm.email.trim();
+    if (!userForm.name || (userForm.id && !loginValue)) {
       addToast('Informe o nome do usuário.', 'error');
       return;
     }
@@ -1225,7 +1241,10 @@ export default function App() {
         method,
         body: JSON.stringify({
           name: userForm.name,
-          email: userForm.email,
+          loginType: userForm.loginType,
+          email: userForm.loginType === 'email' ? userForm.email : '',
+          username: userForm.loginType === 'username' ? loginValue : userForm.username,
+          recoveryEmail: userForm.recoveryEmail,
           role: userForm.role,
           permissions: userForm.permissions,
           ...(userForm.password ?{ password: userForm.password } : {}),
@@ -1246,7 +1265,7 @@ export default function App() {
         const credentials = saved.temporaryCredentials;
         window.alert(
           `Acesso temporário de ${saved.name}\n\n` +
-          `E-mail: ${credentials.email}\n` +
+          `Login: ${credentials.login || credentials.email || credentials.username}\n` +
           `Senha: ${credentials.password}\n` +
           `PIN: ${credentials.pin}\n\n` +
           'Guarde e entregue estes dados ao usuário. No primeiro acesso ele deverá cadastrar os dados definitivos.'
@@ -1280,6 +1299,9 @@ export default function App() {
         id: '',
         name: '',
         email: '',
+        username: '',
+        recoveryEmail: '',
+        loginType: 'email',
         password: '',
         role: 'OPERADOR',
         permissions: PERMISSION_PRESETS.CHECKIN.permissions,
@@ -4405,12 +4427,70 @@ export default function App() {
     );
   };
 
+  const renderPasswordResetPage = () => {
+    const params = new URLSearchParams(window.location.search);
+    const resetToken = params.get('token') || '';
+
+    const submitReset = async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (resetPassword.length < 8) {
+        addToast('A senha deve ter pelo menos 8 caracteres.', 'error');
+        return;
+      }
+      if (resetPassword !== resetConfirmPassword) {
+        addToast('As senhas não conferem.', 'error');
+        return;
+      }
+      setResetLoading(true);
+      try {
+        await apiCall('/api/auth/password-reset/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ token: resetToken, password: resetPassword })
+        });
+        addToast('Senha redefinida com sucesso.', 'success');
+        window.history.replaceState(null, '', '/');
+        setResetPassword('');
+        setResetConfirmPassword('');
+      } catch (error) {
+      } finally {
+        setResetLoading(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <form onSubmit={submitReset} className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl space-y-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Recuperação</p>
+            <h1 className="mt-2 text-2xl font-bold text-slate-900">Redefinir senha</h1>
+            <p className="mt-2 text-sm text-slate-500">Crie uma nova senha para acessar o Credencia.</p>
+          </div>
+          <label className="block text-sm font-semibold text-slate-700">
+            Nova senha
+            <input type="password" required minLength={8} autoComplete="new-password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Confirmar nova senha
+            <input type="password" required minLength={8} autoComplete="new-password" value={resetConfirmPassword} onChange={e => setResetConfirmPassword(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+          </label>
+          <button type="submit" disabled={resetLoading || !resetToken} className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white disabled:opacity-60">
+            {resetLoading ? 'Salvando...' : 'Salvar nova senha'}
+          </button>
+        </form>
+      </div>
+    );
+  };
+
   if (window.location.pathname.startsWith('/inscricao/')) {
     return <PublicRegistrationPage />;
   }
 
   if (publicCredentialMatch) {
     return <PublicCredentialPage token={decodeURIComponent(publicCredentialMatch[1])} />;
+  }
+
+  if (passwordResetMatch) {
+    return renderPasswordResetPage();
   }
 
   if (!token || !currentUser) {
@@ -4427,24 +4507,46 @@ export default function App() {
         setPasswordInput={setPasswordInput}
         handleLogin={handleLogin}
         handleRecoverLogin={handleRecoverLogin}
+        handleRequestPasswordReset={handleRequestPasswordReset}
         toasts={toasts}
       />
     );
   }
 
   if (currentUser.mustChangeCredentials) {
+    const firstAccessLoginType = currentUser.loginType || (currentUser.username && !currentUser.email ? 'username' : 'email');
+    const hasTemporaryEmail = String(currentUser.email || '').toLowerCase().endsWith('@temporario.credencia');
+    const shouldCollectRealEmail = firstAccessLoginType === 'email' && (!currentUser.email || hasTemporaryEmail);
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <form onSubmit={handleCompleteFirstAccess} className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl space-y-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Primeiro acesso</p>
             <h1 className="mt-2 text-2xl font-bold text-slate-900">Crie seu acesso definitivo</h1>
-            <p className="mt-2 text-sm text-slate-500">Cadastre seu e-mail real, uma nova senha e seu PIN pessoal. Os dados temporários deixarão de funcionar.</p>
+            <p className="mt-2 text-sm text-slate-500">Cadastre uma nova senha e seu PIN pessoal. Os dados temporários deixarão de funcionar.</p>
           </div>
-          <label className="block text-sm font-semibold text-slate-700">
-            E-mail real
-            <input type="email" required autoComplete="email" value={firstAccessForm.email} onChange={e => setFirstAccessForm(prev => ({ ...prev, email: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
-          </label>
+          {firstAccessLoginType === 'username' ? (
+            <>
+              <label className="block text-sm font-semibold text-slate-700">
+                Usuário
+                <input type="text" readOnly value={currentUser.username || ''} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-slate-600" />
+              </label>
+              <label className="block text-sm font-semibold text-slate-700">
+                E-mail de recuperação opcional
+                <input type="email" autoComplete="email" value={firstAccessForm.recoveryEmail} onChange={e => setFirstAccessForm(prev => ({ ...prev, recoveryEmail: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+              </label>
+            </>
+          ) : shouldCollectRealEmail ? (
+            <label className="block text-sm font-semibold text-slate-700">
+              E-mail real
+              <input type="email" required autoComplete="email" value={firstAccessForm.email} onChange={e => setFirstAccessForm(prev => ({ ...prev, email: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
+            </label>
+          ) : (
+            <label className="block text-sm font-semibold text-slate-700">
+              E-mail
+              <input type="email" readOnly value={currentUser.email || ''} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-slate-600" />
+            </label>
+          )}
           <label className="block text-sm font-semibold text-slate-700">
             Nova senha
             <input type="password" required minLength={8} autoComplete="new-password" value={firstAccessForm.password} onChange={e => setFirstAccessForm(prev => ({ ...prev, password: e.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3" />
@@ -8079,7 +8181,10 @@ export default function App() {
                                       setUserForm({
                                         id: u.id,
                                         name: u.name,
-                                        email: u.email,
+                                        email: u.email || '',
+                                        username: u.username || '',
+                                        recoveryEmail: u.recoveryEmail || '',
+                                        loginType: u.loginType || (u.username && !u.email ? 'username' : 'email'),
                                         password: '',
                                         role: u.role,
                                         permissions: normalizePermissions(u.permissions?.length ?u.permissions : legacyPermissionsForRole(u.role)),
@@ -8995,9 +9100,20 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-500 uppercase">Nome do operador *
                       <input type="text" required value={userForm.name} onChange={e => setUserForm(prev => ({ ...prev, name: e.target.value }))} placeholder="Nome do operador" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                     </label>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase">E-mail ou login *
-                      <input type="email" required value={userForm.email} onChange={e => setUserForm(prev => ({ ...prev, email: e.target.value }))} placeholder="email@exemplo.com" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    <label className="block text-xs font-semibold text-slate-500 uppercase">Tipo de login
+                      <select value={userForm.loginType} onChange={e => setUserForm(prev => ({ ...prev, loginType: e.target.value as 'email' | 'username' }))} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+                        <option value="email">E-mail</option>
+                        <option value="username">Usuário</option>
+                      </select>
                     </label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase">{userForm.loginType === 'username' ? 'Usuário *' : 'E-mail *'}
+                      <input type={userForm.loginType === 'username' ? 'text' : 'email'} required value={userForm.loginType === 'username' ? userForm.username : userForm.email} onChange={e => setUserForm(prev => userForm.loginType === 'username' ? ({ ...prev, username: e.target.value }) : ({ ...prev, email: e.target.value }))} placeholder={userForm.loginType === 'username' ? 'nome.sobrenome' : 'email@exemplo.com'} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    </label>
+                    {userForm.loginType === 'username' && (
+                      <label className="block text-xs font-semibold text-slate-500 uppercase">E-mail de recuperação
+                        <input type="email" value={userForm.recoveryEmail} onChange={e => setUserForm(prev => ({ ...prev, recoveryEmail: e.target.value }))} placeholder="email@exemplo.com" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      </label>
+                    )}
                     <label className="block text-xs font-semibold text-slate-500 uppercase">Senha temporária *
                       <div className="mt-1 flex gap-2">
                         <input type={quickShowPassword ?'text' : 'password'} required value={userForm.password} onChange={e => setUserForm(prev => ({ ...prev, password: e.target.value }))} className="min-w-0 flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -9100,13 +9216,36 @@ export default function App() {
                 />
               </div>
 
-              {userForm.id && <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">E-mail de Acesso</label>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Tipo de login</label>
+                <select
+                  value={userForm.loginType}
+                  onChange={e => setUserForm(prev => ({ ...prev, loginType: e.target.value as 'email' | 'username' }))}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="email">E-mail</option>
+                  <option value="username">Usuário</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">{userForm.loginType === 'username' ? 'Usuário de acesso' : 'E-mail de acesso'}</label>
+                <input
+                  type={userForm.loginType === 'username' ? 'text' : 'email'}
+                  required
+                  value={userForm.loginType === 'username' ? userForm.username : userForm.email}
+                  onChange={e => setUserForm(prev => userForm.loginType === 'username' ? ({ ...prev, username: e.target.value }) : ({ ...prev, email: e.target.value }))}
+                  placeholder={userForm.loginType === 'username' ? 'nome.sobrenome' : 'email@exemplo.com'}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {userForm.loginType === 'username' && <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">E-mail de recuperação</label>
                 <input
                   type="email"
-                  required
-                  value={userForm.email}
-                  onChange={e => setUserForm(prev => ({ ...prev, email: e.target.value }))}
+                  value={userForm.recoveryEmail}
+                  onChange={e => setUserForm(prev => ({ ...prev, recoveryEmail: e.target.value }))}
                   placeholder="email@exemplo.com"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />

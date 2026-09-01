@@ -120,3 +120,54 @@ export async function sendRegistrationConfirmationEmail(input: RegistrationConfi
   if (!data?.id) throw new Error('O Resend não retornou a identificação do e-mail.');
   return { id: data.id };
 }
+
+export async function sendPasswordResetEmail(input: {
+  to: string;
+  name: string;
+  resetUrl: string;
+}) {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim();
+  const fromEmail = String(process.env.RESEND_FROM_EMAIL || '').trim();
+  const fromName = safeHeaderName(process.env.RESEND_FROM_NAME);
+
+  if (!apiKey) throw new Error('RESEND_API_KEY não configurada.');
+  if (!fromEmail) throw new Error('RESEND_FROM_EMAIL não configurado.');
+  if (!input.to) throw new Error('E-mail de recuperação não informado.');
+  if (!input.resetUrl) throw new Error('Link de recuperação não informado.');
+
+  const resetUrl = escapeHtml(input.resetUrl);
+  const name = escapeHtml(input.name || 'operador');
+  const resend = new Resend(apiKey);
+  const { data, error } = await resend.emails.send({
+    from: `${fromName} <${fromEmail}>`,
+    to: input.to,
+    subject: 'Redefinição de senha do Credencia',
+    html: `<!doctype html>
+<html lang="pt-BR">
+  <body style="margin:0;background:#f1f5f9;font-family:Arial,sans-serif;color:#0f172a">
+    <div style="max-width:560px;margin:0 auto;padding:32px 16px">
+      <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;padding:28px">
+        <h1 style="font-size:22px;margin:0 0 14px">Redefinir senha</h1>
+        <p style="line-height:1.6;margin:0 0 18px">Olá, <strong>${name}</strong>. Use o botão abaixo para criar uma nova senha no Credencia.</p>
+        <p style="line-height:1.6;margin:0 0 22px;color:#475569">Este link expira em 15 minutos e só pode ser usado uma vez.</p>
+        <p style="text-align:center;margin:24px 0"><a href="${resetUrl}" style="display:inline-block;background:#10b981;color:#052e2b;text-decoration:none;font-weight:800;padding:14px 22px;border-radius:10px">Redefinir senha</a></p>
+        <p style="font-size:13px;line-height:1.5;color:#64748b;margin:24px 0 0">Se o botão não abrir, copie este endereço:<br><a href="${resetUrl}" style="color:#047857;word-break:break-all">${resetUrl}</a></p>
+      </div>
+    </div>
+  </body>
+</html>`,
+    text: [
+      `Olá, ${input.name || 'operador'}.`,
+      '',
+      'Use o link abaixo para redefinir sua senha no Credencia.',
+      'Este link expira em 15 minutos e só pode ser usado uma vez.',
+      '',
+      input.resetUrl
+    ].join('\n'),
+    tags: [{ name: 'message_type', value: 'password_reset' }]
+  });
+
+  if (error) throw new Error(error.message || 'O Resend recusou o envio.');
+  if (!data?.id) throw new Error('O Resend não retornou a identificação do e-mail.');
+  return { id: data.id };
+}

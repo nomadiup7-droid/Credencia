@@ -18,7 +18,7 @@ export class DatabaseConfigurationError extends Error {
     this.name = 'DatabaseConfigurationError';
   }
 }
-import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate, OnlineRegistrationConfig, OnlineRegistration } from '../src/types';
+import { User, Event, Participant, CloakroomItem, UserRole, ParticipantCategory, CheckIn, CheckInLog, ParticipantField, Organization, Area, AreaAccessLog, AccessProfile, EventUser, ActionLog, Activity, ActivityAttendance, Certificate, CertificateTemplate, OnlineRegistrationConfig, OnlineRegistration, PasswordResetToken } from '../src/types';
 
 // Load environment variables early
 dotenv.config();
@@ -44,6 +44,7 @@ interface DBSchema {
   certificateTemplates?: CertificateTemplate[];
   onlineRegistrationConfigs?: OnlineRegistrationConfig[];
   onlineRegistrations?: OnlineRegistration[];
+  passwordResetTokens?: PasswordResetToken[];
   participantFields?: ParticipantField[];
   areas?: Area[];
   areaAccessLogs?: AreaAccessLog[];
@@ -483,6 +484,7 @@ class Database {
         certificateTemplates: [],
         onlineRegistrationConfigs: [],
         onlineRegistrations: [],
+        passwordResetTokens: [],
         participantFields: DEFAULT_PARTICIPANT_FIELDS,
         areas: [
           { id: 'a1', name: 'Sala', color: '#00E545', eventId: 'e1', event_id: 'e1', active: true, isActive: true, is_active: true, createdAt: new Date().toISOString(), created_at: new Date().toISOString() },
@@ -563,6 +565,7 @@ class Database {
           })),
           onlineRegistrationConfigs: parsed.onlineRegistrationConfigs || [],
           onlineRegistrations: parsed.onlineRegistrations || [],
+          passwordResetTokens: parsed.passwordResetTokens || [],
           participantFields: parsed.participantFields || DEFAULT_PARTICIPANT_FIELDS,
           areas: (parsed.areas || [
             { id: 'a1', name: 'Sala', color: '#00E545' },
@@ -686,6 +689,7 @@ class Database {
   }
 
   async getUserByEmail(email: string): Promise<DBUser | undefined> {
+    if (!email) return undefined;
     if (this.useSupabase) {
       const { data, error } = await this.supabase.from('users').select('*').ilike('email', email.trim()).single();
       if (error) {
@@ -694,7 +698,21 @@ class Database {
       }
       return toCamel(data);
     }
-    return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    return this.data.users.find(u => String(u.email || '').toLowerCase() === email.toLowerCase());
+  }
+
+  async getUserByUsername(username: string): Promise<DBUser | undefined> {
+    if (!username) return undefined;
+    const normalized = username.trim().toLowerCase();
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('users').select('*').ilike('username', normalized).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    return this.data.users.find(u => String(u.username || '').toLowerCase() === normalized);
   }
 
   async getUserById(id: string): Promise<DBUser | undefined> {
@@ -761,6 +779,71 @@ class Database {
     this.data.certificates = (this.data.certificates || []).filter(cert => cert.issuedByUserId !== id);
     this.saveLocal();
     return true;
+  }
+
+  async createPasswordResetToken(token: Omit<PasswordResetToken, 'id' | 'createdAt'>): Promise<PasswordResetToken> {
+    const newToken: PasswordResetToken = {
+      ...token,
+      id: 'prt_' + randomBytes(9).toString('base64url'),
+      createdAt: new Date().toISOString()
+    };
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('password_reset_tokens').insert(toSnake(newToken)).select().single();
+      if (error) throw error;
+      return toCamel(data);
+    }
+    if (!this.data.passwordResetTokens) this.data.passwordResetTokens = [];
+    this.data.passwordResetTokens.push(newToken);
+    this.saveLocal();
+    return newToken;
+  }
+
+  async getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined> {
+    if (!tokenHash) return undefined;
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase.from('password_reset_tokens').select('*').eq('token_hash', tokenHash).single();
+      if (error) {
+        if (error.code === 'PGRST116') return undefined;
+        throw error;
+      }
+      return toCamel(data);
+    }
+    return (this.data.passwordResetTokens || []).find(token => token.tokenHash === tokenHash);
+  }
+
+  async markPasswordResetTokenUsed(id: string): Promise<void> {
+    const usedAt = new Date().toISOString();
+    if (this.useSupabase) {
+      const { error } = await this.supabase.from('password_reset_tokens').update({ used_at: usedAt }).eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    const token = (this.data.passwordResetTokens || []).find(item => item.id === id);
+    if (token) {
+      token.usedAt = usedAt;
+      this.saveLocal();
+    }
+  }
+
+  async invalidatePasswordResetTokensForUser(userId: string): Promise<void> {
+    const usedAt = new Date().toISOString();
+    if (this.useSupabase) {
+      const { error } = await this.supabase
+        .from('password_reset_tokens')
+        .update({ used_at: usedAt })
+        .eq('user_id', userId)
+        .is('used_at', null);
+      if (error) throw error;
+      return;
+    }
+    let changed = false;
+    for (const token of this.data.passwordResetTokens || []) {
+      if (token.userId === userId && !token.usedAt) {
+        token.usedAt = usedAt;
+        changed = true;
+      }
+    }
+    if (changed) this.saveLocal();
   }
 
   // --- Event Users CRUD ---

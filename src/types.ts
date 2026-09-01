@@ -14,13 +14,25 @@ export interface Organization {
 export interface User {
   id: string;
   name: string;
-  email: string;
+  email?: string | null;
+  username?: string | null;
+  recoveryEmail?: string | null;
+  loginType?: 'email' | 'username';
   role: UserRole;
   createdAt: string;
   pin?: string;
   mustChangeCredentials?: boolean;
   permissions?: string[];
   organizationId: string;
+}
+
+export interface PasswordResetToken {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: string;
+  usedAt?: string | null;
+  createdAt: string;
 }
 
 export interface EventUser {

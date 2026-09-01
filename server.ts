@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import ExcelJS from 'exceljs';
 import { createServer as createViteServer } from 'vite';
 import { db, DatabaseConflictError } from './server/db';
@@ -11,7 +11,7 @@ import checkInRouter from './routes/checkin';
 import { authenticateToken, hashPassword, requireAdmin, signAuthToken, verifyPassword } from './server/auth';
 import { getPagination, logApiError, normalizeSearch, paginateArray, sendError, sendSuccess, sortRecords } from './server/apiResponse';
 import { openApiDocument } from './server/openapi';
-import { sendRegistrationConfirmationEmail } from './server/registrationEmail';
+import { sendPasswordResetEmail, sendRegistrationConfirmationEmail } from './server/registrationEmail';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -68,6 +68,47 @@ const getPublicBaseUrl = (req: express.Request) => {
   const host = req.get('host') || `localhost:${PORT}`;
   return `${proto}://${host}`;
 };
+
+const TEMP_EMAIL_DOMAIN = '@temporario.credencia';
+const AUTH_GENERIC_ERROR = 'Identificador ou senha inválidos';
+const passwordResetRateLimit = new Map<string, number[]>();
+
+const normalizeUsername = (value?: string) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, '.')
+  .replace(/[^a-z0-9._-]/g, '')
+  .replace(/[._-]{2,}/g, '.')
+  .replace(/^[._-]+|[._-]+$/g, '');
+
+const isValidUsername = (value: string) => /^[a-z0-9][a-z0-9._-]{1,38}[a-z0-9]$/.test(value);
+const isValidEmail = (value: string) => /^\S+@\S+\.\S+$/.test(value);
+const hashResetToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+const checkRateLimit = (key: string, maxAttempts: number, windowMs: number) => {
+  const now = Date.now();
+  const recent = (passwordResetRateLimit.get(key) || []).filter(item => now - item < windowMs);
+  if (recent.length >= maxAttempts) return false;
+  recent.push(now);
+  passwordResetRateLimit.set(key, recent);
+  return true;
+};
+
+const getConfiguredAppBaseUrl = () => {
+  const configured = process.env.APP_URL || process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL;
+  return String(configured || '').trim().replace(/\/$/, '');
+};
+
+const resolveUserByIdentifier = async (identifier: string) => {
+  const normalized = String(identifier || '').trim();
+  if (!normalized) return undefined;
+  if (normalized.includes('@')) return db.getUserByEmail(normalized.toLowerCase());
+  return db.getUserByUsername(normalizeUsername(normalized));
+};
+
+const getUserLoginType = (user: any): 'email' | 'username' => user?.loginType || (user?.username && !user?.email ? 'username' : 'email');
 
 const getCredentialLink = (req: express.Request, token?: string) =>
   token ? `${getPublicBaseUrl(req)}/convite/${encodeURIComponent(token)}` : '';
@@ -476,7 +517,10 @@ const sanitizeUserForApi = async (user: any) => {
   return {
     id: user.id,
     name: user.name,
-    email: user.email,
+    email: user.email || null,
+    username: user.username || null,
+    recoveryEmail: user.recoveryEmail || null,
+    loginType: getUserLoginType(user),
     role: user.role,
     permissions: uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)),
     organizationId: user.organizationId || 'org1',
@@ -532,18 +576,19 @@ apiV1.get('/openapi.json', (_req, res) => {
 
 apiV1.post('/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      sendError(res, 400, 'E-mail e senha são obrigatórios', [
-        { code: 'VALIDATION_ERROR', message: 'Informe e-mail e senha' }
+    const { identifier, email, password } = req.body;
+    const loginIdentifier = String(identifier || email || '').trim();
+    if (!loginIdentifier || !password) {
+      sendError(res, 400, 'Identificador e senha são obrigatórios', [
+        { code: 'VALIDATION_ERROR', message: 'Informe e-mail/usuário e senha' }
       ]);
       return;
     }
 
-    const user = await db.getUserByEmail(email);
+    const user = await resolveUserByIdentifier(loginIdentifier);
     const passwordCheck = await verifyPassword(password, user?.passwordHash);
     if (!user || !passwordCheck.valid) {
-      sendError(res, 401, 'E-mail ou senha inválidos', [
+      sendError(res, 401, AUTH_GENERIC_ERROR, [
         { code: 'INVALID_CREDENTIALS', message: 'Credenciais inválidas' }
       ]);
       return;
@@ -1571,17 +1616,18 @@ app.post('/api/online-registrations/:id/resend-confirmation', authenticateToken,
 
 // --- AUTHENTICATION ENDPOINTS ---
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { identifier, email, password } = req.body;
+  const loginIdentifier = String(identifier || email || '').trim();
 
-  if (!email || !password) {
-    res.status(400).json({ error: 'E-mail e senha são obrigatórios' });
+  if (!loginIdentifier || !password) {
+    res.status(400).json({ error: 'Identificador e senha são obrigatórios' });
     return;
   }
 
-  const user = await db.getUserByEmail(email);
+  const user = await resolveUserByIdentifier(loginIdentifier);
   const passwordCheck = await verifyPassword(password, user?.passwordHash);
   if (!user || !passwordCheck.valid) {
-    res.status(401).json({ error: 'E-mail ou senha inválidos' });
+    res.status(401).json({ error: AUTH_GENERIC_ERROR });
     return;
   }
 
@@ -1598,7 +1644,10 @@ app.post('/api/auth/login', async (req, res) => {
     user: {
       id: user.id,
       name: user.name,
-      email: user.email,
+      email: user.email || null,
+      username: user.username || null,
+      recoveryEmail: user.recoveryEmail || null,
+      loginType: getUserLoginType(user),
       role: user.role,
       permissions: uniquePermissions(user.permissions?.length ?user.permissions : permissionsForRole(user.role)),
       organizationId: user.organizationId || 'org1',
@@ -1631,7 +1680,10 @@ app.post('/api/auth/login-pin', async (req, res) => {
     user: {
       id: user.id,
       name: user.name,
-      email: user.email,
+      email: user.email || null,
+      username: user.username || null,
+      recoveryEmail: user.recoveryEmail || null,
+      loginType: getUserLoginType(user),
       role: user.role,
       permissions,
       organizationId: user.organizationId || 'org1',
@@ -1653,6 +1705,94 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   });
 });
 
+app.post('/api/auth/password-reset/request', async (req, res) => {
+  const identifier = String(req.body?.identifier || '').trim();
+  const genericResponse = { message: 'Se os dados estiverem corretos, enviaremos as instruções de recuperação.' };
+  if (!identifier) {
+    res.status(400).json({ error: 'Informe e-mail ou usuário.' });
+    return;
+  }
+  if (!checkRateLimit(`reset-email:${identifier.toLowerCase()}`, 3, 15 * 60 * 1000)) {
+    res.json(genericResponse);
+    return;
+  }
+
+  try {
+    const user = await resolveUserByIdentifier(identifier);
+    const targetEmail = String(user?.recoveryEmail || user?.email || '').trim().toLowerCase();
+    if (user && targetEmail && isValidEmail(targetEmail)) {
+      const baseUrl = getConfiguredAppBaseUrl();
+      if (!baseUrl) throw new Error('APP_URL não configurado para recuperação de senha.');
+      await db.invalidatePasswordResetTokensForUser(user.id);
+      const rawToken = randomBytes(32).toString('base64url');
+      await db.createPasswordResetToken({
+        userId: user.id,
+        tokenHash: hashResetToken(rawToken),
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        usedAt: null
+      });
+      await sendPasswordResetEmail({
+        to: targetEmail,
+        name: user.name,
+        resetUrl: `${baseUrl}/redefinir-senha?token=${encodeURIComponent(rawToken)}`
+      });
+    }
+  } catch (error) {
+    console.error('Password reset request failed:', error instanceof Error ? error.message : error);
+  }
+  res.json(genericResponse);
+});
+
+app.post('/api/auth/password-reset/confirm', async (req, res) => {
+  const rawToken = String(req.body?.token || '').trim();
+  const password = String(req.body?.password || '');
+  if (!checkRateLimit(`reset-token:${hashResetToken(rawToken || 'empty')}`, 8, 15 * 60 * 1000)) {
+    res.status(429).json({ error: 'Muitas tentativas. Aguarde alguns minutos.' });
+    return;
+  }
+  if (!rawToken || password.length < 8) {
+    res.status(400).json({ error: 'Token inválido ou senha muito curta.' });
+    return;
+  }
+  const tokenRecord = await db.getPasswordResetTokenByHash(hashResetToken(rawToken));
+  if (!tokenRecord || tokenRecord.usedAt || new Date(tokenRecord.expiresAt).getTime() < Date.now()) {
+    res.status(400).json({ error: 'Token inválido ou expirado.' });
+    return;
+  }
+  const user = await db.getUserById(tokenRecord.userId);
+  if (!user) {
+    res.status(400).json({ error: 'Token inválido ou expirado.' });
+    return;
+  }
+  await db.updateUser(user.id, { passwordHash: await hashPassword(password), mustChangeCredentials: false });
+  await db.markPasswordResetTokenUsed(tokenRecord.id);
+  res.json({ message: 'Senha redefinida com sucesso.' });
+});
+
+app.post('/api/auth/recover-with-pin', async (req, res) => {
+  const identifier = String(req.body?.identifier || '').trim();
+  const pin = String(req.body?.pin || '').trim();
+  const password = String(req.body?.password || '');
+  if (!identifier || !/^\d{4,6}$/.test(pin) || password.length < 8) {
+    res.status(400).json({ error: 'Dados de recuperação inválidos.' });
+    return;
+  }
+  if (!checkRateLimit(`reset-pin:${identifier.toLowerCase()}`, 5, 15 * 60 * 1000)) {
+    res.status(429).json({ error: 'Muitas tentativas. Aguarde alguns minutos.' });
+    return;
+  }
+  const user = await resolveUserByIdentifier(identifier);
+  if (!user || user.pin !== pin) {
+    res.status(401).json({ error: 'Não foi possível recuperar o acesso com os dados informados.' });
+    return;
+  }
+  const updated = await db.updateUser(user.id, {
+    passwordHash: await hashPassword(password),
+    mustChangeCredentials: false
+  });
+  res.json({ message: 'Senha redefinida com sucesso.', user: await sanitizeUserForApi(updated || user) });
+});
+
 // Public account creation is intentionally disabled. New users are created
 // by authenticated administrators in the user-management area.
 app.post('/api/auth/signup', (_req, res) => {
@@ -1669,7 +1809,10 @@ app.get('/api/users', authenticateToken, requireUserManagementPermission, async 
     const users = rawUsers.map(u => ({
       id: u.id,
       name: u.name,
-      email: u.email,
+      email: u.email || null,
+      username: u.username || null,
+      recoveryEmail: u.recoveryEmail || null,
+      loginType: getUserLoginType(u),
       role: u.role,
       permissions: uniquePermissions(u.permissions?.length ?u.permissions : permissionsForRole(u.role)),
       createdAt: u.createdAt
@@ -1683,7 +1826,7 @@ app.get('/api/users', authenticateToken, requireUserManagementPermission, async 
 
 // User manager manually creates a system user
 app.post('/api/users', authenticateToken, requireUserManagementPermission, async (req, res) => {
-  const { name, email, password, role, permissions, eventId, eventRole, eventPermissions, eventActive, quickOperator } = req.body;
+  const { name, email, username, recoveryEmail, loginType, password, role, permissions, eventId, eventRole, eventPermissions, eventActive, quickOperator } = req.body;
   if (!name || !role) {
     res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     return;
@@ -1693,21 +1836,37 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
     return;
   }
 
-  const temporaryId = randomBytes(6).toString('hex');
-  const temporaryEmail = String(email || '').trim().toLowerCase() || `acesso-${temporaryId}@temporario.credencia`;
+  const requestedLoginType = loginType === 'username' || (!String(email || '').includes('@') && String(username || email || '').trim()) ? 'username' : 'email';
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedUsername = normalizeUsername(username || (requestedLoginType === 'username' ? email : ''));
+  const normalizedRecoveryEmail = String(recoveryEmail || '').trim().toLowerCase();
+  if (requestedLoginType === 'email' && !isValidEmail(normalizedEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail válido para o acesso.' });
+    return;
+  }
+  if (requestedLoginType === 'username' && !isValidUsername(normalizedUsername)) {
+    res.status(400).json({ error: 'Informe um usuário válido com 3 a 40 caracteres.' });
+    return;
+  }
+  if (normalizedRecoveryEmail && !isValidEmail(normalizedRecoveryEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail de recuperação válido.' });
+    return;
+  }
   const temporaryPassword = String(password || '') || `Crd!${randomBytes(9).toString('base64url')}`;
   if (temporaryPassword.length < 8) {
     res.status(400).json({ error: 'A senha temporária deve ter pelo menos 8 caracteres.' });
     return;
   }
-  const existingUser = await db.getUserByEmail(temporaryEmail);
+  const existingUser = requestedLoginType === 'email'
+    ? await db.getUserByEmail(normalizedEmail)
+    : await db.getUserByUsername(normalizedUsername);
   if (existingUser) {
-    res.status(400).json({ error: 'E-mail em uso por outro usuário' });
+    res.status(400).json({ error: requestedLoginType === 'email' ? 'E-mail em uso por outro usuário' : 'Usuário em uso por outro operador' });
     return;
   }
   let temporaryPin = '';
   do {
-    temporaryPin = String(Math.floor(100000 + Math.random() * 900000));
+    temporaryPin = String(randomInt(0, 1000000)).padStart(6, '0');
   } while (await db.getUserByPin(temporaryPin));
   const user = (req as any).user;
   let createdEventLink: EventUser | undefined;
@@ -1725,7 +1884,10 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
 
   const createdUser = await db.createUser({
     name,
-    email: temporaryEmail,
+    email: requestedLoginType === 'email' ? normalizedEmail : null,
+    username: requestedLoginType === 'username' ? normalizedUsername : null,
+    recoveryEmail: normalizedRecoveryEmail || null,
+    loginType: requestedLoginType,
     passwordHash: await hashPassword(temporaryPassword),
     pin: temporaryPin,
     mustChangeCredentials: true,
@@ -1747,28 +1909,48 @@ app.post('/api/users', authenticateToken, requireUserManagementPermission, async
   res.status(201).json({
     id: createdUser.id,
     name: createdUser.name,
-    email: createdUser.email,
+    email: createdUser.email || null,
+    username: createdUser.username || null,
+    recoveryEmail: createdUser.recoveryEmail || null,
+    loginType: getUserLoginType(createdUser),
     role: createdUser.role,
     permissions: uniquePermissions(createdUser.permissions?.length ?createdUser.permissions : permissionsForRole(createdUser.role)),
     createdAt: createdUser.createdAt,
     mustChangeCredentials: true,
-    temporaryCredentials: { email: temporaryEmail, password: temporaryPassword, pin: temporaryPin },
+    temporaryCredentials: { email: createdUser.email || null, username: createdUser.username || null, login: createdUser.email || createdUser.username, password: temporaryPassword, pin: temporaryPin },
     eventLink: createdEventLink
   });
 });
 
 app.post('/api/auth/complete-first-access', authenticateToken, async (req, res) => {
   const requester = (req as any).user;
-  const { email, password, pin } = req.body;
+  const { email, recoveryEmail, password, pin } = req.body;
   const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedRecoveryEmail = String(recoveryEmail || '').trim().toLowerCase();
   const normalizedPin = String(pin || '').trim();
 
   if (!requester.mustChangeCredentials) {
     res.status(400).json({ error: 'Este acesso inicial já foi concluído.' });
     return;
   }
-  if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+  const currentUser = await db.getUserById(requester.id);
+  if (!currentUser) {
+    res.status(404).json({ error: 'Usuário não encontrado.' });
+    return;
+  }
+  const loginType = getUserLoginType(currentUser);
+  const hasTemporaryEmail = String(currentUser.email || '').toLowerCase().endsWith(TEMP_EMAIL_DOMAIN);
+  const mustCollectRealEmail = loginType === 'email' && (!currentUser.email || hasTemporaryEmail);
+  if (mustCollectRealEmail && !isValidEmail(normalizedEmail)) {
     res.status(400).json({ error: 'Informe um e-mail válido.' });
+    return;
+  }
+  if (!mustCollectRealEmail && normalizedEmail && !isValidEmail(normalizedEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail válido.' });
+    return;
+  }
+  if (normalizedRecoveryEmail && !isValidEmail(normalizedRecoveryEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail de recuperação válido.' });
     return;
   }
   if (String(password || '').length < 8) {
@@ -1780,10 +1962,13 @@ app.post('/api/auth/complete-first-access', authenticateToken, async (req, res) 
     return;
   }
 
-  const emailOwner = await db.getUserByEmail(normalizedEmail);
-  if (emailOwner && emailOwner.id !== requester.id) {
-    res.status(409).json({ error: 'Este e-mail já está em uso.' });
-    return;
+  const finalEmail = mustCollectRealEmail ? normalizedEmail : (loginType === 'username' ? (normalizedEmail || currentUser.email || null) : currentUser.email);
+  if (finalEmail && finalEmail !== currentUser.email) {
+    const emailOwner = await db.getUserByEmail(finalEmail);
+    if (emailOwner && emailOwner.id !== requester.id) {
+      res.status(409).json({ error: 'Este e-mail já está em uso.' });
+      return;
+    }
   }
   const pinOwner = await db.getUserByPin(normalizedPin);
   if (pinOwner && pinOwner.id !== requester.id) {
@@ -1792,7 +1977,8 @@ app.post('/api/auth/complete-first-access', authenticateToken, async (req, res) 
   }
 
   const updated = await db.updateUser(requester.id, {
-    email: normalizedEmail,
+    email: finalEmail,
+    recoveryEmail: normalizedRecoveryEmail || currentUser.recoveryEmail || null,
     passwordHash: await hashPassword(password),
     pin: normalizedPin,
     mustChangeCredentials: false
@@ -1817,7 +2003,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     return;
   }
 
-  const { name, email, password, role, permissions } = req.body;
+  const { name, email, username, recoveryEmail, loginType, password, role, permissions } = req.body;
   const user = await db.getUserById(targetId);
   if (!user) {
     res.status(404).json({ error: 'Usuário não encontrado' });
@@ -1832,18 +2018,44 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     return;
   }
 
-  // If email changes, check duplicate user email
-  if (email && email.toLowerCase() !== user.email.toLowerCase()) {
-    const existing = await db.getUserByEmail(email);
+  const normalizedEmail = email !== undefined ? String(email || '').trim().toLowerCase() : undefined;
+  const normalizedUsername = username !== undefined ? normalizeUsername(username) : undefined;
+  const normalizedRecoveryEmail = recoveryEmail !== undefined ? String(recoveryEmail || '').trim().toLowerCase() : undefined;
+
+  if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail válido.' });
+    return;
+  }
+  if (normalizedUsername && !isValidUsername(normalizedUsername)) {
+    res.status(400).json({ error: 'Informe um usuário válido com 3 a 40 caracteres.' });
+    return;
+  }
+  if (normalizedRecoveryEmail && !isValidEmail(normalizedRecoveryEmail)) {
+    res.status(400).json({ error: 'Informe um e-mail de recuperação válido.' });
+    return;
+  }
+
+  if (normalizedEmail && normalizedEmail !== String(user.email || '').toLowerCase()) {
+    const existing = await db.getUserByEmail(normalizedEmail);
     if (existing) {
       res.status(400).json({ error: 'E-mail em uso por outro usuário' });
+      return;
+    }
+  }
+  if (normalizedUsername && normalizedUsername !== String(user.username || '').toLowerCase()) {
+    const existing = await db.getUserByUsername(normalizedUsername);
+    if (existing) {
+      res.status(400).json({ error: 'Usuário em uso por outro operador' });
       return;
     }
   }
 
   const updates: any = {};
   if (name) updates.name = name;
-  if (email) updates.email = email;
+  if (normalizedEmail !== undefined) updates.email = normalizedEmail || null;
+  if (normalizedUsername !== undefined) updates.username = normalizedUsername || null;
+  if (normalizedRecoveryEmail !== undefined) updates.recoveryEmail = normalizedRecoveryEmail || null;
+  if ((loginType === 'email' || loginType === 'username') && canManageTarget) updates.loginType = loginType;
   if (password) updates.passwordHash = await hashPassword(password);
   // Only managers can change another user's role and permissions.
   if (role && canManageTarget) {
@@ -1862,7 +2074,10 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   res.json({
     id: updatedUser.id,
     name: updatedUser.name,
-    email: updatedUser.email,
+    email: updatedUser.email || null,
+    username: updatedUser.username || null,
+    recoveryEmail: updatedUser.recoveryEmail || null,
+    loginType: getUserLoginType(updatedUser),
     role: updatedUser.role,
     permissions: uniquePermissions(updatedUser.permissions?.length ?updatedUser.permissions : permissionsForRole(updatedUser.role)),
     createdAt: updatedUser.createdAt

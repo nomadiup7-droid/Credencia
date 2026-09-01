@@ -14,10 +14,10 @@ const persistAuth = (data: AuthResponse) => {
 };
 
 export const authService = {
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(identifier: string, password: string): Promise<AuthResponse> {
     const data = await apiRequest<AuthResponse>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ identifier, password })
     });
     persistAuth(data);
     return data;

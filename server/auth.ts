@@ -14,7 +14,9 @@ let warnedMissingSecret = false;
 export interface AuthenticatedUser {
   id: string;
   name: string;
-  email: string;
+  email?: string | null;
+  username?: string | null;
+  loginType?: 'email' | 'username';
   role: UserRole;
   permissions: string[];
   organizationId: string;
@@ -47,7 +49,9 @@ export function sanitizeAuthenticatedUser(user: DBUser): AuthenticatedUser {
   return {
     id: user.id,
     name: user.name,
-    email: user.email,
+    email: user.email || null,
+    username: user.username || null,
+    loginType: user.loginType || (user.username && !user.email ? 'username' : 'email'),
     role: user.role,
     permissions: user.permissions || [],
     organizationId: user.organizationId || 'org1',
@@ -64,7 +68,9 @@ export function signAuthToken(user: DBUser) {
   return jwt.sign(
     {
       role: user.role,
-      email: user.email,
+      email: user.email || null,
+      username: user.username || null,
+      loginType: user.loginType || (user.username && !user.email ? 'username' : 'email'),
       organizationId: user.organizationId || 'org1'
     },
     getJwtSecret(),
