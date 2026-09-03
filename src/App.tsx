@@ -1447,7 +1447,7 @@ export default function App() {
       const [areasData, profilesData, accessLogsData, actionLogsData, activitiesData, activityAttendancesData, certificatesData] = await Promise.all([
         apiCall(`/api/areas?eventId=${eventId}`),
         apiCall(`/api/access-profiles?eventId=${eventId}`),
-        apiCall('/api/access-control/logs').catch(() => []),
+        apiCall(`/api/access-control/logs?eventId=${eventId}`).catch(() => []),
         apiCall(`/api/action-logs?eventId=${eventId}`).catch(() => []),
         apiCall(`/api/events/${eventId}/activities`).catch(() => []),
         canViewActivityAttendance ?apiCall(`/api/events/${eventId}/activity-attendances`).catch(() => []) : Promise.resolve([]),

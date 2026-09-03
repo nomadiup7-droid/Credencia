@@ -4312,14 +4312,27 @@ app.delete('/api/access-profiles/:id', authenticateToken, requireAdmin, async (r
 app.get('/api/access-control/logs', authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;
-    const rawLogs = await db.getAreaAccessLogs();
-    const eventIds = await getOrganizationEventIds(user.organizationId);
-    const areas = (await db.getAreas()).filter(area => eventIds.has(area.eventId || area.event_id || ''));
+    const requestedEventId = req.query.eventId ? String(req.query.eventId) : '';
+    const eventIds = requestedEventId ? new Set([requestedEventId]) : await getOrganizationEventIds(user.organizationId);
+    if (requestedEventId) {
+      const event = await db.getEventById(requestedEventId);
+      if (!event || event.organizationId !== user.organizationId) {
+        res.status(404).json({ error: 'Evento não encontrado ou acesso restrito' });
+        return;
+      }
+    }
+
+    const areas = (await db.getAreas(requestedEventId || undefined))
+      .filter(area => eventIds.has(area.eventId || area.event_id || ''));
     const areaIds = new Set(areas.map(area => area.id));
+    const [rawLogs, participants, users] = await Promise.all([
+      db.getAreaAccessLogs([...areaIds]),
+      requestedEventId
+        ? db.getParticipants(requestedEventId)
+        : Promise.all([...eventIds].map(eventId => db.getParticipants(eventId))).then(groups => groups.flat()),
+      db.getUsers(user.organizationId)
+    ]);
     const scopedLogs = rawLogs.filter(log => areaIds.has(log.areaId));
-    const participantsByEvent = await Promise.all([...eventIds].map(eventId => db.getParticipants(eventId)));
-    const participants = participantsByEvent.flat();
-    const users = await db.getUsers(user.organizationId);
 
     const enrichedLogs = scopedLogs.map(log => {
       const participant = participants.find(p => p.id === log.participantId);

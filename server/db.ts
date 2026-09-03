@@ -2562,13 +2562,22 @@ class Database {
     return newLog;
   }
 
-  async getAreaAccessLogs(): Promise<AreaAccessLog[]> {
+  async getAreaAccessLogs(areaIds?: string[]): Promise<AreaAccessLog[]> {
+    const scopedAreaIds = [...new Set((areaIds || []).filter(Boolean))];
+    if (areaIds && scopedAreaIds.length === 0) return [];
     if (this.useSupabase) {
-      const { data, error } = await this.supabase.from('area_access_logs').select('*');
+      let query = this.supabase.from('area_access_logs').select('*');
+      if (scopedAreaIds.length > 0) {
+        query = query.in('area_id', scopedAreaIds);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return toCamel(data) || [];
     }
-    return this.data.areaAccessLogs || [];
+    const logs = this.data.areaAccessLogs || [];
+    if (scopedAreaIds.length === 0) return logs;
+    const areaIdSet = new Set(scopedAreaIds);
+    return logs.filter(log => areaIdSet.has(log.areaId));
   }
 
   // --- AccessProfile CRUD ---
