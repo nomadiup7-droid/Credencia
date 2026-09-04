@@ -292,7 +292,7 @@ export default function LabelPrint({
           printCountRef.current += 1;
           void handlePrint();
         }
-      }, 700);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [participant, event, autoPrint]);

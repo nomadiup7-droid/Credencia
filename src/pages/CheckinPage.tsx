@@ -375,6 +375,22 @@ export default function CheckinPage({
     handleCheckIn(participant);
   };
 
+  const markParticipantAsPrinted = (participantId: string) => {
+    setParticipants(prev =>
+      prev.map(p => p.id === participantId ? { ...p, printed: true } : p)
+    );
+  };
+
+  const registerPrintInBackground = (participant: Participant) => {
+    void apiCall(`/api/participants/${participant.id}/reprint`, { method: 'POST' })
+      .then(() => {
+        markParticipantAsPrinted(participant.id);
+      })
+      .catch((err: any) => {
+        addToast(err.message || 'A impressão abriu, mas não foi possível registrar a emissão no servidor.', 'warning');
+      });
+  };
+
   // Perform participant accreditation
   const handleCheckIn = async (participant: Participant) => {
     if (!selectedEventId) {
@@ -382,6 +398,16 @@ export default function CheckinPage({
       return;
     }
 
+    const optimisticCheckedInAt = participant.checkedInAt || new Date().toISOString();
+    const printableParticipant = {
+      ...participant,
+      checkedIn: true,
+      checkedInAt: optimisticCheckedInAt,
+      printed: true
+    };
+
+    onPrintBadge(printableParticipant);
+    markParticipantAsPrinted(participant.id);
     setIsCheckingInId(participant.id);
     try {
       const res = await apiCall('/api/checkin', {
@@ -395,20 +421,12 @@ export default function CheckinPage({
 
       // Synchronize in parent state
       setParticipants(prev =>
-        prev.map(p => p.id === participant.id ? { ...p, checkedIn: true, checkedInAt: res.checkIn?.checkInAt } : p)
+        prev.map(p => p.id === participant.id ? { ...p, checkedIn: true, checkedInAt: res.checkIn?.checkInAt || optimisticCheckedInAt, printed: true } : p)
       );
 
       addToast(`Check-in realizado com sucesso! Emissão da credencial iniciada para: ${participant.name}`, 'success');
 
-      // Set print status to backend
-      await apiCall(`/api/participants/${participant.id}/reprint`, { method: 'POST' });
-      
-      setParticipants(prev =>
-        prev.map(p => p.id === participant.id ? { ...p, printed: true } : p)
-      );
-
-      // Instantly call printer helper
-      onPrintBadge({ ...participant, checkedIn: true, printed: true });
+      registerPrintInBackground(participant);
 
       setFeedback({
         type: 'success',
@@ -446,10 +464,6 @@ export default function CheckinPage({
           });
           
           addToast(`[Offline] Check-in de ${participant.name} salvo localmente para sincronização futura!`, 'info');
-          
-          // Print badge
-          onPrintBadge({ ...participant, checkedIn: true, printed: true, checkedInAt: timestamp });
-
           setFeedback({
             type: 'success',
             title: 'CHECK-IN REALIZADO',
@@ -473,20 +487,12 @@ export default function CheckinPage({
   };
 
   // Immediate print helper
-  const handleDirectPrint = async (participant: Participant) => {
-    try {
-      await apiCall(`/api/participants/${participant.id}/reprint`, { method: 'POST' });
-      
-      setParticipants(prev =>
-        prev.map(p => p.id === participant.id ? { ...p, printed: true } : p)
-      );
-      
-      addToast(`Credencial gerada com sucesso para ${participant.name}`, 'success');
-      onPrintBadge({ ...participant, printed: true });
-      resetAfterAction();
-    } catch (err: any) {
-      addToast(err.message || 'Falha ao registrar impressão.', 'error');
-    }
+  const handleDirectPrint = (participant: Participant) => {
+    onPrintBadge({ ...participant, printed: true });
+    markParticipantAsPrinted(participant.id);
+    addToast(`Impressão iniciada para ${participant.name}`, 'success');
+    registerPrintInBackground(participant);
+    resetAfterAction();
   };
 
   const openParticipantReview = (participant: Participant) => {

@@ -483,7 +483,7 @@ export interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
-export type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'phone' | 'position' | 'notes' | 'externalId' | 'category' | 'ticketCode' | 'areas' | 'profile' | 'ignore';
+export type ImportTargetField = 'name' | 'cpf' | 'email' | 'company' | 'phone' | 'position' | 'notes' | 'externalId' | 'category' | 'ticketCode' | 'areas' | 'profile' | `access:${string}` | 'ignore';
 
 export interface ImportTemplate {
   id: string;
@@ -575,9 +575,19 @@ export interface ReportCertificate extends Certificate {
 export interface ReportBrandConfig {
   showLogo: boolean;
   logoUrl: string;
+  logoWidth?: number;
+  logoPosition?: 'left' | 'center' | 'right';
   showWatermark: boolean;
   watermarkUrl: string;
   watermarkOpacity: number;
+  watermarkSize?: number;
+  watermarkPosition?: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  organizationName?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  backgroundColor?: string;
+  titleColor?: string;
+  textColor?: string;
 }
 
 export type ReportOptionKey =
@@ -609,6 +619,68 @@ export type ReportOptionKey =
   | 'participantCredentialViewCount';
 
 export type ReportConfig = Record<ReportOptionKey, boolean>;
+
+export type ReportEditableTextMode = 'auto' | 'custom' | 'hidden';
+export type ReportTextAlign = 'left' | 'center' | 'right';
+
+export interface ReportEditableTextConfig {
+  mode: ReportEditableTextMode;
+  text: string;
+  fontSize: number;
+  bold: boolean;
+  align: ReportTextAlign;
+}
+
+export type ReportSectionKey =
+  | 'cover'
+  | 'event'
+  | 'summary'
+  | 'metrics'
+  | 'charts'
+  | 'participants'
+  | 'checkins'
+  | 'operators'
+  | 'access'
+  | 'credentialLinks'
+  | 'certificates'
+  | 'cloakroom'
+  | 'prints'
+  | 'conclusion';
+
+export type ReportTableKey =
+  | 'participants'
+  | 'checkins'
+  | 'operators'
+  | 'access'
+  | 'credentialLinks'
+  | 'certificates'
+  | 'cloakroom'
+  | 'prints';
+
+export interface ReportModelConfig {
+  optionConfig: ReportConfig;
+  title: ReportEditableTextConfig;
+  eventName: ReportEditableTextConfig;
+  organizationName: ReportEditableTextConfig;
+  eventDate: ReportEditableTextConfig;
+  eventLocation: ReportEditableTextConfig;
+  eventStatus: ReportEditableTextConfig;
+  filters: ReportEditableTextConfig;
+  issuedAt: ReportEditableTextConfig;
+  executiveSummary: ReportEditableTextConfig;
+  metricTitles: Record<string, string>;
+  hiddenMetricIds: string[];
+  chartTitles: Record<string, string>;
+  hiddenChartKeys: string[];
+  tableVisibility: Record<ReportTableKey, boolean>;
+  sectionOrder: ReportSectionKey[];
+}
+
+export type ReportModelConfigMap = {
+  executive: ReportModelConfig;
+  complete: ReportModelConfig;
+  summary: ReportModelConfig;
+};
 
 export type ActiveTab =
   | 'dashboard'

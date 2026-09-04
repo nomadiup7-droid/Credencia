@@ -28,8 +28,8 @@ import {
   X
 } from 'lucide-react';
 import { CATEGORY_TAGS } from '../../constants/categories';
-import { DEFAULT_REPORT_BRAND_CONFIG, REPORT_CONFIG_GROUPS, REPORT_IMAGE_ACCEPT, REPORT_IMAGE_FORMATS } from '../../constants/reports';
-import type { Event, Participant, ReportBrandConfig, ReportConfig, ReportOptionKey } from '../../types';
+import { DEFAULT_REPORT_BRAND_CONFIG, DEFAULT_REPORT_MODEL_CONFIGS, REPORT_CHART_OPTIONS, REPORT_CONFIG_GROUPS, REPORT_IMAGE_ACCEPT, REPORT_IMAGE_FORMATS, REPORT_MODEL_OPTIONS, REPORT_OPTION_KEYS, REPORT_TABLE_OPTIONS } from '../../constants/reports';
+import type { Event, Participant, ReportBrandConfig, ReportConfig, ReportModelConfigMap, ReportOptionKey } from '../../types';
 import ReportExportMenu from './ReportExportMenu';
 import type { ReportPdfKind } from '../../types/report.types';
 import { downloadCsv } from '../../services/reportExportService';
@@ -72,6 +72,8 @@ type Props = {
   reportConfig: ReportConfig;
   reportBrandConfig: ReportBrandConfig;
   setReportBrandConfig: React.Dispatch<React.SetStateAction<ReportBrandConfig>>;
+  reportModelConfigs: ReportModelConfigMap;
+  setReportModelConfigs: React.Dispatch<React.SetStateAction<ReportModelConfigMap>>;
   updateReportOption: (key: ReportOptionKey, checked: boolean) => void;
   setAllReportOptions: (checked: boolean) => void;
   resetReportOptions: () => void;
@@ -280,8 +282,8 @@ export default function ReportsWorkspace(props: Props) {
             )}
           </div>
           <ReportExportMenu onGeneratePdf={props.handleGenerateReportPdf} onPrintCurrent={props.reportMode === 'organization' ? () => window.print() : props.triggerPrintableReport} loadingLabel={props.reportPdfLoadingLabel} />
-          <button type="button" onClick={() => setCustomizeOpen(true)} title="Escolher as informações e a identidade visual do relatório" aria-label="Escolher as informações e a identidade visual do relatório" className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition">
-            <Sliders size={15} /> Personalizar relatório
+          <button type="button" onClick={() => setCustomizeOpen(true)} title="Escolher as informações e a identidade visual dos relatórios" aria-label="Escolher as informações e a identidade visual dos relatórios" className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition">
+            <Sliders size={15} /> Personalizar relatórios
           </button>
         </div>
       </div>
@@ -357,7 +359,7 @@ export default function ReportsWorkspace(props: Props) {
         </div>
       )}
 
-      {customizeOpen && <CustomizePanel {...props} onClose={() => setCustomizeOpen(false)} />}
+      {customizeOpen && <ReportEditorPanel {...props} onClose={() => setCustomizeOpen(false)} />}
     </div>
   );
 }
@@ -415,6 +417,275 @@ function CertificatesTab({ certificates }: { certificates: any[] }) {
 
 function CloakroomTab(props: Props) {
   return <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs"><h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2 mb-5"><FolderLock size={17} className="text-slate-500" />Chapelaria</h3><div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-5">{[['Tickets', props.reportCloakroomSummary.totalTickets], ['Guardados', props.reportCloakroomSummary.stored], ['Retirados', props.reportCloakroomSummary.returned], ['Volumes totais', props.reportCloakroomSummary.totalVolumes], ['Volumes em guarda', props.reportCloakroomSummary.storedVolumes]].map(([title, value]: any) => <div key={title} className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className="text-2xl font-black text-slate-950 mt-1">{value}</p></div>)}</div><div className="overflow-x-auto border border-slate-100 rounded-lg"><table className="w-full text-left border-collapse min-w-[980px]"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="p-3">Ticket</th><th className="p-3">Participante</th><th className="p-3">Volumes</th><th className="p-3">Status</th><th className="p-3">Entrada</th><th className="p-3">Operador entrada</th><th className="p-3">Devolução</th><th className="p-3">Operador retirada</th></tr></thead><tbody>{props.reportCloakroomItems.length === 0 ? <tr><td colSpan={8} className="p-8 text-center text-slate-500 font-semibold">Nenhuma movimentação de chapelaria nos filtros atuais.</td></tr> : props.reportCloakroomItems.map(item => <tr key={item.id} className="border-t border-slate-100"><td className="p-3 font-mono text-xs font-black">#{item.tagNumber}</td><td className="p-3 font-bold text-slate-800">{item.participantName}</td><td className="p-3 text-sm font-bold text-slate-700">{props.getCloakroomItemVolumes(item).length}</td><td className="p-3">{item.status === 'retirado' ? 'Retirado' : 'Guardado'}</td><td className="p-3 font-mono text-xs">{new Date(item.registeredAt).toLocaleString('pt-BR')}</td><td className="p-3 text-xs text-slate-600">{item.registeredByName || '-'}</td><td className="p-3 font-mono text-xs">{item.returnedAt ? new Date(item.returnedAt).toLocaleString('pt-BR') : '-'}</td><td className="p-3 text-xs text-slate-600">{item.returnedByName || '-'}</td></tr>)}</tbody></table></div></div>;
+}
+
+function ReportEditorPanel(props: Props & { onClose: () => void }) {
+  const [activeKind, setActiveKind] = useState<ReportPdfKind>('executive');
+  const activeConfig = props.reportModelConfigs[activeKind];
+  const optionCount = REPORT_OPTION_KEYS.filter(key => activeConfig.optionConfig[key]).length;
+
+  const updateActiveModel = (updater: (current: typeof activeConfig) => typeof activeConfig) => {
+    props.setReportModelConfigs(prev => ({
+      ...prev,
+      [activeKind]: updater(prev[activeKind])
+    }));
+  };
+
+  const updateOption = (key: ReportOptionKey, checked: boolean) => {
+    updateActiveModel(current => ({
+      ...current,
+      optionConfig: { ...current.optionConfig, [key]: checked }
+    }));
+  };
+
+  const moveSection = (section: string, direction: -1 | 1) => {
+    updateActiveModel(current => {
+      const order = [...current.sectionOrder];
+      const index = order.indexOf(section as any);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= order.length) return current;
+      [order[index], order[target]] = [order[target], order[index]];
+      return { ...current, sectionOrder: order };
+    });
+  };
+
+  const resetActiveModel = () => {
+    props.setReportModelConfigs(prev => ({
+      ...prev,
+      [activeKind]: DEFAULT_REPORT_MODEL_CONFIGS[activeKind]
+    }));
+  };
+
+  const modelLabel = REPORT_MODEL_OPTIONS.find(item => item.kind === activeKind)?.label || 'Relatório';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-3 sm:p-4">
+      <div className="flex h-full max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-slate-100 bg-slate-950 px-4 py-4 text-white sm:px-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-[0.25em] text-emerald-300">Editor de Relatórios</p>
+              <h3 className="mt-1 font-display text-xl font-black">Personalizar relatórios</h3>
+              <p className="mt-1 text-xs text-slate-300">As configurações ficam salvas para o evento selecionado e preservam os relatórios atuais como padrão.</p>
+            </div>
+            <button type="button" onClick={props.onClose} className="rounded-lg p-2 text-slate-300 hover:bg-white/10">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {REPORT_MODEL_OPTIONS.map(option => (
+              <button
+                key={option.kind}
+                type="button"
+                onClick={() => setActiveKind(option.kind)}
+                className={`rounded-xl border px-4 py-3 text-left transition ${activeKind === option.kind ? 'border-emerald-300 bg-emerald-400 text-slate-950' : 'border-white/10 bg-white/5 text-white hover:bg-white/10'}`}
+              >
+                <span className="block text-sm font-black">{option.label}</span>
+                <span className="mt-1 block text-[11px] opacity-75">{option.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[320px_1fr]">
+          <aside className="space-y-4 border-b border-slate-100 bg-slate-50 p-4 lg:border-b-0 lg:border-r">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h4 className="text-sm font-black text-slate-950">Identidade visual</h4>
+              <p className="mt-1 text-xs text-slate-500">Compartilhada pelos três modelos.</p>
+              <div className="mt-4 space-y-3">
+                <input value={props.reportBrandConfig.organizationName || ''} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, organizationName: event.target.value }))} placeholder="Nome da organização no relatório" className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700"><input type="checkbox" checked={props.reportBrandConfig.showLogo} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, showLogo: event.target.checked }))} />Exibir logo</label>
+                <input type="url" value={props.reportBrandConfig.logoUrl} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, logoUrl: event.target.value }))} placeholder="URL da logo" className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700">
+                  <Upload size={15} /> Upload da logo
+                  <input type="file" accept={REPORT_IMAGE_ACCEPT} onChange={event => { props.handleReportImageUpload(event.target.files?.[0], 'logoUrl'); event.currentTarget.value = ''; }} className="hidden" />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[11px] font-bold uppercase text-slate-500">Largura<input type="number" min={20} max={120} value={props.reportBrandConfig.logoWidth || 38} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, logoWidth: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm normal-case text-slate-900" /></label>
+                  <label className="text-[11px] font-bold uppercase text-slate-500">Posição<select value={props.reportBrandConfig.logoPosition || 'left'} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, logoPosition: event.target.value as any }))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm normal-case text-slate-900"><option value="left">Esquerda</option><option value="center">Centro</option><option value="right">Direita</option></select></label>
+                </div>
+                <p className="rounded-lg bg-emerald-50 p-3 text-[11px] font-semibold leading-relaxed text-emerald-800">Recomendado: PNG transparente ou SVG. Para PNG, utilizar preferencialmente 1200 px ou mais de largura.</p>
+                <button type="button" onClick={() => props.setReportBrandConfig(prev => ({ ...prev, showLogo: false, logoUrl: '' }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">Remover logo</button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h4 className="text-sm font-black text-slate-950">Marca d'água</h4>
+              <div className="mt-4 space-y-3">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700"><input type="checkbox" checked={props.reportBrandConfig.showWatermark} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, showWatermark: event.target.checked }))} />Ativar marca d'água</label>
+                <input type="url" value={props.reportBrandConfig.watermarkUrl} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, watermarkUrl: event.target.value }))} placeholder="URL da marca d'água" className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm" />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700">
+                  <Upload size={15} /> Upload da marca
+                  <input type="file" accept={REPORT_IMAGE_ACCEPT} onChange={event => { props.handleReportImageUpload(event.target.files?.[0], 'watermarkUrl'); event.currentTarget.value = ''; }} className="hidden" />
+                </label>
+                <label className="block text-[11px] font-bold uppercase text-slate-500">Opacidade: {Math.round((props.reportBrandConfig.watermarkOpacity || 0) * 100)}%<input type="range" min="0" max="0.30" step="0.01" value={props.reportBrandConfig.watermarkOpacity} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, watermarkOpacity: Number(event.target.value) }))} className="mt-1 w-full" /></label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[11px] font-bold uppercase text-slate-500">Tamanho<input type="number" min={40} max={180} value={props.reportBrandConfig.watermarkSize || 118} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, watermarkSize: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm normal-case text-slate-900" /></label>
+                  <label className="text-[11px] font-bold uppercase text-slate-500">Posição<select value={props.reportBrandConfig.watermarkPosition || 'center'} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, watermarkPosition: event.target.value as any }))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm normal-case text-slate-900"><option value="center">Centro</option><option value="top">Topo</option><option value="bottom">Rodapé</option><option value="left">Esquerda</option><option value="right">Direita</option></select></label>
+                </div>
+                <p className="rounded-lg bg-amber-50 p-3 text-[11px] font-semibold leading-relaxed text-amber-800">Recomendado: PNG transparente com pelo menos 1600 x 1600 px quando ocupar grande área da página.</p>
+                <button type="button" onClick={() => props.setReportBrandConfig(prev => ({ ...prev, showWatermark: false, watermarkUrl: '' }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">Remover marca</button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h4 className="text-sm font-black text-slate-950">Cores</h4>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {[
+                  ['primaryColor', 'Principal'],
+                  ['secondaryColor', 'Secundária'],
+                  ['backgroundColor', 'Fundo capa'],
+                  ['titleColor', 'Títulos'],
+                  ['textColor', 'Textos']
+                ].map(([key, label]) => (
+                  <label key={key} className="text-[11px] font-bold uppercase text-slate-500">{label}<input type="color" value={(props.reportBrandConfig as any)[key] || '#101828'} onChange={event => props.setReportBrandConfig(prev => ({ ...prev, [key]: event.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white" /></label>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          <main className="space-y-4 p-4 sm:p-5">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">Modelo selecionado</p>
+                  <h4 className="font-display text-lg font-black text-slate-950">{modelLabel}</h4>
+                  <p className="text-xs text-slate-500">{optionCount} informação(ões) ativa(s).</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => updateActiveModel(current => ({ ...current, optionConfig: REPORT_OPTION_KEYS.reduce((acc, key) => ({ ...acc, [key]: true }), {} as ReportConfig) }))} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white">Selecionar tudo</button>
+                  <button type="button" onClick={() => updateActiveModel(current => ({ ...current, optionConfig: REPORT_OPTION_KEYS.reduce((acc, key) => ({ ...acc, [key]: false }), {} as ReportConfig) }))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Limpar</button>
+                  <button type="button" onClick={resetActiveModel} className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Restaurar padrão</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-4">
+                <h5 className="text-sm font-black text-slate-950">Textos editáveis</h5>
+                <div className="mt-3 space-y-3">
+                  {[
+                    ['title', 'Título'],
+                    ['eventName', 'Nome do evento'],
+                    ['organizationName', 'Organização'],
+                    ['eventDate', 'Data'],
+                    ['eventLocation', 'Local'],
+                    ['eventStatus', 'Status'],
+                    ['filters', 'Filtros'],
+                    ['issuedAt', 'Data de emissão'],
+                    ['executiveSummary', 'Resumo executivo']
+                  ].map(([key, label]) => {
+                    const value = (activeConfig as any)[key];
+                    return (
+                      <div key={key} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="text-xs font-black text-slate-700">{label}</span>
+                          <select value={value.mode} onChange={event => updateActiveModel(current => ({ ...current, [key]: { ...(current as any)[key], mode: event.target.value } as any }))} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold">
+                            <option value="auto">Automático</option>
+                            <option value="custom">Personalizado</option>
+                            <option value="hidden">Oculto</option>
+                          </select>
+                        </div>
+                        {value.mode === 'custom' && <textarea value={value.text} onChange={event => updateActiveModel(current => ({ ...current, [key]: { ...(current as any)[key], text: event.target.value } as any }))} placeholder="Texto personalizado apenas para o relatório" className="mt-2 min-h-20 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />}
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <input type="number" min={7} max={32} value={value.fontSize} onChange={event => updateActiveModel(current => ({ ...current, [key]: { ...(current as any)[key], fontSize: Number(event.target.value) } as any }))} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
+                          <select value={value.align} onChange={event => updateActiveModel(current => ({ ...current, [key]: { ...(current as any)[key], align: event.target.value } as any }))} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"><option value="left">Esq.</option><option value="center">Centro</option><option value="right">Dir.</option></select>
+                          <label className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold"><input type="checkbox" checked={value.bold} onChange={event => updateActiveModel(current => ({ ...current, [key]: { ...(current as any)[key], bold: event.target.checked } as any }))} />Negrito</label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <h5 className="text-sm font-black text-slate-950">Indicadores</h5>
+                  <div className="mt-3 space-y-2">
+                    {['Participantes inscritos', 'Check-ins realizados', 'Check-ins pendentes', 'Taxa geral de presença', 'Participantes que visualizaram'].map(label => (
+                      <div key={label} className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-lg bg-slate-50 p-2">
+                        <input type="checkbox" checked={!activeConfig.hiddenMetricIds.includes(label)} onChange={event => updateActiveModel(current => ({ ...current, hiddenMetricIds: event.target.checked ? current.hiddenMetricIds.filter(item => item !== label) : [...new Set([...current.hiddenMetricIds, label])] }))} />
+                        <input value={activeConfig.metricTitles[label] || label} onChange={event => updateActiveModel(current => ({ ...current, metricTitles: { ...current.metricTitles, [label]: event.target.value } }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <h5 className="text-sm font-black text-slate-950">Gráficos</h5>
+                  <div className="mt-3 space-y-2">
+                    {REPORT_CHART_OPTIONS.map(chart => (
+                      <div key={chart.key} className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-lg bg-slate-50 p-2">
+                        <input type="checkbox" checked={!activeConfig.hiddenChartKeys.includes(chart.key)} onChange={event => updateActiveModel(current => ({ ...current, hiddenChartKeys: event.target.checked ? current.hiddenChartKeys.filter(item => item !== chart.key) : [...new Set([...current.hiddenChartKeys, chart.key])] }))} />
+                        <input value={activeConfig.chartTitles[chart.key] || chart.label} onChange={event => updateActiveModel(current => ({ ...current, chartTitles: { ...current.chartTitles, [chart.key]: event.target.value } }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <h5 className="text-sm font-black text-slate-950">Tabelas detalhadas</h5>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {REPORT_TABLE_OPTIONS.map(table => (
+                      <label key={table.key} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+                        <input type="checkbox" checked={activeConfig.tableVisibility[table.key]} onChange={event => updateActiveModel(current => ({ ...current, tableVisibility: { ...current.tableVisibility, [table.key]: event.target.checked } }))} />
+                        {table.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <h5 className="text-sm font-black text-slate-950">Ordem das seções</h5>
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {activeConfig.sectionOrder.map((section, index) => (
+                  <div key={section} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                    <span className="text-xs font-bold text-slate-700">{index + 1}. {section}</span>
+                    <div className="flex gap-1">
+                      <button type="button" onClick={() => moveSection(section, -1)} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-black">↑</button>
+                      <button type="button" onClick={() => moveSection(section, 1)} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-black">↓</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {REPORT_CONFIG_GROUPS.map(group => {
+              const selectedCount = group.keys.filter(item => activeConfig.optionConfig[item.key]).length;
+              return (
+                <div key={group.id} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h5 className="text-sm font-black text-slate-950">{group.title}</h5>
+                      <p className="text-xs text-slate-500">{group.description}</p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">{selectedCount}/{group.keys.length}</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {group.keys.map(item => (
+                      <label key={item.key} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                        <input type="checkbox" checked={activeConfig.optionConfig[item.key]} onChange={event => updateOption(item.key, event.target.checked)} />
+                        {item.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </main>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" onClick={props.onClose} className="rounded-xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-700">Salvar</button>
+          <button type="button" onClick={props.onClose} className="rounded-xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-700">Visualizar</button>
+          <button type="button" onClick={resetActiveModel} className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-700">Restaurar padrão</button>
+          <button type="button" onClick={() => props.handleGenerateReportPdf(activeKind)} className="rounded-xl bg-slate-950 px-4 py-3 text-xs font-black text-white">Gerar PDF</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CustomizePanel(props: Props & { onClose: () => void }) {

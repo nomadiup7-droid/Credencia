@@ -1,11 +1,22 @@
-import type { ReportBrandConfig, ReportConfig, ReportOptionKey } from '../types';
+import type { ReportBrandConfig, ReportConfig, ReportModelConfig, ReportModelConfigMap, ReportOptionKey } from '../types';
+import type { ReportPdfKind } from '../types/report.types';
 
 export const DEFAULT_REPORT_BRAND_CONFIG: ReportBrandConfig = {
   showLogo: false,
   logoUrl: '',
+  logoWidth: 38,
+  logoPosition: 'left',
   showWatermark: false,
   watermarkUrl: '',
-  watermarkOpacity: 0.08
+  watermarkOpacity: 0.08,
+  watermarkSize: 118,
+  watermarkPosition: 'center',
+  organizationName: '',
+  primaryColor: '#12e000',
+  secondaryColor: '#0f3d2e',
+  backgroundColor: '#06140e',
+  titleColor: '#101828',
+  textColor: '#334155'
 };
 
 export const DEFAULT_REPORT_CONFIG: ReportConfig = {
@@ -104,3 +115,105 @@ export const REPORT_CONFIG_GROUPS: Array<{ id: string; title: string; descriptio
 export const REPORT_OPTION_KEYS = REPORT_CONFIG_GROUPS.flatMap(group => group.keys.map(item => item.key));
 export const REPORT_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
 export const REPORT_IMAGE_FORMATS = 'PNG, JPG/JPEG, WebP, GIF e SVG';
+
+const defaultText = (text = '') => ({
+  mode: 'auto' as const,
+  text,
+  fontSize: 10,
+  bold: false,
+  align: 'left' as const
+});
+
+const modelConfig = (title: string, overrides: Partial<ReportModelConfig> = {}): ReportModelConfig => ({
+  optionConfig: { ...DEFAULT_REPORT_CONFIG },
+  title: { ...defaultText(title), fontSize: 24, bold: true },
+  eventName: { ...defaultText(), fontSize: 12, bold: true },
+  organizationName: { ...defaultText(), fontSize: 10, bold: false },
+  eventDate: defaultText(),
+  eventLocation: defaultText(),
+  eventStatus: defaultText(),
+  filters: { ...defaultText(), fontSize: 8 },
+  issuedAt: { ...defaultText(), fontSize: 8 },
+  executiveSummary: { ...defaultText(), fontSize: 10 },
+  metricTitles: {},
+  hiddenMetricIds: [],
+  chartTitles: {},
+  hiddenChartKeys: [],
+  tableVisibility: {
+    participants: true,
+    checkins: true,
+    operators: true,
+    access: true,
+    credentialLinks: true,
+    certificates: true,
+    cloakroom: true,
+    prints: true
+  },
+  sectionOrder: ['cover', 'event', 'summary', 'metrics', 'charts', 'participants', 'checkins', 'operators', 'access', 'credentialLinks', 'certificates', 'cloakroom', 'prints', 'conclusion'],
+  ...overrides
+});
+
+export const REPORT_MODEL_OPTIONS: Array<{ kind: ReportPdfKind; label: string; description: string }> = [
+  { kind: 'executive', label: 'Relatório Executivo', description: 'Indicadores, gráficos e análise para decisão.' },
+  { kind: 'complete', label: 'Relatório Completo', description: 'Resumo com tabelas detalhadas e auditoria.' },
+  { kind: 'summary', label: 'Relatório Resumido', description: 'Versão curta com os principais indicadores.' }
+];
+
+export const REPORT_CHART_OPTIONS = [
+  { key: 'hourly', label: 'Check-ins por horário' },
+  { key: 'presence', label: 'Presença' },
+  { key: 'category', label: 'Categorias' },
+  { key: 'area', label: 'Acessos por sala' },
+  { key: 'operator', label: 'Operadores' }
+];
+
+export const REPORT_TABLE_OPTIONS: Array<{ key: keyof ReportModelConfig['tableVisibility']; label: string }> = [
+  { key: 'participants', label: 'Participantes' },
+  { key: 'checkins', label: 'Check-ins' },
+  { key: 'operators', label: 'Operadores' },
+  { key: 'access', label: 'Controle de acesso' },
+  { key: 'credentialLinks', label: 'Links visualizados' },
+  { key: 'certificates', label: 'Certificados' },
+  { key: 'cloakroom', label: 'Chapelaria' },
+  { key: 'prints', label: 'Impressões' }
+];
+
+export const DEFAULT_REPORT_MODEL_CONFIGS: ReportModelConfigMap = {
+  executive: modelConfig('Relatório Executivo', {
+    tableVisibility: {
+      participants: false,
+      checkins: false,
+      operators: false,
+      access: false,
+      credentialLinks: false,
+      certificates: false,
+      cloakroom: false,
+      prints: false
+    }
+  }),
+  complete: modelConfig('Relatório Completo'),
+  summary: modelConfig('Relatório Resumido', {
+    optionConfig: {
+      ...DEFAULT_REPORT_CONFIG,
+      participantEmail: false,
+      participantAreaAccess: false,
+      participantCredentialFirstView: false
+    },
+    tableVisibility: {
+      participants: false,
+      checkins: false,
+      operators: false,
+      access: false,
+      credentialLinks: false,
+      certificates: false,
+      cloakroom: false,
+      prints: false
+    }
+  })
+};
+
+export const mergeReportModelConfigs = (saved?: Partial<ReportModelConfigMap> | null): ReportModelConfigMap => ({
+  executive: { ...DEFAULT_REPORT_MODEL_CONFIGS.executive, ...(saved?.executive || {}), optionConfig: { ...DEFAULT_REPORT_CONFIG, ...(saved?.executive?.optionConfig || {}) } },
+  complete: { ...DEFAULT_REPORT_MODEL_CONFIGS.complete, ...(saved?.complete || {}), optionConfig: { ...DEFAULT_REPORT_CONFIG, ...(saved?.complete?.optionConfig || {}) } },
+  summary: { ...DEFAULT_REPORT_MODEL_CONFIGS.summary, ...(saved?.summary || {}), optionConfig: { ...DEFAULT_REPORT_MODEL_CONFIGS.summary.optionConfig, ...(saved?.summary?.optionConfig || {}) } }
+});

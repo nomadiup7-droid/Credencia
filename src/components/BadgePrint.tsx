@@ -91,7 +91,7 @@ export default function BadgePrint({
           printCountRef.current += 1;
           handlePrint();
         }
-      }, 700);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [participant, event, autoPrint]);

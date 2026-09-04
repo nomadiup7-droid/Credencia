@@ -59,14 +59,14 @@ import UserQRCode from './components/UserQRCode';
 import FieldsConfig from './components/FieldsConfig';
 import AreaAccessControl from './components/AreaAccessControl';
 import credenciaLogo from './assets/credencia-logo-lockup.png';
-import { User, Event, Participant, CloakroomItem, CloakroomVolume, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement, ActiveTab, ActivityAttendanceView, CertificateActivityView, CertificateLookupResult, ImportTargetField, ImportTemplate, ReportActionLog, ReportAreaAccessLog, ReportBrandConfig, ReportCertificate, ReportConfig, ReportOptionKey, Toast } from './types';
+import { User, Event, Participant, CloakroomItem, CloakroomVolume, DashboardStats, ParticipantCategory, UserRole, EventUserRole, EventUser, Area, AccessProfile, CloakroomLabelConfig, Activity, Certificate, CertificateTemplate, CertificateTemplateElement, ActiveTab, ActivityAttendanceView, CertificateActivityView, CertificateLookupResult, ImportTargetField, ImportTemplate, ReportActionLog, ReportAreaAccessLog, ReportBrandConfig, ReportCertificate, ReportConfig, ReportModelConfigMap, ReportOptionKey, Toast } from './types';
 import { CATEGORY_TAGS } from './constants/categories';
 import { CERTIFICATE_ELEMENT_PRESETS, DEFAULT_CERTIFICATE_TEMPLATE, getCertificateElementDefaults, normalizeCertificateTemplate } from './constants/certificates';
 import { DEFAULT_CLOAKROOM_LABEL_CONFIG } from './constants/cloakroom';
 import { DEFAULT_IMPORT_FIELD_ORDER, IMPORT_TARGET_OPTIONS, IMPORT_TEMPLATES_STORAGE_KEY } from './constants/importTemplates';
 import { ACTIVE_TAB_STORAGE_KEY, CURRENT_EVENT_ID_STORAGE_KEY, CURRENT_USER_ROLE_STORAGE_KEY, LEGACY_SELECTED_EVENT_ID_STORAGE_KEY } from './constants/navigation';
 import { ALL_PERMISSION_IDS, PERMISSION_GROUPS, PERMISSION_PRESETS, QUICK_OPERATOR_PROFILES, QuickOperatorProfileId, formatUserRoleLabel, getQuickOperatorPermissions, legacyPermissionsForRole, normalizePermissions } from './constants/permissions';
-import { DEFAULT_REPORT_BRAND_CONFIG, DEFAULT_REPORT_CONFIG, REPORT_CONFIG_GROUPS, REPORT_IMAGE_ACCEPT, REPORT_IMAGE_FORMATS, REPORT_OPTION_KEYS } from './constants/reports';
+import { DEFAULT_REPORT_BRAND_CONFIG, DEFAULT_REPORT_CONFIG, DEFAULT_REPORT_MODEL_CONFIGS, REPORT_CONFIG_GROUPS, REPORT_IMAGE_ACCEPT, REPORT_IMAGE_FORMATS, REPORT_OPTION_KEYS, mergeReportModelConfigs } from './constants/reports';
 import { escapeCertificateHtml, replaceCertificatePlaceholders } from './utils/certificate';
 import { getParticipantSearchScore, normalizeParticipantSearch } from './utils/participantSearch';
 import { readStoredActiveTab, readStoredToken, readStoredUser } from './utils/sessionStorage';
@@ -258,6 +258,7 @@ export default function App() {
       return DEFAULT_REPORT_CONFIG;
     }
   });
+  const [reportModelConfigs, setReportModelConfigs] = useState<ReportModelConfigMap>(DEFAULT_REPORT_MODEL_CONFIGS);
   const [isReportPollingEnabled, setIsReportPollingEnabled] = useState(false);
   const [reportPdfLoadingLabel, setReportPdfLoadingLabel] = useState('');
   const [reportMode, setReportMode] = useState<'organization' | 'event'>(() => (isUserAdmin ? 'organization' : 'event'));
@@ -365,6 +366,7 @@ export default function App() {
   const [editingImportTemplateId, setEditingImportTemplateId] = useState('');
   const [importFileIsLoading, setImportFileIsLoading] = useState(false);
   const [isImportingInProgress, setIsImportingInProgress] = useState(false);
+  const [importAccessStrategy, setImportAccessStrategy] = useState<'append' | 'replace'>('append');
   const [isDragOver, setIsDragOver] = useState(false);
   const [autoPrintOnCheckin, setAutoPrintOnCheckin] = useState(true);
   const [checkinSearchQuery, setCheckinSearchQuery] = useState('');
@@ -414,16 +416,32 @@ export default function App() {
     localStorage.setItem('credencia_theme', isDarkTheme ?'dark' : 'light');
   }, [isDarkTheme]);
 
+  type ApiCallOptions = RequestInit & {
+    timeoutMs?: number;
+  };
+
   // Safe fetch helper
-  const apiCall = async (endpoint: string, options: RequestInit = {}) => {
+  const apiCall = async (endpoint: string, options: ApiCallOptions = {}) => {
+    const { timeoutMs = 25000, ...fetchOptions } = options;
+    const controller = !fetchOptions.signal && timeoutMs > 0 ? new AbortController() : null;
+    let didTimeout = false;
+    const timeoutId = controller
+      ? window.setTimeout(() => {
+        didTimeout = true;
+        controller.abort();
+      }, timeoutMs)
+      : null;
+
     try {
       const res = await fetch(endpoint, {
-        ...options,
+        ...fetchOptions,
+        signal: controller?.signal || fetchOptions.signal,
         headers: {
           ...getActiveHeaders(),
-          ...options.headers
+          ...fetchOptions.headers
         }
       });
+      if (timeoutId) window.clearTimeout(timeoutId);
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         const error = new Error(errData.error || errData.message || `HTTP error! status: ${res.status}`);
@@ -437,6 +455,14 @@ export default function App() {
       if (!contentType.includes('application/json')) return null;
       return await res.json();
     } catch (e: any) {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      if (e?.name === 'AbortError' && didTimeout) {
+        const timeoutError = new Error('Tempo excedido ao carregar dados. Verifique a conexao com o banco e tente novamente.');
+        timeoutError.name = 'TimeoutError';
+        console.error(`API Call timed out [${endpoint}]:`, { timeoutMs });
+        addToast(timeoutError.message, 'error');
+        throw timeoutError;
+      }
       if (e?.name === 'AbortError' || e?.sessionExpired) throw e;
       const isNetworkError = e instanceof TypeError || String(e?.message || '').toLowerCase().includes('failed to fetch');
       const message = isNetworkError
@@ -1594,16 +1620,14 @@ export default function App() {
   useEffect(() => {
     if (!selectedEventId) {
       setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG);
+      setReportModelConfigs(DEFAULT_REPORT_MODEL_CONFIGS);
       return;
     }
 
     const savedConfig = localStorage.getItem(`credencia_report_brand_${selectedEventId}`);
     if (!savedConfig) {
       setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG);
-      return;
-    }
-
-    try {
+    } else try {
       setReportBrandConfig({
         ...DEFAULT_REPORT_BRAND_CONFIG,
         ...JSON.parse(savedConfig)
@@ -1611,12 +1635,29 @@ export default function App() {
     } catch (error) {
       setReportBrandConfig(DEFAULT_REPORT_BRAND_CONFIG);
     }
+
+    const savedModelConfig = localStorage.getItem(`credencia_report_models_${selectedEventId}`);
+    if (!savedModelConfig) {
+      setReportModelConfigs(DEFAULT_REPORT_MODEL_CONFIGS);
+      return;
+    }
+
+    try {
+      setReportModelConfigs(mergeReportModelConfigs(JSON.parse(savedModelConfig)));
+    } catch (error) {
+      setReportModelConfigs(DEFAULT_REPORT_MODEL_CONFIGS);
+    }
   }, [selectedEventId]);
 
   useEffect(() => {
     if (!selectedEventId) return;
     localStorage.setItem(`credencia_report_brand_${selectedEventId}`, JSON.stringify(reportBrandConfig));
   }, [reportBrandConfig, selectedEventId]);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+    localStorage.setItem(`credencia_report_models_${selectedEventId}`, JSON.stringify(reportModelConfigs));
+  }, [reportModelConfigs, selectedEventId]);
 
   useEffect(() => {
     localStorage.setItem('credencia_report_config', JSON.stringify(reportConfig));
@@ -3237,8 +3278,42 @@ export default function App() {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+  const isAccessImportTarget = (target?: ImportTargetField): target is `access:${string}` =>
+    typeof target === 'string' && target.startsWith('access:');
+
+  const getAccessAreaIdFromTarget = (target?: ImportTargetField) =>
+    isAccessImportTarget(target) ?target.replace(/^access:/, '') : '';
+
+  const normalizeAccessGrantValue = (value: unknown) => normalizeImportText(String(value ?? ''));
+
+  const isAccessGrantedValue = (value: unknown) => {
+    const normalized = normalizeAccessGrantValue(value);
+    return ['sim', 's', 'yes', 'y', '1', 'true', 'x'].includes(normalized);
+  };
+
+  const isAccessDeniedValue = (value: unknown) => {
+    const normalized = normalizeAccessGrantValue(value);
+    return normalized === '' || ['nao', 'n', 'no', '0', 'false'].includes(normalized);
+  };
+
+  const getImportAccessMappings = (mapping = importColumnMapping) =>
+    importHeaders
+      .map(header => {
+        const areaId = getAccessAreaIdFromTarget(mapping[header]);
+        const area = availableAreas.find(item => item.id === areaId);
+        return area ?{ header, area } : null;
+      })
+      .filter(Boolean) as Array<{ header: string; area: Area }>;
+
   const guessImportTarget = (header: string): ImportTargetField => {
     const normalized = normalizeImportText(header);
+    const matchedArea = availableAreas.find(area => {
+      const normalizedArea = normalizeImportText(area.name);
+      return normalizedArea === normalized ||
+        (normalizedArea.length >= 4 && normalized.includes(normalizedArea)) ||
+        (normalized.length >= 4 && normalizedArea.includes(normalized));
+    });
+    if (matchedArea) return `access:${matchedArea.id}`;
     if (['nome', 'name', 'participante', 'participant'].includes(normalized)) return 'name';
     if (['cpf', 'c p f', 'documento', 'identidade', 'cpf cnpj'].includes(normalized)) return 'cpf';
     if (['email', 'e mail', 'mail'].includes(normalized)) return 'email';
@@ -3315,6 +3390,7 @@ export default function App() {
     setImportTemplateName('');
     setImportTemplateGlobal(false);
     setEditingImportTemplateId('');
+    setImportAccessStrategy('append');
   };
 
   const getMappedValue = (row: any, target: ImportTargetField, mapping = importColumnMapping) => {
@@ -3419,6 +3495,7 @@ export default function App() {
       const rawTicketCode = getMappedValue(row, 'ticketCode');
       const rawProfile = getMappedValue(row, 'profile');
       const rawAreas = getMappedValue(row, 'areas');
+      const accessColumnMappings = getImportAccessMappings();
 
       const nome = rawNome !== undefined ?String(rawNome).trim() : '';
       const email = rawEmail !== undefined ?String(rawEmail).trim() : '';
@@ -3490,6 +3567,24 @@ export default function App() {
         });
       }
 
+      const accessPreview = accessColumnMappings.map(({ header, area }) => {
+        const rawValue = row[header];
+        const granted = isAccessGrantedValue(rawValue);
+        if (!granted && !isAccessDeniedValue(rawValue)) {
+          errors.push(`Valor "${String(rawValue).trim()}" nao reconhecido para acesso em ${area.name}`);
+        }
+        if (granted) {
+          if (!resolvedAreaIds.includes(area.id)) resolvedAreaIds.push(area.id);
+          if (!resolvedAreaNames.includes(area.name)) resolvedAreaNames.push(area.name);
+        }
+        return {
+          areaId: area.id,
+          areaName: area.name,
+          rawValue,
+          granted
+        };
+      });
+
       return {
         rowNumber: idx + 1,
         originalData: row,
@@ -3505,6 +3600,7 @@ export default function App() {
         ticketCode,
         profile,
         areasText,
+        accessPreview,
         resolvedAreaIds,
         resolvedAreaNames,
         errors,
@@ -3618,7 +3714,7 @@ export default function App() {
 
       const responseData = await apiCall(`/api/events/${selectedEventId}/participants/batch`, {
         method: 'POST',
-        body: JSON.stringify({ participants: payloadRows })
+        body: JSON.stringify({ participants: payloadRows, accessStrategy: importAccessStrategy })
       });
 
       addToast(
@@ -3640,11 +3736,15 @@ export default function App() {
 
   // Generate an instant Template Excel download
   const downloadSampleExcelTemplate = () => {
+    const accessSampleValues = availableAreas.reduce<Record<string, string>>((acc, area, index) => {
+      acc[area.name] = index % 2 === 0 ?'SIM' : 'NÃO';
+      return acc;
+    }, {});
     const templateData = [
-      { Nome: 'João da Silva', Email: 'joao.silva@email.com', CPF: '12345678901', Empresa: 'Tech Soluções', Categoria: 'Participante' },
-      { Nome: 'Dr. Marcos Souza', Email: 'marcos.s@email.com', CPF: '98765432100', Empresa: 'Universidade Federal', Categoria: 'Palestrante' },
-      { Nome: 'Empresa Alpha Ltda', Email: 'contato@alpha.com', CPF: '33344455566', Empresa: 'Alpha Ventures', Categoria: 'Expositor' },
-      { Nome: 'Juliana Garcia', Email: 'juliana.g@email.com', CPF: '55566677788', Empresa: 'Inova Digital', Categoria: 'VIP' }
+      { Nome: 'João da Silva', Email: 'joao.silva@email.com', CPF: '12345678901', Empresa: 'Tech Soluções', Categoria: 'Participante', ...accessSampleValues },
+      { Nome: 'Dr. Marcos Souza', Email: 'marcos.s@email.com', CPF: '98765432100', Empresa: 'Universidade Federal', Categoria: 'Palestrante', ...availableAreas.reduce<Record<string, string>>((acc, area, index) => ({ ...acc, [area.name]: index % 2 === 0 ?'NÃO' : 'SIM' }), {}) },
+      { Nome: 'Empresa Alpha Ltda', Email: 'contato@alpha.com', CPF: '33344455566', Empresa: 'Alpha Ventures', Categoria: 'Expositor', ...accessSampleValues },
+      { Nome: 'Juliana Garcia', Email: 'juliana.g@email.com', CPF: '55566677788', Empresa: 'Inova Digital', Categoria: 'VIP', ...availableAreas.reduce<Record<string, string>>((acc, area) => ({ ...acc, [area.name]: 'SIM' }), {}) }
     ];
 
     const worksheet = XLSX.utils.json_to_sheet(templateData);
@@ -3652,7 +3752,7 @@ export default function App() {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Participantes');
     
     // Create direct blob buffer download
-    XLSX.writeFile(workbook, 'Modelo_Importacao_CREDENCIA.xlsx');
+    XLSX.writeFile(workbook, availableAreas.length > 0 ?'Modelo_Importacao_Participantes_Acessos_CREDENCIA.xlsx' : 'Modelo_Importacao_CREDENCIA.xlsx');
     addToast('Modelo Excel de importação baixado!', 'success');
   };
 
@@ -4107,7 +4207,9 @@ export default function App() {
     downloadCsv(rows, `BI_${currentEvent?.name?.replace(/\s+/g, '_') || 'Relatorio'}_${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
-  const buildReportPdfPayload = (): ReportPdfPayload => {
+  const buildReportPdfPayload = (kind: ReportPdfKind = 'complete'): ReportPdfPayload => {
+    const selectedReportModelConfig = reportModelConfigs[kind] || DEFAULT_REPORT_MODEL_CONFIGS[kind];
+    const selectedPdfReportConfig = selectedReportModelConfig.optionConfig || reportConfig;
     const organizationRows = (() => {
       const query = organizationReportSearch.trim().toLowerCase();
       const location = organizationReportLocation.trim().toLowerCase();
@@ -4158,7 +4260,8 @@ export default function App() {
         watermarkUrl: reportBrandConfig.showWatermark ? reportBrandConfig.watermarkUrl : undefined,
         watermarkOpacity: reportBrandConfig.watermarkOpacity,
         brandConfig: reportBrandConfig,
-        reportConfig,
+        reportConfig: selectedPdfReportConfig,
+        reportModelConfig: selectedReportModelConfig,
         filters: [
           `Período: ${organizationReportPeriod === '7d' ? 'Últimos 7 dias' : organizationReportPeriod === '30d' ? 'Últimos 30 dias' : organizationReportPeriod === 'month' ? 'Este mês' : organizationReportPeriod === 'year' ? 'Este ano' : organizationReportPeriod === 'custom' ? `${organizationReportCustomStart || 'início'} até ${organizationReportCustomEnd || 'fim'}` : 'Todos os períodos'}`,
           `Status: ${organizationReportStatus === 'all' ? 'Todos' : organizationReportStatus}`,
@@ -4253,7 +4356,8 @@ export default function App() {
       watermarkUrl: reportBrandConfig.showWatermark ? reportBrandConfig.watermarkUrl : undefined,
       watermarkOpacity: reportBrandConfig.watermarkOpacity,
       brandConfig: reportBrandConfig,
-      reportConfig,
+      reportConfig: selectedPdfReportConfig,
+      reportModelConfig: selectedReportModelConfig,
       filters: [
         `Categoria: ${selectedCategoryFilter === 'all' ? 'Todas' : selectedCategoryFilter}`,
         `Status: ${selectedPresenceFilter === 'all' ? 'Todos' : selectedPresenceFilter === 'present' ? 'Credenciados' : 'Pendentes'}`,
@@ -4289,7 +4393,7 @@ export default function App() {
 
     try {
       setReportPdfLoadingLabel('Gerando relatório...');
-      await generateReportPdf(buildReportPdfPayload(), kind, message => setReportPdfLoadingLabel(message));
+      await generateReportPdf(buildReportPdfPayload(kind), kind, message => setReportPdfLoadingLabel(message));
       addToast('PDF gerado com sucesso.', 'success');
     } catch (error) {
       console.error('Erro ao gerar PDF do relatório:', error);
@@ -8020,6 +8124,8 @@ export default function App() {
                 reportConfig={reportConfig}
                 reportBrandConfig={reportBrandConfig}
                 setReportBrandConfig={setReportBrandConfig}
+                reportModelConfigs={reportModelConfigs}
+                setReportModelConfigs={setReportModelConfigs}
                 updateReportOption={updateReportOption}
                 setAllReportOptions={setAllReportOptions}
                 resetReportOptions={resetReportOptions}
@@ -9552,9 +9658,19 @@ export default function App() {
                             }))}
                             className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
                           >
-                            {IMPORT_TARGET_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
+                            <optgroup label="Participante">
+                              {IMPORT_TARGET_OPTIONS.filter(option => !['areas', 'profile', 'ignore'].includes(option.value)).map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="Permissões de acesso">
+                              <option value="areas">Acesso / lista de áreas</option>
+                              <option value="profile">Acesso / perfil de acesso</option>
+                              {availableAreas.map(area => (
+                                <option key={area.id} value={`access:${area.id}`}>Acesso / {area.name}</option>
+                              ))}
+                            </optgroup>
+                            <option value="ignore">Ignorar coluna</option>
                           </select>
                         </div>
                       ))}
@@ -9562,6 +9678,42 @@ export default function App() {
                   </div>
 
                   <div className="space-y-4">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                      <h4 className="font-bold text-slate-800 text-sm mb-2">Permissões de acesso</h4>
+                      <p className="text-xs text-slate-500">
+                        As opções usam somente áreas cadastradas neste evento. Valores aceitos para liberar: SIM, S, YES, Y, 1, TRUE e X.
+                      </p>
+                      <div className="mt-3 grid grid-cols-1 gap-2">
+                        <label className={`rounded-lg border p-3 text-xs cursor-pointer transition ${importAccessStrategy === 'append' ?'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>
+                          <input
+                            type="radio"
+                            name="importAccessStrategy"
+                            checked={importAccessStrategy === 'append'}
+                            onChange={() => setImportAccessStrategy('append')}
+                            className="mr-2"
+                          />
+                          <b>Acrescentar acessos</b>
+                          <span className="block pl-5">Mantém acessos atuais e adiciona os SIM da planilha.</span>
+                        </label>
+                        <label className={`rounded-lg border p-3 text-xs cursor-pointer transition ${importAccessStrategy === 'replace' ?'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600'}`}>
+                          <input
+                            type="radio"
+                            name="importAccessStrategy"
+                            checked={importAccessStrategy === 'replace'}
+                            onChange={() => setImportAccessStrategy('replace')}
+                            className="mr-2"
+                          />
+                          <b>Substituir acessos</b>
+                          <span className="block pl-5">A planilha passa a representar os acessos nas áreas mapeadas.</span>
+                        </label>
+                      </div>
+                      {availableAreas.length === 0 && (
+                        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                          Nenhuma área cadastrada neste evento. Cadastre em Salas e Acessos para mapear colunas individuais.
+                        </div>
+                      )}
+                    </div>
+
                     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
                       <h4 className="font-bold text-slate-800 text-sm mb-3">Modelos de importacao</h4>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -9654,7 +9806,7 @@ export default function App() {
 
               {importStep === 4 && (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
                     <div className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
                       <span className="text-xs text-slate-400 font-medium block">Total de Linhas</span>
                       <span className="text-xl font-bold text-slate-800">{importRows.length}</span>
@@ -9672,6 +9824,13 @@ export default function App() {
                         <span className="text-xl font-bold text-rose-600">{importRows.filter(r => !r.isValid).length}</span>
                       </div>
                       <XCircle className="text-rose-500" size={24} />
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
+                      <span className="text-xs text-blue-600/70 font-medium block">Áreas mapeadas</span>
+                      <span className="text-xl font-bold text-blue-700">{getImportAccessMappings().length}</span>
+                      <span className="mt-1 block text-[11px] text-slate-400">
+                        {importAccessStrategy === 'append' ?'Acrescentar acessos' : 'Substituir acessos'}
+                      </span>
                     </div>
                     <div className="flex items-center">
                       {importRows.some(r => !r.isValid) ?(
@@ -9697,6 +9856,9 @@ export default function App() {
                             {importFieldOrder.filter(field => field !== 'ignore' && importHeaders.some(header => importColumnMapping[header] === field)).map(field => (
                               <th key={field} className="py-3 px-4">{IMPORT_TARGET_OPTIONS.find(opt => opt.value === field)?.label || field}</th>
                             ))}
+                            {getImportAccessMappings().length > 0 && (
+                              <th className="py-3 px-4">Permissões de acesso</th>
+                            )}
                             <th className="py-3 px-4">Status & Diagnostico</th>
                           </tr>
                         </thead>
@@ -9727,6 +9889,21 @@ export default function App() {
                                 {importFieldOrder.filter(field => field !== 'ignore' && importHeaders.some(header => importColumnMapping[header] === field)).map(field => (
                                   <td key={field} className="py-3 px-4 text-xs text-slate-700">{previewValues[field]}</td>
                                 ))}
+                                {getImportAccessMappings().length > 0 && (
+                                  <td className="py-3 px-4 text-xs text-slate-700">
+                                    {row.accessPreview?.length ?(
+                                      <div className="space-y-1">
+                                        {row.accessPreview.map((access: any) => (
+                                          <div key={access.areaId} className={access.granted ?'font-semibold text-emerald-700' : 'text-slate-400'}>
+                                            {access.granted ?'✓' : '—'} {access.areaName}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-400 italic">Nenhuma área mapeada</span>
+                                    )}
+                                  </td>
+                                )}
                                 <td className="py-3 px-4">
                                   {row.isValid ?(
                                     <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">

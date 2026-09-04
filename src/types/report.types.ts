@@ -1,4 +1,4 @@
-import type { Participant, CloakroomItem, ReportBrandConfig, ReportConfig } from '../types';
+import type { Participant, CloakroomItem, ReportBrandConfig, ReportConfig, ReportModelConfig } from '../types';
 import type { BIChartDatum, BIMetric } from '../components/bi';
 
 export type ReportPdfKind = 'executive' | 'complete' | 'summary';
@@ -27,6 +27,7 @@ export interface ReportPdfPayload {
   watermarkOpacity?: number;
   brandConfig?: ReportBrandConfig;
   reportConfig?: ReportConfig;
+  reportModelConfig?: ReportModelConfig;
   filters?: string[];
   metrics: BIMetric[];
   summary: {
